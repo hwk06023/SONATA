@@ -8,7 +8,7 @@ SONATA is an advanced Automatic Speech Recognition (ASR) system that captures th
 
 - High-accuracy speech-to-text transcription
 - Recognition of emotive sounds and non-verbal cues
-- Support for tags like (웃음/laughter), (한숨/sigh), (하품/yawn), (놀람/surprise), (들이마심/inhale)
+- Support for tags like (laughter), (sigh), (yawn), (surprise), (inhale)
 - Open-source and extensible architecture
 
 ## Getting Started

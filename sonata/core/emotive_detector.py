@@ -56,15 +56,7 @@ class EmotiveCNN(nn.Module):
 
 
 class EmotiveDetector:
-    EMOTIVE_TYPES = [
-        "laughter",
-        "sigh",
-        "yawn",
-        "surprise",
-        "inhale",
-        "exhale",
-        "silence",
-    ]
+    EMOTIVE_TYPES = ["laughter", "sigh", "yawn", "surprise", "inhale"]
 
     def __init__(self, model_path: Optional[str] = None, device: str = "cpu"):
         self.device = device
