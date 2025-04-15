@@ -62,3 +62,7 @@ result/
 *_result.json
 sample_temp*
 test_*.py
+
+# External libraries
+external_libs/
+laughter-detection/
