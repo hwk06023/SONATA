@@ -17,4 +17,4 @@ Coming soon!
 
 ## License
 
-This project is open source and available under the [MIT License](LICENSE). 
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details. This license ensures that derivative works must also be open source and use the same license.
