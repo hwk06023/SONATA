@@ -43,5 +43,22 @@ Thumbs.db
 # Project specific
 data/
 models/
+result/
 *.log
 .env 
+
+# Hugging Face
+.hf_token
+
+# Data
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.aac
+
+# Test results and temporary files
+*_result.json
+sample_temp*
+test_*.py
