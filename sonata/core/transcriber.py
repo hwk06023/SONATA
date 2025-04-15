@@ -30,9 +30,7 @@ class IntegratedTranscriber:
         word_timestamps = self.asr.get_word_timestamps(asr_result)
 
         # Detect emotive events
-        emotive_events = self.emotive_detector.detect_events(
-            audio_path, threshold=emotive_threshold
-        )
+        emotive_events = self.emotive_detector.detect_events(audio_path)
 
         # Integrate transcription and emotive events
         integrated_result = self._integrate_results(word_timestamps, emotive_events)
@@ -68,8 +66,8 @@ class IntegratedTranscriber:
                     "type": "emotive",
                     "content": event.to_tag(),
                     "event_type": event.type,
-                    "start": event.start,
-                    "end": event.end,
+                    "start": event.start_time,
+                    "end": event.end_time,
                 }
             )
 
