@@ -1,10 +1,26 @@
 from setuptools import setup, find_packages
+import os
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
-with open("requirements.txt", "r", encoding="utf-8") as fh:
-    requirements = fh.read().splitlines()
+# 직접 요구 사항 지정
+requirements = [
+    "numpy>=1.20.0",
+    "torch>=1.10.0",
+    "torchaudio>=0.10.0",
+    "transformers>=4.25.1",
+    "whisperx>=3.1.0",
+    "librosa>=0.9.0",
+    "pydub>=0.25.1",
+    "scipy>=1.7.0",
+    "soundfile>=0.10.3",
+    "tqdm>=4.62.0",
+    "matplotlib>=3.5.0",
+    "scikit-learn>=1.0.0",
+    "huggingface_hub>=0.12.0",
+    "hf_xet>=0.1.0",
+]
 
 setup(
     name="sonata",
