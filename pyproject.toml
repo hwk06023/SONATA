@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sonata-asr"
-version = "0.0.1"
+version = "0.0.2"
 authors = [
     {name = "hwk06023", email = "hwk06023@github.com"},
 ]
 description = "SONATA: SOund and Narrative Advanced Transcription Assistant"
 readme = "README.md"
-license = "GNU General Public License v3.0 or later"
+license = {text = "GNU General Public License v3.0 or later"}
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
