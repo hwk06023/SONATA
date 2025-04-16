@@ -1,0 +1,5 @@
+{
+  "automatically_request_reviews": true, 
+  "review_simple_changes": true,
+  "auto_assign_reviewers": true
+} 

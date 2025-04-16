@@ -1,0 +1,51 @@
+name: Copilot Automatic Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  copilot-auto-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Create .env file with repository config
+        run: |
+          echo "GITHUB_REPOSITORY=${{ github.repository }}" >> .env
+          echo "GITHUB_PR_NUMBER=${{ github.event.pull_request.number }}" >> .env
+
+      - name: Configure automatic code review
+        run: |
+          # Create a .github/copilot-config.json file if it doesn't exist
+          mkdir -p .github
+          cat > .github/copilot-config.json << EOF
+          {
+            "automatically_request_reviews": true,
+            "review_simple_changes": true,
+            "auto_assign_reviewers": true
+          }
+          EOF
+          
+          echo "Created Copilot configuration file"
+          cat .github/copilot-config.json
+
+      - name: Commit configuration file
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: '.github/copilot-config.json'
+          author_name: 'GitHub Actions'
+          author_email: 'actions@github.com'
+          message: 'Configure Copilot automatic code review'
+          push: true 
