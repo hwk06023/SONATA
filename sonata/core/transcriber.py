@@ -56,6 +56,7 @@ class IntegratedTranscriber:
                     "content": word["word"],
                     "start": word["start"],
                     "end": word["end"],
+                    "score": word.get("score", 0.0),
                 }
             )
 
@@ -68,6 +69,7 @@ class IntegratedTranscriber:
                     "event_type": event.type,
                     "start": event.start_time,
                     "end": event.end_time,
+                    "confidence": event.confidence,
                 }
             )
 
@@ -87,6 +89,7 @@ class IntegratedTranscriber:
                         "content": element["content"],
                         "start": element["start"],
                         "end": element["end"],
+                        "score": element.get("score", 0.0),
                     }
                 )
             else:  # emotive
@@ -98,6 +101,7 @@ class IntegratedTranscriber:
                         "event_type": element["event_type"],
                         "start": element["start"],
                         "end": element["end"],
+                        "confidence": element.get("confidence", 0.0),
                     }
                 )
 
@@ -108,20 +112,72 @@ class IntegratedTranscriber:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
 
-    def get_formatted_transcript(self, result: Dict) -> str:
-        """Get a nicely formatted transcript with timestamps."""
+    def get_formatted_transcript(
+        self, result: Dict, format_type: str = "default"
+    ) -> str:
+        """Get a formatted transcript based on the requested format.
+
+        Args:
+            result: The transcription result
+            format_type: The format type ('concise', 'default', or 'extended')
+                - concise: Text with integrated emotive tags
+                - default: Text with timestamps (default format)
+                - extended: Default format with confidence scores
+
+        Returns:
+            A formatted transcript string
+        """
         rich_text = result["integrated_transcript"]["rich_text"]
-        formatted_lines = []
 
-        for item in rich_text:
-            start_time = self._format_time(item["start"])
+        # Concise format: simple text with emotive tags integrated
+        if format_type == "concise":
+            text_parts = []
+            current_sentence = []
 
-            if item["type"] == "word":
-                formatted_lines.append(f"[{start_time}] {item['content']}")
-            else:  # emotive
-                formatted_lines.append(f"[{start_time}] {item['content']}")
+            for item in rich_text:
+                if item["type"] == "word":
+                    # Add space before word if needed
+                    word = item["content"]
+                    if word not in [".", ",", "!", "?", ":", ";"] and current_sentence:
+                        current_sentence.append(" ")
+                    current_sentence.append(word)
+                else:  # emotive
+                    current_sentence.append(f" {item['content']}")
 
-        return "\n".join(formatted_lines)
+            text = "".join(current_sentence)
+            return text
+
+        # Default format: with timestamps
+        elif format_type == "default":
+            formatted_lines = []
+            for item in rich_text:
+                start_time = self._format_time(item["start"])
+                if item["type"] == "word":
+                    formatted_lines.append(f"[{start_time}] {item['content']}")
+                else:  # emotive
+                    formatted_lines.append(f"[{start_time}] {item['content']}")
+            return "\n".join(formatted_lines)
+
+        # Extended format: with confidence scores
+        elif format_type == "extended":
+            formatted_lines = []
+            for item in rich_text:
+                start_time = self._format_time(item["start"])
+                if item["type"] == "word":
+                    score = item.get("score", 0.0)
+                    formatted_lines.append(
+                        f"[{start_time}] {item['content']} (score: {score:.2f})"
+                    )
+                else:  # emotive
+                    confidence = item.get("confidence", 0.0)
+                    formatted_lines.append(
+                        f"[{start_time}] {item['content']} (confidence: {confidence:.2f})"
+                    )
+            return "\n".join(formatted_lines)
+
+        # Default to standard format if invalid format type
+        else:
+            return self.get_formatted_transcript(result, format_type="default")
 
     @staticmethod
     def _format_time(seconds: float) -> str:

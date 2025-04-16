@@ -35,7 +35,17 @@ def parse_args():
         help="Threshold for emotive event detection (default: 0.5)",
     )
     parser.add_argument(
-        "--format", action="store_true", help="Also output a formatted text file"
+        "--format",
+        type=str,
+        choices=["concise", "default", "extended"],
+        default="default",
+        help="Format for text output (concise: simple text with emotive tags, default: text with timestamps, extended: with confidence scores)",
+    )
+    parser.add_argument(
+        "--text-output",
+        type=str,
+        help="Path to save formatted transcript text file",
+        default=None,
     )
     parser.add_argument(
         "--preprocess",
@@ -73,13 +83,18 @@ def show_usage_and_exit():
     print("  -d, --device [DEVICE]   Use specified device (cpu/cuda)")
     print("  -l, --language [LANG]   Specify language code (default: en)")
     print("  --preprocess            Convert and trim silence before processing")
-    print("  --format                Also output a formatted text file")
+    print("  --format [TYPE]         Choose transcript format:")
+    print("                           - concise: Text with integrated emotive tags")
+    print("                           - default: Text with timestamps")
+    print("                           - extended: Includes confidence scores")
+    print("  --text-output [FILE]    Save formatted transcript to specified text file")
     print("\nFor more options:")
     print("  sonata-asr --help")
     print("\nExamples:")
     print("  sonata-asr input.wav")
     print("  sonata-asr input.wav -o transcript.json")
     print("  sonata-asr input.wav -d cuda --preprocess")
+    print("  sonata-asr input.wav --format concise --text-output transcript.txt")
     sys.exit(1)
 
 
@@ -105,6 +120,11 @@ def main():
     input_basename = os.path.splitext(os.path.basename(args.input))[0]
     if not args.output:
         args.output = f"{input_basename}_transcript.json"
+
+    # Set up text output path
+    text_output = args.text_output
+    if text_output is None:
+        text_output = f"{input_basename}_transcript.txt"
 
     # Create output directory if it doesn't exist
     output_dir = os.path.dirname(args.output)
@@ -166,20 +186,24 @@ def main():
     else:
         print("Processing audio...")
         result = transcriber.process_audio(
-            input_file, language=args.language, emotive_threshold=args.threshold
+            input_file,
+            language=args.language,
+            emotive_threshold=args.threshold,
         )
 
     # Save results
     transcriber.save_result(result, args.output)
     print(f"Transcription saved to {args.output}")
 
-    # Generate formatted text file if requested
-    if args.format:
-        formatted_output = f"{input_basename}_transcript.txt"
-        formatted_text = transcriber.get_formatted_transcript(result)
-        with open(formatted_output, "w", encoding="utf-8") as f:
-            f.write(formatted_text)
-        print(f"Formatted transcript saved to {formatted_output}")
+    # Generate formatted text file
+    print(f"Generating {args.format} format transcript...")
+    formatted_transcript = transcriber.get_formatted_transcript(
+        result, format_type=args.format
+    )
+
+    print(f"Saving formatted transcript to: {text_output}")
+    with open(text_output, "w", encoding="utf-8") as f:
+        f.write(formatted_transcript)
 
 
 def merge_segment_results(segment_results):
