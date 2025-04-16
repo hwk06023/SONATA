@@ -164,10 +164,7 @@ class IntegratedTranscriber:
             for item in rich_text:
                 start_time = self._format_time(item["start"])
                 if item["type"] == "word":
-                    score = item.get("score", 0.0)
-                    formatted_lines.append(
-                        f"[{start_time}] {item['content']} (score: {score:.2f})"
-                    )
+                    formatted_lines.append(f"[{start_time}] {item['content']}")
                 else:  # emotive
                     confidence = item.get("confidence", 0.0)
                     formatted_lines.append(
