@@ -32,53 +32,61 @@ pip install -e .
 ### Basic Transcription
 
 ```python
-from sonata import Transcriber
+from sonata.core.transcriber import IntegratedTranscriber
 
 # Initialize the transcriber
-transcriber = Transcriber()
+transcriber = IntegratedTranscriber(asr_model="large-v3", device="cpu")
 
 # Transcribe an audio file
-result = transcriber.transcribe("path/to/audio.wav")
-print(result)
+result = transcriber.process_audio("path/to/audio.wav", language="en")
+
+# Save the result to a file
+transcriber.save_result(result, "output.json")
+
+# Get the plain text transcript
+plain_text = result["integrated_transcript"]["plain_text"]
+print(plain_text)
 ```
 
-### Detecting Emotive Sounds
+### Extracting Timestamps
 
 ```python
-from sonata.core import EmotiveDetector
+from sonata.core.transcriber import IntegratedTranscriber
 
-# Initialize the emotive detector
-detector = EmotiveDetector(threshold=0.6)
+# Initialize the transcriber
+transcriber = IntegratedTranscriber()
 
-# Detect emotive events in an audio file
-events = detector.detect_events("path/to/audio.wav")
+# Process audio with timestamps
+result = transcriber.process_audio("path/to/audio.wav")
 
-# Print the detected events
-for event in events:
-    print(f"{event.type}: {event.start_time:.2f}s - {event.end_time:.2f}s (confidence: {event.confidence:.2f})")
+# Extract words with their timestamps
+for item in result["integrated_transcript"]["rich_text"]:
+    if item["type"] == "word":
+        word = item["content"]
+        start_time = item["start"]
+        end_time = item["end"]
+        print(f"{word}: {start_time:.2f}s - {end_time:.2f}s")
 ```
 
-### Full Pipeline
+### Processing with GPU Acceleration
 
 ```python
-from sonata import Sonata
+from sonata.core.transcriber import IntegratedTranscriber
 
-# Initialize SONATA with default settings
-sonata = Sonata()
+# Initialize with CUDA device
+transcriber = IntegratedTranscriber(
+    asr_model="large-v3",
+    device="cuda",
+    compute_type="float16"  # Use float16 for faster GPU processing
+)
 
-# Process audio file - transcribes speech and detects emotive sounds
-result = sonata.process("path/to/audio.wav")
-
-# Print the text with emotive tags
-print(result.text_with_tags)
-
-# Save the result
-sonata.save_output(result, "output.json")
+# Process audio
+result = transcriber.process_audio("path/to/audio.wav")
 ```
 
 ## Command Line Interface
 
-SONATA also provides a CLI for quick transcription:
+SONATA provides a command-line interface for quick transcription:
 
 ```bash
 # Basic usage
@@ -87,9 +95,43 @@ sonata-asr path/to/audio.wav
 # Save output to specific file
 sonata-asr path/to/audio.wav --output result.json
 
-# Set threshold for emotive detection
-sonata-asr path/to/audio.wav --threshold 0.7
+# Use GPU acceleration
+sonata-asr path/to/audio.wav --device cuda
+
+# Process audio with preprocessing (format conversion and silence trimming)
+sonata-asr path/to/audio.wav --preprocess
+
+# Split and process long audio files
+sonata-asr path/to/audio.wav --split --split-length 30 --split-overlap 5
 ```
+
+## Inference Tools
+
+The `test` directory contains additional inference tools for more advanced usage:
+
+### Basic Inference Script
+
+```bash
+# Process a single file
+python test/infer.py path/to/audio.wav
+
+# Specify output file and use GPU
+python test/infer.py path/to/audio.wav -o output.json -d cuda
+```
+
+### Advanced Processing
+
+The advanced inference script supports batch processing and additional features:
+
+```bash
+# Process a directory of audio files in parallel
+python test/advanced_infer.py path/to/audio_directory/ --batch --max-workers 4
+
+# Preprocess audio before transcription
+python test/advanced_infer.py path/to/audio.wav --preprocess
+```
+
+See the [inference tools documentation](test/README.md) for more details.
 
 ## Contributing
 

@@ -59,9 +59,10 @@ result/
 *.aac
 
 # Test results and temporary files
-*_result.json
-sample_temp*
-test_*.py
+*_temp.*
+sonata_output/
+*_transcript.json
+*_transcript.txt
 
 # External libraries
 external_libs/
