@@ -53,6 +53,47 @@ The `--preprocess` option performs two key operations:
 1. Converts audio to WAV format for optimal compatibility
 2. Trims silence from the beginning and end of the file, improving transcription accuracy and reducing processing time
 
+## Python Usage Examples
+
+For those who prefer to use SONATA directly in Python code, we provide examples of integrating the transcription functionality into your applications:
+
+### Simple Transcription
+
+```python
+from sonata.core.transcriber import IntegratedTranscriber
+
+# Initialize transcriber
+transcriber = IntegratedTranscriber(asr_model="large-v3", device="cpu")
+
+# Process audio file
+result = transcriber.process_audio("path/to/audio.wav", language="en")
+
+# Access the plain text transcript
+transcript = result["integrated_transcript"]["plain_text"]
+print(transcript)
+```
+
+### Working with Timestamps
+
+```python
+from sonata.core.transcriber import IntegratedTranscriber
+
+# Initialize and process
+transcriber = IntegratedTranscriber()
+result = transcriber.process_audio("path/to/audio.wav")
+
+# Extract words with timestamps
+for item in result["integrated_transcript"]["rich_text"]:
+    if item["type"] == "word":
+        print(f"{item['content']}: {item['start']:.2f}s - {item['end']:.2f}s")
+```
+
+See [`usage_example.py`](usage_example.py) for a complete example demonstrating:
+- Basic transcription
+- Word-level timestamp extraction
+- Working with emotive events
+- Additional formatting options
+
 ## Output Format
 
 The output JSON file contains:

@@ -137,6 +137,37 @@ The preprocessing option performs two important operations:
 
 See the [inference tools documentation](test/README.md) for more details.
 
+## Future Roadmap
+
+SONATA is under active development. Here are some planned features and improvements:
+
+### Enhanced Multilingual Support
+- Expand language coverage beyond current supported languages
+- Improve transcription quality for non-English languages
+- Add language auto-detection capabilities
+
+### ASR Model Diversity
+- Support for additional ASR models beyond WhisperX
+- Integration with local models for offline/private use
+- Finetuned models for specific domains (medical, legal, etc.)
+
+### Advanced Emotive Detection
+- Expand the range of detectable emotive events
+- Improve accuracy of emotive event detection
+- Add custom emotive event training capabilities
+
+### Performance Improvements
+- Optimize processing for large audio files
+- Enhance parallel processing capabilities
+- Reduce memory footprint for resource-constrained environments
+
+### User Interface
+- Add web-based UI for transcription monitoring
+- Develop visualization tools for speech analytics
+- Create interactive transcript editor
+
+We welcome contributions in any of these areas!
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
