@@ -1,36 +1,58 @@
 import os
 import json
 from typing import Dict, List, Union, Tuple, Optional
+import concurrent.futures
 from sonata.core.asr import ASRProcessor
 from sonata.core.emotive_detector import EmotiveDetector, EmotiveEvent
+from sonata.constants import (
+    EMOTIVE_THRESHOLD,
+    DEFAULT_MODEL,
+    DEFAULT_LANGUAGE,
+    DEFAULT_DEVICE,
+    DEFAULT_COMPUTE_TYPE,
+)
 
 
 class IntegratedTranscriber:
     def __init__(
         self,
-        asr_model: str = "large-v3",
+        asr_model: str = DEFAULT_MODEL,
         emotive_model_path: Optional[str] = None,
-        device: str = "cpu",
-        compute_type: str = "float32",
+        device: str = DEFAULT_DEVICE,
+        compute_type: str = DEFAULT_COMPUTE_TYPE,
     ):
         self.device = device
         self.asr = ASRProcessor(
             model_name=asr_model, device=device, compute_type=compute_type
         )
         self.emotive_detector = EmotiveDetector(
-            model_path=emotive_model_path, device=device
+            model_path=emotive_model_path, device=device, threshold=EMOTIVE_THRESHOLD
         )
 
     def process_audio(
-        self, audio_path: str, language: str = "en", emotive_threshold: float = 0.5
+        self,
+        audio_path: str,
+        language: str = DEFAULT_LANGUAGE,
+        emotive_threshold: float = EMOTIVE_THRESHOLD,
     ) -> Dict:
         """Process audio to get transcription with emotive events integrated."""
-        # Get transcription with word-level timestamps
-        asr_result = self.asr.process_audio(audio_path, language=language)
-        word_timestamps = self.asr.get_word_timestamps(asr_result)
+        # Set threshold for the detector
+        self.emotive_detector.threshold = emotive_threshold
 
-        # Detect emotive events
-        emotive_events = self.emotive_detector.detect_events(audio_path)
+        # Run ASR and emotive detection in parallel
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # Start both tasks
+            asr_future = executor.submit(self.asr.process_audio, audio_path, language)
+            emotive_future = executor.submit(
+                self.emotive_detector.detect_events, audio_path
+            )
+
+            # Wait for both to complete
+            asr_result = asr_future.result()
+            emotive_events = emotive_future.result()
+
+        # Get word timestamps after ASR is done
+        word_timestamps = self.asr.get_word_timestamps(asr_result)
 
         # Integrate transcription and emotive events
         integrated_result = self._integrate_results(word_timestamps, emotive_events)

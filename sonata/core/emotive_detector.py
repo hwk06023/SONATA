@@ -12,6 +12,7 @@ import scipy.signal as signal
 import tempfile
 import soundfile as sf
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
+from sonata.constants import EMOTIVE_THRESHOLD
 
 
 @dataclass
@@ -429,7 +430,7 @@ class AudiosetEmotiveDetector:
         self,
         model_name="MIT/ast-finetuned-audioset-10-10-0.4593",
         device=None,
-        threshold=0.3,
+        threshold=EMOTIVE_THRESHOLD,
     ):
         # Set device
         if device is None:
@@ -569,7 +570,7 @@ class EmotiveDetector(AudiosetEmotiveDetector):
     def __init__(
         self,
         model_path: Optional[str] = None,
-        threshold: float = 0.3,
+        threshold: float = EMOTIVE_THRESHOLD,
         device: str = None,
         emotive_types: Optional[List[str]] = None,
     ):
