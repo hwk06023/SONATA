@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import scipy.signal as signal
 import tempfile
 import soundfile as sf
+from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
 
 
 @dataclass
@@ -435,189 +436,164 @@ class ModelBasedClassifier(EmotiveClassifier):
         return results
 
 
-class EmotiveDetector:
-    # Default list of supported emotive types
-    EMOTIVE_TYPES = [
-        "laugh",
-        "sigh",
-        "yawn",
-        "surprise",
-        "inhale",
-        "groan",
-        "cough",
-        "sneeze",
-        "sniffle",
-    ]
+# AudioSet-based AST model for emotional sound detection
+class AudiosetEmotiveDetector:
+    """Class for detecting emotional sounds using AudioSet-based AST model"""
 
     def __init__(
         self,
-        model_path: Optional[str] = None,
-        threshold: float = 0.5,
-        device: str = None,
-        emotive_types: Optional[List[str]] = None,
+        model_name="MIT/ast-finetuned-audioset-10-10-0.4593",
+        device=None,
+        threshold=0.3,
     ):
-        self.threshold = threshold
-
-        # Set emotive types (use default or custom list)
-        if emotive_types is not None:
-            self.EMOTIVE_TYPES = emotive_types
-
         # Set device
         if device is None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = torch.device(device)
 
-        # Initialize audio processor
-        self.audio_processor = AudioProcessor()
-
-        # Initialize classifiers
-        self.rule_based_classifier = RuleBasedClassifier()
-        self.model_based_classifier = None
-
-        # Load model if provided
-        if model_path is not None and os.path.exists(model_path):
-            self.load_model(model_path)
-        else:
-            logging.info(
-                "No model provided or model not found. Using rule-based detection only."
-            )
-
-    def load_model(self, model_path: str):
-        """Load a trained model for emotive detection."""
+        # Load model
         try:
-            model = EmotiveCNN(num_classes=len(self.EMOTIVE_TYPES))
-            model.load_state_dict(torch.load(model_path, map_location=self.device))
-            model.to(self.device)
-            model.eval()
-
-            # Create model-based classifier
-            self.model_based_classifier = ModelBasedClassifier(
-                model=model, emotive_types=self.EMOTIVE_TYPES, device=self.device
+            self.feature_extractor = AutoFeatureExtractor.from_pretrained(model_name)
+            self.model = AutoModelForAudioClassification.from_pretrained(model_name).to(
+                self.device
             )
-
-            logging.info(f"Loaded emotive detection model from {model_path}")
+            self.model.eval()
+            logging.info(f"Loaded AudioSet AST model from {model_name}")
         except Exception as e:
-            logging.error(f"Failed to load model: {str(e)}")
-            self.model_based_classifier = None
+            logging.error(f"Failed to load AudioSet AST model: {str(e)}")
+            self.model = None
+            self.feature_extractor = None
+
+        self.threshold = threshold
+
+        # Map only relevant emotional sound classes
+        # AudioSet classes reference: https://github.com/audioset/ontology/blob/master/ontology.json
+        self.emotion_class_mapping = {
+            # Main emotional sounds
+            "Sigh": "sigh",
+            "Yawn": "yawn",
+            "Cough": "cough",
+            "Sneeze": "sneeze",
+            "Sniff": "sniffle",
+            "Gasp": "inhale",
+            "Groan": "groan",
+            "Whimper": "whimper",
+            # Laughter related (used with laughter detection)
+            "Giggle": "laugh",
+            "Laughter": "laugh",
+            "Chuckle, chortle": "laugh",
+            # Additional emotional sounds (activate as needed)
+            # "Crying, sobbing": "cry",
+            # "Screaming": "scream",
+            # "Breathing": "breathing",
+        }
+
+        # Class ID mapping from AudioSet (use when needed)
+        # Maps model's returned class labels with internal IDs
+        self.id2label = self.model.config.id2label if self.model else {}
+
+        # Filter only relevant class indices from AudioSet classes
+        self.target_class_indices = []
+        for i, label in self.id2label.items():
+            if label in self.emotion_class_mapping:
+                self.target_class_indices.append(int(i))
 
     def detect_events(self, audio_path: str) -> List[EmotiveEvent]:
-        """Detect emotive events in audio using either model-based or rule-based approach."""
-        events = []
+        """Detect emotional events from audio"""
+        if self.model is None or self.feature_extractor is None:
+            logging.error("AudioSet AST model not initialized")
+            return []
 
-        if self.model_based_classifier is not None:
-            # Extract features for model-based detection
-            features = self.audio_processor.extract_features(audio_path)
+        try:
+            # Load and resample audio
+            waveform, sr = librosa.load(audio_path, sr=16000, mono=True)
 
-            # Get segments for timing information
-            segments = self.audio_processor.segment_audio(audio_path)
-            if segments and features is not None:
-                total_duration = segments[-1][1]  # End time of last segment
+            # Process audio
+            inputs = self.feature_extractor(
+                waveform, sampling_rate=16000, return_tensors="pt"
+            ).to(self.device)
 
-                # Classify with model
-                classifications = self.model_based_classifier.classify(
-                    features, self.threshold
-                )
+            # Model inference
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                logits = outputs.logits[0]
+                probs = torch.nn.functional.softmax(logits, dim=0)
 
-                # Create events
-                for event_type, confidence in classifications:
-                    # For model-based, we use the entire audio duration for now
-                    # A more sophisticated approach would analyze each segment
+            # Create events
+            emotive_events = []
+
+            # Total audio duration in seconds
+            audio_duration = len(waveform) / 16000
+
+            # Check probability for each class
+            for class_idx in self.target_class_indices:
+                prob = probs[class_idx].item()
+                label = self.id2label[str(class_idx)]
+
+                # Add as event if probability is above threshold
+                if prob >= self.threshold:
+                    event_type = self.emotion_class_mapping[label]
+
+                    # Currently treating as one event for entire audio
+                    # In real implementation, add logic to calculate timestamps
                     event = EmotiveEvent(
                         type=event_type,
                         start_time=0.0,
-                        end_time=total_duration,
-                        confidence=confidence,
+                        end_time=audio_duration,
+                        confidence=prob,
                     )
-                    events.append(event)
-        else:
-            # Rule-based approach
-            events = self._detect_with_rules(audio_path)
+                    emotive_events.append(event)
+                    logging.info(f"Detected {event_type} with confidence {prob:.2f}")
 
-        return events
+            return emotive_events
 
-    def _detect_with_rules(self, audio_path: str) -> List[EmotiveEvent]:
-        """Detect emotive events using rule-based segmentation."""
-        events = []
-
-        # Segment the audio
-        segments = self.audio_processor.segment_audio(audio_path)
-        active_events = {}  # Track ongoing events by type
-
-        for start_time, end_time, segment in segments:
-            # Extract features for this segment
-            features = self.audio_processor.extract_segment_features(segment)
-            if not features:
-                continue
-
-            # Get classification results using rule-based classifier
-            classifications = self.rule_based_classifier.classify(
-                features, self.threshold
-            )
-
-            detected_types = [cls[0] for cls in classifications]
-
-            # Process each active event
-            for event_type in list(active_events.keys()):
-                # If this event type is no longer detected, finalize it
-                if event_type not in detected_types:
-                    event_data = active_events[event_type]
-                    events.append(
-                        EmotiveEvent(
-                            type=event_type,
-                            start_time=event_data["start_time"],
-                            end_time=event_data["end_time"],
-                            confidence=event_data["confidence"],
-                        )
-                    )
-                    del active_events[event_type]
-
-            # Process each current classification
-            for event_type, confidence in classifications:
-                if event_type in active_events:
-                    # Update existing event
-                    active_events[event_type]["end_time"] = end_time
-                    # Update confidence to the average
-                    active_events[event_type]["confidence"] = (
-                        active_events[event_type]["confidence"] + confidence
-                    ) / 2
-                else:
-                    # Start new event
-                    active_events[event_type] = {
-                        "start_time": start_time,
-                        "end_time": end_time,
-                        "confidence": confidence,
-                    }
-
-        # Finalize any remaining active events
-        for event_type, event_data in active_events.items():
-            events.append(
-                EmotiveEvent(
-                    type=event_type,
-                    start_time=event_data["start_time"],
-                    end_time=event_data["end_time"],
-                    confidence=event_data["confidence"],
-                )
-            )
-
-        return events
+        except Exception as e:
+            logging.error(f"Error in AudioSet AST detection: {str(e)}")
+            return []
 
     def detect_from_array(
         self, audio_array: np.ndarray, sr: int = 22050
     ) -> List[EmotiveEvent]:
-        """Detect emotive events directly from audio array instead of file."""
-        # Save temporary file
+        """Detect emotive events directly from audio array."""
         temp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        temp_path = temp.name
         try:
-            temp_path = temp.name
             sf.write(temp_path, audio_array, sr)
-
-            # Use existing detection method
             return self.detect_events(temp_path)
         finally:
-            # Clean up temp file
             temp.close()
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
-
         return []
+
+
+class EmotiveDetector(AudiosetEmotiveDetector):
+    """EmotiveDetector class using only AudioSet AST model."""
+
+    EMOTIVE_TYPES = [
+        "laugh",
+        "sigh",
+        "yawn",
+        "inhale",
+        "groan",
+        "cough",
+        "sneeze",
+        "sniffle",
+        "whimper",
+    ]
+
+    def __init__(
+        self,
+        model_path: Optional[str] = None,
+        threshold: float = 0.3,
+        device: str = None,
+        emotive_types: Optional[List[str]] = None,
+    ):
+        model_name = (
+            model_path if model_path else "MIT/ast-finetuned-audioset-10-10-0.4593"
+        )
+        super().__init__(model_name=model_name, threshold=threshold, device=device)
+
+        if emotive_types is not None:
+            self.EMOTIVE_TYPES = emotive_types

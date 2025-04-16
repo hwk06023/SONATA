@@ -22,7 +22,6 @@ class ASRProcessor:
         self.current_language = None
 
     def load_models(self, language_code: str = "en"):
-        # SSL 인증서 문제 해결을 위한 컨텍스트 설정
         ssl._create_default_https_context = ssl._create_unverified_context
 
         self.model = whisperx.load_model(
@@ -53,21 +52,6 @@ class ASRProcessor:
         audio = whisperx.load_audio(audio_path)
         result = self.model.transcribe(audio, batch_size=batch_size, language=language)
 
-        # Debug: Print the structure of result
-        print("WhisperX Result Structure:")
-        for key in result:
-            if key == "segments":
-                print(f"  segments: list with {len(result['segments'])} items")
-                if result["segments"]:
-                    print("  First segment keys:", list(result["segments"][0].keys()))
-                    if "words" in result["segments"][0]:
-                        print(
-                            "  First word keys:",
-                            list(result["segments"][0]["words"][0].keys()),
-                        )
-            else:
-                print(f"  {key}: {type(result[key])}")
-
         # Align timestamps if alignment model is available
         if self.align_model is not None:
             try:
@@ -78,21 +62,6 @@ class ASRProcessor:
                     audio,
                     self.device,
                 )
-                # Debug: Print aligned result structure
-                print("Aligned Result Structure:")
-                for key in result:
-                    print(f"  {key}: {type(result[key])}")
-                if "segments" in result:
-                    print(f"  segments: list with {len(result['segments'])} items")
-                    if result["segments"]:
-                        print(
-                            "  First segment keys:", list(result["segments"][0].keys())
-                        )
-                        if "words" in result["segments"][0]:
-                            print(
-                                "  First word keys:",
-                                list(result["segments"][0]["words"][0].keys()),
-                            )
             except Exception as e:
                 print(
                     f"Warning: Alignment failed. Using original timestamps. Error: {e}"
