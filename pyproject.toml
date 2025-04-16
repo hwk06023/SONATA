@@ -10,9 +10,23 @@ authors = ["hwk06023 <hwk06023@github.com>"]
 readme = "README.md"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/hwk06023/SONATA"
+keywords = ["audio", "transcription", "speech", "emotion", "ASR", "whisper"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+]
+include = [
+    "LICENSE",
+    "README.md"
 ]
 packages = [
     { include = "sonata" },
@@ -24,7 +38,7 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.8"
+python = ">=3.8,<4.0"
 numpy = ">=1.20.0"
 torch = ">=1.10.0"
 torchaudio = ">=0.10.0"
@@ -40,8 +54,30 @@ scikit-learn = ">=1.0.0"
 huggingface_hub = ">=0.12.0"
 hf_xet = ">=0.1.0"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.3.1"
+black = "^23.3.0"
+isort = "^5.12.0"
+flake8 = "^6.0.0"
+mypy = "^1.3.0"
+coverage = "^7.2.7"
+
+[tool.poetry.group.docs.dependencies]
+sphinx = "^7.0.1"
+sphinx-rtd-theme = "^1.2.2"
+myst-parser = "^2.0.0"
+
 [tool.poetry.scripts]
 sonata-asr = "sonata.main:main"
 
 [tool.poetry.urls]
-"Bug Tracker" = "https://github.com/hwk06023/SONATA/issues" 
+"Bug Tracker" = "https://github.com/hwk06023/SONATA/issues"
+"Documentation" = "https://github.com/hwk06023/SONATA"
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+
+[tool.isort]
+profile = "black"
+line_length = 88 
