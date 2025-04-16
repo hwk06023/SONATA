@@ -23,8 +23,8 @@ requirements = [
 ]
 
 setup(
-    name="sonata",
-    version="0.1.0",
+    name="sonata-asr",
+    version="0.0.1",
     author="hwk06023",
     author_email="hwk06023@github.com",
     description="SONATA: SOund and Narrative Advanced Transcription Assistant",
@@ -41,7 +41,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "sonata=sonata.main:main",
+            "sonata-asr=sonata.main:main",
         ],
     },
 )

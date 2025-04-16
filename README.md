@@ -16,7 +16,7 @@ SONATA is an advanced Automatic Speech Recognition (ASR) system that captures th
 Install the package from PyPI:
 
 ```bash
-pip install sonata
+pip install sonata-asr
 ```
 
 Or install from source:
@@ -82,13 +82,13 @@ SONATA also provides a CLI for quick transcription:
 
 ```bash
 # Basic usage
-sonata path/to/audio.wav
+sonata-asr path/to/audio.wav
 
 # Save output to specific file
-sonata path/to/audio.wav --output result.json
+sonata-asr path/to/audio.wav --output result.json
 
 # Set threshold for emotive detection
-sonata path/to/audio.wav --threshold 0.7
+sonata-asr path/to/audio.wav --threshold 0.7
 ```
 
 ## Contributing
