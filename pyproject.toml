@@ -1,44 +1,47 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
 
-[project]
+[tool.poetry]
 name = "sonata-asr"
 version = "0.0.5"
-authors = [
-    {name = "hwk06023", email = "hwk06023@github.com"},
-]
 description = "SONATA: SOund and Narrative Advanced Transcription Assistant"
+authors = ["hwk06023 <hwk06023@github.com>"]
 readme = "README.md"
-license = {text = "GNU General Public License v3.0 or later"}
-requires-python = ">=3.8"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/hwk06023/SONATA"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
-dependencies = [
-    "numpy>=1.20.0",
-    "torch>=1.10.0",
-    "torchaudio>=0.10.0",
-    "transformers>=4.25.1",
-    "whisperx>=3.1.0",
-    "librosa>=0.9.0",
-    "pydub>=0.25.1",
-    "scipy>=1.7.0",
-    "soundfile>=0.10.3",
-    "tqdm>=4.62.0",
-    "matplotlib>=3.5.0",
-    "scikit-learn>=1.0.0",
-    "huggingface_hub>=0.12.0",
-    "hf_xet>=0.1.0",
+packages = [
+    { include = "sonata" },
+    { include = "sonata/core" },
+    { include = "sonata/libs" },
+    { include = "sonata/libs/laughter_detection" },
+    { include = "sonata/models" },
+    { include = "sonata/utils" }
 ]
 
-[project.urls]
-"Homepage" = "https://github.com/hwk06023/SONATA"
-"Bug Tracker" = "https://github.com/hwk06023/SONATA/issues"
+[tool.poetry.dependencies]
+python = ">=3.8"
+numpy = ">=1.20.0"
+torch = ">=1.10.0"
+torchaudio = ">=0.10.0"
+transformers = ">=4.25.1"
+whisperx = ">=3.1.0"
+librosa = ">=0.9.0"
+pydub = ">=0.25.1"
+scipy = ">=1.7.0"
+soundfile = ">=0.10.3"
+tqdm = ">=4.62.0"
+matplotlib = ">=3.5.0"
+scikit-learn = ">=1.0.0"
+huggingface_hub = ">=0.12.0"
+hf_xet = ">=0.1.0"
 
-[project.scripts]
+[tool.poetry.scripts]
 sonata-asr = "sonata.main:main"
 
-[tool.setuptools]
-packages = ["sonata", "sonata.core", "sonata.libs", "sonata.libs.laughter_detection", "sonata.models", "sonata.utils"] 
+[tool.poetry.urls]
+"Bug Tracker" = "https://github.com/hwk06023/SONATA/issues" 
