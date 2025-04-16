@@ -32,9 +32,9 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/hwk06023/SONATA",
     packages=find_packages(include=["sonata", "sonata.*"]),
+    license="GNU General Public License v3 (GPLv3)",
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.8",
