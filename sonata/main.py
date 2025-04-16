@@ -1,5 +1,6 @@
 import os
 import argparse
+import sys
 import json
 from sonata.core.transcriber import IntegratedTranscriber
 from sonata.utils.audio import convert_audio_file, split_audio, trim_silence
@@ -10,7 +11,7 @@ def parse_args():
         description="SONATA: SOund and Narrative Advanced Transcription Assistant"
     )
 
-    parser.add_argument("input", help="Path to input audio file")
+    parser.add_argument("input", nargs="?", help="Path to input audio file")
     parser.add_argument("-o", "--output", help="Path to output JSON file")
     parser.add_argument(
         "-l", "--language", default="en", help="Language code (default: en)"
@@ -55,12 +56,53 @@ def parse_args():
         default=5,
         help="Overlap between split segments in seconds (default: 5)",
     )
+    parser.add_argument(
+        "--version", action="store_true", help="Show SONATA version and exit"
+    )
 
     return parser.parse_args()
 
 
+def show_usage_and_exit():
+    print("SONATA: SOund and Narrative Advanced Transcription Assistant")
+    print("\nBasic usage:")
+    print("  sonata-asr path/to/audio.wav")
+    print("\nCommon options:")
+    print("  -o, --output [FILE]     Save transcript to specified JSON file")
+    print("  -d, --device [DEVICE]   Use specified device (cpu/cuda)")
+    print("  -l, --language [LANG]   Specify language code (default: en)")
+    print("  --preprocess            Convert and trim silence before processing")
+    print("  --format                Also output a formatted text file")
+    print("\nFor more options:")
+    print("  sonata-asr --help")
+    print("\nExamples:")
+    print("  sonata-asr input.wav")
+    print("  sonata-asr input.wav -o transcript.json")
+    print("  sonata-asr input.wav -d cuda --preprocess")
+    sys.exit(1)
+
+
 def main():
     args = parse_args()
+
+    # Show version if requested
+    if args.version:
+        from importlib.metadata import version
+
+        try:
+            print(f"SONATA v{version('sonata-asr')}")
+        except:
+            print("SONATA version information unavailable")
+        sys.exit(0)
+
+    # If no input file is provided, show usage and exit
+    if not args.input:
+        show_usage_and_exit()
+
+    # Verify input file exists
+    if not os.path.exists(args.input):
+        print(f"Error: Input file '{args.input}' does not exist.")
+        show_usage_and_exit()
 
     # Create output filenames if not specified
     input_basename = os.path.splitext(os.path.basename(args.input))[0]
