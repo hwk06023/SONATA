@@ -34,7 +34,7 @@ class EmotiveEvent:
 
 
 class EmotiveCNN(nn.Module):
-    def __init__(self, num_classes=9):
+    def __init__(self, num_classes=8):
         super(EmotiveCNN, self).__init__()
 
         # Convolutional layers
@@ -296,22 +296,7 @@ class RuleBasedClassifier(EmotiveClassifier):
         if sigh_score > threshold:
             results.append(("sigh", sigh_score))
 
-        # 3. Yawn detection
-        yawn_score = 0.0
-        if (
-            features.get("bandwidth", 0) > 1800
-            and features.get("flatness", 0) > 0.2
-            and features.get("rolloff", 0) < 3000
-            and features.get("mfcc_2", 0) < -5
-        ):
-            # Yawns have medium bandwidth, are relatively flat spectrally,
-            # have lower rolloff, and distinctive MFCC patterns
-            yawn_score = 0.65
-
-        if yawn_score > threshold:
-            results.append(("yawn", yawn_score))
-
-        # 4. Surprise detection
+        # 3. Surprise detection
         surprise_score = 0.0
         if (
             features.get("rms", 0) > 0.1
@@ -326,7 +311,7 @@ class RuleBasedClassifier(EmotiveClassifier):
         if surprise_score > threshold:
             results.append(("surprise", surprise_score))
 
-        # 5. Inhale detection
+        # 4. Inhale detection
         inhale_score = 0.0
         if (
             features.get("zcr", 0) < 0.05
@@ -341,7 +326,7 @@ class RuleBasedClassifier(EmotiveClassifier):
         if inhale_score > threshold:
             results.append(("inhale", inhale_score))
 
-        # 6. Groan detection
+        # 5. Groan detection
         groan_score = 0.0
         if (
             features.get("centroid", 0) < 1500
@@ -357,7 +342,7 @@ class RuleBasedClassifier(EmotiveClassifier):
         if groan_score > threshold:
             results.append(("groan", groan_score))
 
-        # 7. Cough detection
+        # 6. Cough detection
         cough_score = 0.0
         if (
             features.get("percussive_rms", 0) > features.get("harmonic_rms", 0)
@@ -372,7 +357,7 @@ class RuleBasedClassifier(EmotiveClassifier):
         if cough_score > threshold:
             results.append(("cough", cough_score))
 
-        # 8. Sneeze detection
+        # 7. Sneeze detection
         sneeze_score = 0.0
         if (
             features.get("rms", 0) > 0.15
@@ -387,7 +372,7 @@ class RuleBasedClassifier(EmotiveClassifier):
         if sneeze_score > threshold:
             results.append(("sneeze", sneeze_score))
 
-        # 9. Sniffle detection
+        # 8. Sniffle detection
         sniffle_score = 0.0
         if (
             features.get("rms", 0) < 0.04
@@ -472,7 +457,6 @@ class AudiosetEmotiveDetector:
         self.emotion_class_mapping = {
             # Main emotional sounds
             "Sigh": "sigh",
-            "Yawn": "yawn",
             "Cough": "cough",
             "Sneeze": "sneeze",
             "Sniff": "sniffle",
@@ -574,7 +558,6 @@ class EmotiveDetector(AudiosetEmotiveDetector):
     EMOTIVE_TYPES = [
         "laugh",
         "sigh",
-        "yawn",
         "inhale",
         "groan",
         "cough",
