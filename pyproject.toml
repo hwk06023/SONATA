@@ -10,7 +10,7 @@ authors = [
 ]
 description = "SONATA: SOund and Narrative Advanced Transcription Assistant"
 readme = "README.md"
-license = "GPL-3.0-or-later"
+license = {text = "GNU General Public License v3.0 or later"}
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
