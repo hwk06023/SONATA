@@ -38,4 +38,7 @@ dependencies = [
 "Bug Tracker" = "https://github.com/hwk06023/SONATA/issues"
 
 [project.scripts]
-sonata-asr = "sonata.main:main" 
+sonata-asr = "sonata.main:main"
+
+[tool.setuptools]
+packages = ["sonata", "sonata.core", "sonata.libs", "sonata.libs.laughter_detection", "sonata.models", "sonata.utils"] 
