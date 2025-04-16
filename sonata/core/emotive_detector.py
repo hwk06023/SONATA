@@ -12,7 +12,7 @@ import scipy.signal as signal
 import tempfile
 import soundfile as sf
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
-from sonata.constants import EMOTIVE_THRESHOLD
+from sonata.constants import EMOTIVE_THRESHOLD, EmotiveEventType
 
 
 @dataclass
@@ -556,15 +556,16 @@ class AudiosetEmotiveDetector:
 class EmotiveDetector(AudiosetEmotiveDetector):
     """EmotiveDetector class using only AudioSet AST model."""
 
+    # Use EmotiveEventType values instead of raw strings
     EMOTIVE_TYPES = [
-        "laugh",
-        "sigh",
-        "inhale",
-        "groan",
-        "cough",
-        "sneeze",
-        "sniffle",
-        "whimper",
+        EmotiveEventType.LAUGH.value,
+        EmotiveEventType.SIGH.value,
+        EmotiveEventType.INHALE.value,
+        EmotiveEventType.GROAN.value,
+        EmotiveEventType.COUGH.value,
+        EmotiveEventType.SNEEZE.value,
+        EmotiveEventType.SNIFFLE.value,
+        EmotiveEventType.WHIMPER.value,
     ]
 
     def __init__(
