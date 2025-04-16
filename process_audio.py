@@ -4,6 +4,7 @@ import sys
 import argparse
 from sonata.utils.audio_converter import convert_to_wav
 from sonata.core.transcriber import IntegratedTranscriber
+from sonata.constants import EMOTIVE_THRESHOLD
 
 
 def main():
@@ -19,8 +20,8 @@ def main():
         "--threshold",
         "-t",
         type=float,
-        default=0.3,
-        help="Threshold for emotive event detection (default: 0.3)",
+        default=EMOTIVE_THRESHOLD,
+        help=f"Threshold for emotive event detection (default: {EMOTIVE_THRESHOLD})",
     )
 
     args = parser.parse_args()
@@ -67,7 +68,9 @@ def main():
     else:
         print("No emotive events detected")
 
-    print("\nUse lower threshold (--threshold) to detect more emotive events")
+    print(
+        f"\nUse lower threshold (--threshold) to detect more emotive events (current: {args.threshold})"
+    )
 
     return 0
 

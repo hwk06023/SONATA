@@ -4,6 +4,17 @@ import sys
 import json
 from sonata.core.transcriber import IntegratedTranscriber
 from sonata.utils.audio import convert_audio_file, split_audio, trim_silence
+from sonata.constants import (
+    EMOTIVE_THRESHOLD,
+    DEFAULT_LANGUAGE,
+    DEFAULT_MODEL,
+    DEFAULT_DEVICE,
+    FORMAT_DEFAULT,
+    FORMAT_CONCISE,
+    FORMAT_EXTENDED,
+    DEFAULT_SPLIT_LENGTH,
+    DEFAULT_SPLIT_OVERLAP,
+)
 from sonata import __version__
 
 
@@ -15,30 +26,36 @@ def parse_args():
     parser.add_argument("input", nargs="?", help="Path to input audio file")
     parser.add_argument("-o", "--output", help="Path to output JSON file")
     parser.add_argument(
-        "-l", "--language", default="en", help="Language code (default: en)"
+        "-l",
+        "--language",
+        default=DEFAULT_LANGUAGE,
+        help=f"Language code (default: {DEFAULT_LANGUAGE})",
     )
     parser.add_argument(
         "-m",
         "--model",
-        default="large-v3",
-        help="WhisperX model size (default: large-v3)",
+        default=DEFAULT_MODEL,
+        help=f"WhisperX model size (default: {DEFAULT_MODEL})",
     )
     parser.add_argument(
-        "-d", "--device", default="cpu", help="Device to run models on (default: cpu)"
+        "-d",
+        "--device",
+        default=DEFAULT_DEVICE,
+        help=f"Device to run models on (default: {DEFAULT_DEVICE})",
     )
     parser.add_argument("-e", "--emotive-model", help="Path to emotive detection model")
     parser.add_argument(
         "-t",
         "--threshold",
         type=float,
-        default=0.5,
-        help="Threshold for emotive event detection (default: 0.5)",
+        default=EMOTIVE_THRESHOLD,
+        help=f"Threshold for emotive event detection (default: {EMOTIVE_THRESHOLD})",
     )
     parser.add_argument(
         "--format",
         type=str,
-        choices=["concise", "default", "extended"],
-        default="default",
+        choices=[FORMAT_CONCISE, FORMAT_DEFAULT, FORMAT_EXTENDED],
+        default=FORMAT_DEFAULT,
         help="Format for text output (concise: simple text with emotive tags, default: text with timestamps, extended: with confidence scores)",
     )
     parser.add_argument(
@@ -58,14 +75,14 @@ def parse_args():
     parser.add_argument(
         "--split-length",
         type=int,
-        default=30,
-        help="Length of split segments in seconds (default: 30)",
+        default=DEFAULT_SPLIT_LENGTH,
+        help=f"Length of split segments in seconds (default: {DEFAULT_SPLIT_LENGTH})",
     )
     parser.add_argument(
         "--split-overlap",
         type=int,
-        default=5,
-        help="Overlap between split segments in seconds (default: 5)",
+        default=DEFAULT_SPLIT_OVERLAP,
+        help=f"Overlap between split segments in seconds (default: {DEFAULT_SPLIT_OVERLAP})",
     )
     parser.add_argument(
         "--version", action="store_true", help="Show SONATA version and exit"
