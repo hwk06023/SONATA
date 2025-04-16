@@ -4,6 +4,7 @@ import torch
 import whisperx
 import ssl
 from typing import Dict, List, Union, Tuple, Optional
+from sonata.constants import LanguageCode
 
 
 class ASRProcessor:
@@ -21,7 +22,12 @@ class ASRProcessor:
         self.align_metadata = None
         self.current_language = None
 
-    def load_models(self, language_code: str = "en"):
+    def load_models(self, language_code: str = LanguageCode.ENGLISH.value):
+        """Load WhisperX and alignment models for the specified language.
+
+        Args:
+            language_code: ISO language code (e.g., "en", "ko", "zh")
+        """
         ssl._create_default_https_context = ssl._create_unverified_context
 
         self.model = whisperx.load_model(
@@ -33,9 +39,21 @@ class ASRProcessor:
         self.current_language = language_code
 
     def process_audio(
-        self, audio_path: str, batch_size: int = 16, language: str = "en"
+        self,
+        audio_path: str,
+        language: str = LanguageCode.ENGLISH.value,
+        batch_size: int = 16,
     ) -> Dict:
-        """Process audio file with WhisperX to get transcription with timestamps."""
+        """Process audio file with WhisperX to get transcription with timestamps.
+
+        Args:
+            audio_path: Path to the audio file
+            language: ISO language code (e.g., "en", "ko")
+            batch_size: Batch size for processing
+
+        Returns:
+            Dictionary containing transcription results
+        """
         if self.model is None or self.current_language != language:
             try:
                 self.load_models(language_code=language)
@@ -50,6 +68,13 @@ class ASRProcessor:
 
         # Transcribe with whisperx
         audio = whisperx.load_audio(audio_path)
+        # Ensure batch_size is an integer
+        if not isinstance(batch_size, int):
+            print(
+                f"Warning: batch_size should be an integer, not {type(batch_size)}. Using default value 16."
+            )
+            batch_size = 16
+
         result = self.model.transcribe(audio, batch_size=batch_size, language=language)
 
         # Align timestamps if alignment model is available

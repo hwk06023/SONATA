@@ -10,6 +10,7 @@ from sonata.constants import (
     DEFAULT_LANGUAGE,
     DEFAULT_DEVICE,
     DEFAULT_COMPUTE_TYPE,
+    LanguageCode,
 )
 
 
@@ -21,6 +22,14 @@ class IntegratedTranscriber:
         device: str = DEFAULT_DEVICE,
         compute_type: str = DEFAULT_COMPUTE_TYPE,
     ):
+        """Initialize the integrated transcriber.
+
+        Args:
+            asr_model: WhisperX model name to use
+            emotive_model_path: Path to custom emotive detection model (optional)
+            device: Compute device (cpu/cuda)
+            compute_type: Compute precision (float32, float16, etc.)
+        """
         self.device = device
         self.asr = ASRProcessor(
             model_name=asr_model, device=device, compute_type=compute_type
@@ -35,14 +44,25 @@ class IntegratedTranscriber:
         language: str = DEFAULT_LANGUAGE,
         emotive_threshold: float = EMOTIVE_THRESHOLD,
     ) -> Dict:
-        """Process audio to get transcription with emotive events integrated."""
+        """Process audio to get transcription with emotive events integrated.
+
+        Args:
+            audio_path: Path to the audio file
+            language: ISO language code (e.g., "en", "ko")
+            emotive_threshold: Detection threshold for emotive events
+
+        Returns:
+            Dictionary containing the complete transcription results
+        """
         # Set threshold for the detector
         self.emotive_detector.threshold = emotive_threshold
 
         # Run ASR and emotive detection in parallel
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            # Start both tasks
-            asr_future = executor.submit(self.asr.process_audio, audio_path, language)
+            # Start both tasks - pass parameters by name to avoid confusion
+            asr_future = executor.submit(
+                self.asr.process_audio, audio_path=audio_path, language=language
+            )
             emotive_future = executor.submit(
                 self.emotive_detector.detect_events, audio_path
             )

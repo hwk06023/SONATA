@@ -14,6 +14,8 @@ from sonata.constants import (
     FORMAT_EXTENDED,
     DEFAULT_SPLIT_LENGTH,
     DEFAULT_SPLIT_OVERLAP,
+    LanguageCode,
+    FormatType,
 )
 from sonata import __version__
 
@@ -29,7 +31,8 @@ def parse_args():
         "-l",
         "--language",
         default=DEFAULT_LANGUAGE,
-        help=f"Language code (default: {DEFAULT_LANGUAGE})",
+        choices=[lang.value for lang in LanguageCode],
+        help=f"Language code (default: {DEFAULT_LANGUAGE}, options: {', '.join([lang.value for lang in LanguageCode])})",
     )
     parser.add_argument(
         "-m",
@@ -54,9 +57,14 @@ def parse_args():
     parser.add_argument(
         "--format",
         type=str,
-        choices=[FORMAT_CONCISE, FORMAT_DEFAULT, FORMAT_EXTENDED],
+        choices=[format_type.value for format_type in FormatType],
         default=FORMAT_DEFAULT,
-        help="Format for text output (concise: simple text with emotive tags, default: text with timestamps, extended: with confidence scores)",
+        help=(
+            "Format for text output: "
+            "concise (simple text with emotive tags), "
+            "default (text with timestamps), "
+            "extended (with confidence scores)"
+        ),
     )
     parser.add_argument(
         "--text-output",
@@ -98,7 +106,9 @@ def show_usage_and_exit():
     print("\nCommon options:")
     print("  -o, --output [FILE]     Save transcript to specified JSON file")
     print("  -d, --device [DEVICE]   Use specified device (cpu/cuda)")
-    print("  -l, --language [LANG]   Specify language code (default: en)")
+    print(
+        f"  -l, --language [LANG]   Specify language code (default: {DEFAULT_LANGUAGE})"
+    )
     print("  --preprocess            Convert and trim silence before processing")
     print("  --format [TYPE]         Choose transcript format:")
     print("                           - concise: Text with integrated emotive tags")
@@ -184,7 +194,7 @@ def main():
         for i, segment in enumerate(segments):
             print(f"Processing segment {i+1}/{len(segments)}...")
             segment_result = transcriber.process_audio(
-                segment["path"],
+                audio_path=segment["path"],
                 language=args.language,
                 emotive_threshold=args.threshold,
             )
@@ -203,7 +213,7 @@ def main():
     else:
         print("Processing audio...")
         result = transcriber.process_audio(
-            input_file,
+            audio_path=input_file,
             language=args.language,
             emotive_threshold=args.threshold,
         )

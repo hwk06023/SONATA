@@ -4,6 +4,13 @@ import sys
 import json
 import argparse
 from sonata.core.transcriber import IntegratedTranscriber
+from sonata.constants import (
+    FORMAT_DEFAULT,
+    FORMAT_CONCISE,
+    FORMAT_EXTENDED,
+    LanguageCode,
+    FormatType,
+)
 
 
 def parse_args():
@@ -11,7 +18,11 @@ def parse_args():
     parser.add_argument("input", help="Path to input audio file (.wav format)")
     parser.add_argument("-o", "--output", help="Path to output JSON file")
     parser.add_argument(
-        "-l", "--language", default="en", help="Language code (default: en)"
+        "-l",
+        "--language",
+        default=LanguageCode.ENGLISH.value,
+        choices=[lang.value for lang in LanguageCode],
+        help=f"Language code (default: {LanguageCode.ENGLISH.value}, options: {', '.join([lang.value for lang in LanguageCode])})",
     )
     parser.add_argument(
         "-m",
@@ -26,7 +37,22 @@ def parse_args():
         help="Device to run models on (default: cuda if available, otherwise cpu)",
     )
     parser.add_argument(
-        "-f", "--format", action="store_true", help="Also output a formatted text file"
+        "-f",
+        "--format",
+        choices=[format_type.value for format_type in FormatType],
+        default=FormatType.DEFAULT.value,
+        help="Format for text output (default: default, options: concise, extended)",
+    )
+    parser.add_argument(
+        "--text-output",
+        help="Path to save formatted transcript text file",
+        default=None,
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="Batch size for ASR processing (default: 16)",
     )
     return parser.parse_args()
 
@@ -44,6 +70,12 @@ def main():
         input_basename = os.path.splitext(os.path.basename(args.input))[0]
         args.output = f"{input_basename}_transcript.json"
 
+    # Set up text output path
+    text_output = args.text_output
+    if text_output is None:
+        input_basename = os.path.splitext(os.path.basename(args.input))[0]
+        text_output = f"{input_basename}_transcript.txt"
+
     # Create output directory if needed
     output_dir = os.path.dirname(args.output)
     if output_dir and not os.path.exists(output_dir):
@@ -55,20 +87,77 @@ def main():
 
     # Process audio
     print(f"Processing audio file: {args.input}")
-    result = transcriber.process_audio(args.input, language=args.language)
+    # Modify ASR processor to use the specified batch size
+    transcriber.asr.process_audio = (
+        lambda audio_path, language, batch_size=args.batch_size: (
+            transcriber.asr._process_audio_with_batch_size(
+                audio_path, language, batch_size
+            )
+        )
+    )
+
+    # Add the method to ASRProcessor class dynamically
+    def _process_audio_with_batch_size(self, audio_path, language, batch_size):
+        """Wrapper method that ensures batch_size is correctly used."""
+        if self.model is None or self.current_language != language:
+            try:
+                self.load_models(language_code=language)
+            except Exception as e:
+                print(
+                    f"Warning: Could not load alignment model for {language}. Falling back to transcription without alignment."
+                )
+                if self.model is None:
+                    self.model = whisperx.load_model(
+                        self.model_name, self.device, compute_type=self.compute_type
+                    )
+
+        # Transcribe with whisperx
+        audio = whisperx.load_audio(audio_path)
+
+        # Use the specified batch size
+        result = self.model.transcribe(audio, batch_size=batch_size, language=language)
+
+        # Align timestamps if alignment model is available
+        if self.align_model is not None:
+            try:
+                result = whisperx.align(
+                    result["segments"],
+                    self.align_model,
+                    self.align_metadata,
+                    audio,
+                    self.device,
+                )
+            except Exception as e:
+                print(
+                    f"Warning: Alignment failed. Using original timestamps. Error: {e}"
+                )
+
+        return result
+
+    # Add method to ASRProcessor instance
+    import types
+    import whisperx
+
+    transcriber.asr._process_audio_with_batch_size = types.MethodType(
+        _process_audio_with_batch_size, transcriber.asr
+    )
+
+    # Process audio with our wrapper that ensures batch_size is correctly used
+    result = transcriber.process_audio(audio_path=args.input, language=args.language)
 
     # Save results
     transcriber.save_result(result, args.output)
     print(f"Transcription saved to {args.output}")
 
-    # Generate formatted text file if requested
-    if args.format:
-        input_basename = os.path.splitext(os.path.basename(args.input))[0]
-        formatted_output = f"{input_basename}_transcript.txt"
-        formatted_text = transcriber.get_formatted_transcript(result)
-        with open(formatted_output, "w", encoding="utf-8") as f:
-            f.write(formatted_text)
-        print(f"Formatted transcript saved to {formatted_output}")
+    # Generate formatted text file
+    print(f"Generating {args.format} format transcript...")
+    formatted_text = transcriber.get_formatted_transcript(
+        result, format_type=args.format
+    )
+
+    print(f"Saving formatted transcript to: {text_output}")
+    with open(text_output, "w", encoding="utf-8") as f:
+        f.write(formatted_text)
 
     return 0
 
