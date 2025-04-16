@@ -4,6 +4,7 @@ import sys
 import json
 from sonata.core.transcriber import IntegratedTranscriber
 from sonata.utils.audio import convert_audio_file, split_audio, trim_silence
+from sonata import __version__
 
 
 def parse_args():
@@ -87,12 +88,8 @@ def main():
 
     # Show version if requested
     if args.version:
-        from importlib.metadata import version
-
-        try:
-            print(f"SONATA v{version('sonata-asr')}")
-        except:
-            print("SONATA version information unavailable")
+        # First check the package's own version
+        print(f"SONATA v{__version__}")
         sys.exit(0)
 
     # If no input file is provided, show usage and exit
