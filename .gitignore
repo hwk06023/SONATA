@@ -63,6 +63,8 @@ result/
 sonata_output/
 *_transcript.json
 *_transcript.txt
+debug_transcripts/
+debug_*/
 
 # External libraries
 external_libs/
