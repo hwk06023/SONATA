@@ -98,3 +98,12 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details. This license ensures that derivative works must also be open source and use the same license.
+
+## Acknowledgements
+
+This project leverages the following key open source components:
+
+- [WhisperX](https://github.com/m-bain/whisperX) - Fast speech recognition with word-level timestamps
+- [Laughter-Detection](https://github.com/jrgillick/laughter-detection) - Automatic detection of laughter in audio files (MIT License)
+
+We are grateful to the developers and contributors of these libraries for their valuable work.
