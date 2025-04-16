@@ -49,6 +49,10 @@ python advanced_infer.py /path/to/audio_directory/ \
   --max-workers 4
 ```
 
+The `--preprocess` option performs two key operations:
+1. Converts audio to WAV format for optimal compatibility
+2. Trims silence from the beginning and end of the file, improving transcription accuracy and reducing processing time
+
 ## Output Format
 
 The output JSON file contains:
