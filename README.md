@@ -131,6 +131,10 @@ python test/advanced_infer.py path/to/audio_directory/ --batch --max-workers 4
 python test/advanced_infer.py path/to/audio.wav --preprocess
 ```
 
+The preprocessing option performs two important operations:
+1. Converts audio to WAV format for maximum compatibility
+2. Trims silence from the beginning and end, improving accuracy and reducing processing time
+
 See the [inference tools documentation](test/README.md) for more details.
 
 ## Contributing
