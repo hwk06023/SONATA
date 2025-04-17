@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "sonata-asr"
-version = "0.0.5"
+version = "0.0.6"
 description = "SONATA: SOund and Narrative Advanced Transcription Assistant"
 authors = ["hwk06023 <hwk06023@github.com>"]
 readme = "README.md"
