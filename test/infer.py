@@ -8,6 +8,7 @@ import wave
 import subprocess
 import io
 import logging
+import warnings
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from sonata.core.transcriber import IntegratedTranscriber
@@ -19,11 +20,28 @@ from sonata.constants import (
     FormatType,
 )
 
-# Disable PyTorch Lightning checkpoint upgrade warning
+# Base environment variables - applied to all logging levels
 os.environ["PL_DISABLE_FORK"] = "1"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-os.environ["PYTHONWARNINGS"] = "ignore::UserWarning,ignore::DeprecationWarning"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Check current root logger level
+root_logger = logging.getLogger()
+current_level = root_logger.level
+
+# Suppress warnings only at ERROR level
+if current_level >= logging.ERROR:
+    os.environ["PYTHONWARNINGS"] = "ignore::UserWarning,ignore::DeprecationWarning"
+    warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
+    warnings.filterwarnings("ignore", message=".*Trying to infer the `batch_size`.*")
+
+    for logger_name in ["pytorch_lightning", "whisperx", "pyannote.audio"]:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
+else:
+    # Keep warnings visible for DEBUG or WARNING levels
+    pass
 
 
 def parse_args():
