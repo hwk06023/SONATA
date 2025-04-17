@@ -86,6 +86,7 @@ class IntegratedTranscriber:
             audio_path=audio_path,
             language=language,
             batch_size=batch_size,
+            show_progress=True,
         )
 
         # Then run emotive detection with progress indicators
