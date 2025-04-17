@@ -511,28 +511,37 @@ class AudiosetEmotiveDetector:
             # Load audio file
             try:
                 if show_progress:
-                    print(f"Loading audio from file: {audio}")
+                    print(
+                        f"[EmotiveDetector] Loading audio from file: {audio}",
+                        flush=True,
+                    )
                 logging.debug(f"Loading audio from file: {audio}")
                 y, sr = librosa.load(audio, sr=sr)
                 audio = y
                 if show_progress:
-                    print("Audio loaded successfully.")
+                    print("[EmotiveDetector] Audio loaded successfully.", flush=True)
             except Exception as e:
                 logging.error(f"Failed to load audio file: {str(e)}")
                 return []
 
         # Process the audio array
         if show_progress:
-            print("Processing audio through model...")
-        probs = self.detect_from_array(audio, sr)
+            print("[EmotiveDetector] Processing audio through model...", flush=True)
+        probs = self.detect_from_array(audio, sr, show_progress=show_progress)
         if show_progress:
-            print("Audio processing complete.")
+            print("[EmotiveDetector] Audio processing complete.", flush=True)
 
         # Process the results
         if show_progress:
-            print("Analyzing detection results...")
+            print("[EmotiveDetector] Analyzing detection results...", flush=True)
+            sys.stdout.flush()
             cls_items = list(self.labels.items())
-            iterator = tqdm(cls_items, desc="Processing detections", unit="class")
+            iterator = tqdm(
+                cls_items,
+                desc="[EmotiveDetector] Processing detections",
+                unit="class",
+                file=sys.stdout,
+            )
         else:
             iterator = self.labels.items()
 
@@ -561,7 +570,10 @@ class AudiosetEmotiveDetector:
                 continue
 
         if show_progress:
-            print(f"Detection complete. Found {len(detections)} emotive events.")
+            print(
+                f"[EmotiveDetector] Detection complete. Found {len(detections)} emotive events.",
+                flush=True,
+            )
 
         return detections
 
@@ -573,7 +585,7 @@ class AudiosetEmotiveDetector:
     ) -> np.ndarray:
         """Process audio through the model and return probabilities."""
         if show_progress:
-            print("Preparing audio for model...")
+            print("[EmotiveDetector] Preparing audio for model...", flush=True)
 
         if isinstance(audio, np.ndarray):
             audio = torch.from_numpy(audio).float()
@@ -583,7 +595,7 @@ class AudiosetEmotiveDetector:
             audio = audio.unsqueeze(0)  # Add batch dimension
 
         if show_progress:
-            print("Running model inference...")
+            print("[EmotiveDetector] Running model inference...", flush=True)
 
         # The model function now handles both feature extraction and forward pass
         logits = self.model(audio, sr)
@@ -593,7 +605,7 @@ class AudiosetEmotiveDetector:
         probs = softmax(logits_np, axis=-1)
 
         if show_progress:
-            print("Model inference complete.")
+            print("[EmotiveDetector] Model inference complete.", flush=True)
 
         logging.debug(f"Model output logits shape: {logits.shape}")
         return probs
