@@ -34,6 +34,7 @@ class IntegratedTranscriber:
         audio_path: str,
         language: str = DEFAULT_LANGUAGE,
         emotive_threshold: float = EMOTIVE_THRESHOLD,
+        batch_size: int = 16,
     ) -> Dict:
         """Process audio to get transcription with emotive events integrated."""
         # Set threshold for the detector
@@ -42,7 +43,9 @@ class IntegratedTranscriber:
         # Run ASR and emotive detection in parallel
         with concurrent.futures.ThreadPoolExecutor() as executor:
             # Start both tasks
-            asr_future = executor.submit(self.asr.process_audio, audio_path, language)
+            asr_future = executor.submit(
+                self.asr.process_audio, audio_path, batch_size, language
+            )
             emotive_future = executor.submit(
                 self.emotive_detector.detect_events, audio_path
             )
