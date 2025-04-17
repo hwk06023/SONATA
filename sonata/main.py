@@ -5,7 +5,7 @@ import json
 from sonata.core.transcriber import IntegratedTranscriber
 from sonata.utils.audio import convert_audio_file, split_audio, trim_silence
 from sonata.constants import (
-    EMOTIVE_THRESHOLD,
+    AUDIO_EVENT_THRESHOLD,
     DEFAULT_LANGUAGE,
     DEFAULT_MODEL,
     DEFAULT_DEVICE,
@@ -46,13 +46,15 @@ def parse_args():
         default=DEFAULT_DEVICE,
         help=f"Device to run models on (default: {DEFAULT_DEVICE})",
     )
-    parser.add_argument("-e", "--emotive-model", help="Path to emotive detection model")
+    parser.add_argument(
+        "-e", "--audio-model", help="Path to audio event detection model"
+    )
     parser.add_argument(
         "-t",
         "--threshold",
         type=float,
-        default=EMOTIVE_THRESHOLD,
-        help=f"Threshold for emotive event detection (default: {EMOTIVE_THRESHOLD})",
+        default=AUDIO_EVENT_THRESHOLD,
+        help=f"Threshold for audio event detection (default: {AUDIO_EVENT_THRESHOLD})",
     )
     parser.add_argument(
         "--format",
@@ -61,7 +63,7 @@ def parse_args():
         default=FORMAT_DEFAULT,
         help=(
             "Format for text output: "
-            "concise (simple text with emotive tags), "
+            "concise (simple text with audio event tags), "
             "default (text with timestamps), "
             "extended (with confidence scores)"
         ),
@@ -111,7 +113,7 @@ def show_usage_and_exit():
     )
     print("  --preprocess            Convert and trim silence before processing")
     print("  --format [TYPE]         Choose transcript format:")
-    print("                           - concise: Text with integrated emotive tags")
+    print("                           - concise: Text with integrated audio event tags")
     print("                           - default: Text with timestamps")
     print("                           - extended: Includes confidence scores")
     print("  --text-output [FILE]    Save formatted transcript to specified text file")
@@ -173,7 +175,7 @@ def main():
     # Initialize the transcriber
     print(f"Initializing transcriber with {args.model} model on {args.device}...")
     transcriber = IntegratedTranscriber(
-        asr_model=args.model, emotive_model_path=args.emotive_model, device=args.device
+        asr_model=args.model, audio_model_path=args.audio_model, device=args.device
     )
 
     # Process audio
@@ -196,7 +198,7 @@ def main():
             segment_result = transcriber.process_audio(
                 audio_path=segment["path"],
                 language=args.language,
-                emotive_threshold=args.threshold,
+                audio_threshold=args.threshold,
             )
 
             # Adjust timestamps to account for segment start time
@@ -215,7 +217,7 @@ def main():
         result = transcriber.process_audio(
             audio_path=input_file,
             language=args.language,
-            emotive_threshold=args.threshold,
+            audio_threshold=args.threshold,
         )
 
     # Save results
@@ -259,12 +261,12 @@ def merge_segment_results(segment_results):
         "rich_text": rich_text,
     }
 
-    # Merge emotive events
-    all_emotive_events = merged_result["emotive_events"]
+    # Merge audio events
+    all_audio_events = merged_result["audio_events"]
     for segment in segment_results[1:]:
-        all_emotive_events.extend(segment["emotive_events"])
+        all_audio_events.extend(segment["audio_events"])
 
-    merged_result["emotive_events"] = all_emotive_events
+    merged_result["audio_events"] = all_audio_events
 
     return merged_result
 
