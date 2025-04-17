@@ -41,7 +41,7 @@ def main():
     print(f"Processing {wav_path} with SONATA...")
     transcriber = IntegratedTranscriber()
     result = transcriber.process_audio(
-        audio_path=wav_path, language=args.language, emotive_threshold=args.threshold
+        audio_path=wav_path, language=args.language, audio_threshold=args.threshold
     )
 
     # Set default output path if not specified
