@@ -1,12 +1,14 @@
 import os
 import numpy as np
 import torch
-import librosa
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, List, Union, Tuple, Optional, Any
+import librosa
+import io
 import sys
 import logging
+from contextlib import redirect_stdout, redirect_stderr
+from typing import Dict, Any, List, Tuple, Optional, Union
 from pathlib import Path
 from sonata.models.model_loader import load_audioset
 from scipy.special import softmax
@@ -433,15 +435,31 @@ class ModelBasedClassifier(EmotiveClassifier):
 
 # AudioSet-based AST model for emotional sound detection
 class AudiosetEmotiveDetector:
-    """Class for detecting emotional sounds using AudioSet-based AST model"""
+    """Base class for detecting emotive events in audio using Audioset."""
 
     def __init__(self, model_dir: Optional[str] = None, device: str = "cuda"):
+        """Initialize the detector with a model."""
+
+        # Set up comprehensive warning suppression
+        original_level = logging.getLogger().level
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+
+        try:
+            # Temporarily suppress all logging
+            logging.getLogger().setLevel(logging.ERROR)
+
+            # Redirect both stdout and stderr during model loading
+            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                self.model, self.labels = load_audioset(
+                    device=device, model_dir=model_dir
+                )
+        finally:
+            # Restore original logging level
+            logging.getLogger().setLevel(original_level)
+
+        logging.info(f"Loaded Audioset model with {len(self.labels)} classes")
         self.device = device
-        self.model = load_audioset(model_dir, device)
-        self.valid_classes = list(EMOTIVE_CLASS_MAPPING.keys())
-        logging.info(
-            f"Added valid emotion classes: {', '.join([str(c) for c in self.valid_classes])}"
-        )
 
     def detect_events(
         self, audio: Union[str, torch.Tensor, np.ndarray], sr: int = 16000
@@ -464,16 +482,16 @@ class AudiosetEmotiveDetector:
 
         if len(probs.shape) > 1:
             for i in range(probs.shape[0]):
-                for cls_idx in self.valid_classes:
+                for cls_idx in self.labels:
                     prob = probs[i, cls_idx]
                     if prob > 0.1:
-                        emotive_type = EMOTIVE_CLASS_MAPPING[cls_idx]
+                        emotive_type = self.labels[cls_idx]
                         detections.append({"type": emotive_type, "score": float(prob)})
         else:
-            for cls_idx in self.valid_classes:
+            for cls_idx in self.labels:
                 prob = probs[cls_idx]
                 if prob > 0.1:
-                    emotive_type = EMOTIVE_CLASS_MAPPING[cls_idx]
+                    emotive_type = self.labels[cls_idx]
                     detections.append({"type": emotive_type, "score": float(prob)})
 
         return detections
@@ -503,12 +521,7 @@ class AudiosetEmotiveDetector:
 
 
 class EmotiveDetector(AudiosetEmotiveDetector):
-    """
-    Detector for emotive events in audio using AudioSet-based model.
-
-    This class extends AudiosetEmotiveDetector with additional functionality
-    specific to detecting emotive events like laughs, sighs, etc.
-    """
+    """Detects emotive events in audio"""
 
     def __init__(
         self,
@@ -517,20 +530,44 @@ class EmotiveDetector(AudiosetEmotiveDetector):
         device: str = None,
         emotive_types: Optional[List[str]] = None,
     ):
-        """
-        Initialize the emotive detector.
+        """Initialize the emotive detector.
 
         Args:
-            model_path: Path to a custom model (optional)
-            threshold: Detection confidence threshold
-            device: Compute device (cpu/cuda)
-            emotive_types: List of emotive event types to detect (optional)
+            model_path: Path to custom model (optional)
+            threshold: Detection threshold (0.0-1.0)
+            device: Computing device (cuda/cpu)
+            emotive_types: List of emotive types to detect (defaults to all)
         """
-        super().__init__(model_dir=model_path, device=device)
-        self.threshold = threshold
+        # Default to CPU if no device specified
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # Use the EmotiveEventType enum values for emotive types if not provided
-        if emotive_types is None:
-            self.emotive_types = [event_type.value for event_type in EmotiveEventType]
-        else:
-            self.emotive_types = emotive_types
+        # Set up comprehensive warning suppression
+        original_level = logging.getLogger().level
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+
+        try:
+            # Temporarily suppress all logging
+            logging.getLogger().setLevel(logging.ERROR)
+
+            # Redirect both stdout and stderr during initialization
+            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                # Initialize parent class
+                super().__init__(model_dir=model_path, device=device)
+        finally:
+            # Restore original logging level
+            logging.getLogger().setLevel(original_level)
+
+        self.threshold = threshold
+        self.device = device
+
+        # Map model outputs to emotive event types
+        self.emotive_class_map = EMOTIVE_CLASS_MAPPING
+
+        # Filter emotive types if specified
+        if emotive_types:
+            # Keep only the requested emotive types
+            self.emotive_class_map = {
+                k: v for k, v in self.emotive_class_map.items() if v in emotive_types
+            }
