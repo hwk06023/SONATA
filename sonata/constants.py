@@ -59,3 +59,17 @@ DEFAULT_SPLIT_OVERLAP = 5  # Overlap between split segments in seconds
 FORMAT_CONCISE = FormatType.CONCISE.value
 FORMAT_DEFAULT = FormatType.DEFAULT.value
 FORMAT_EXTENDED = FormatType.EXTENDED.value
+
+# Mapping between AudioSet classes and our emotive tags
+EMOTIVE_CLASS_MAPPING = {
+    16: "laugh",  # Laughter
+    18: "laugh",  # Giggle
+    21: "laugh",  # Chuckle, chortle
+    24: "whimper",  # Whimper
+    26: "sigh",  # Sigh
+    38: "groan",  # Groan
+    44: "inhale",  # Gasp
+    47: "cough",  # Cough
+    49: "sneeze",  # Sneeze
+    50: "sniffle",  # Sniff
+}

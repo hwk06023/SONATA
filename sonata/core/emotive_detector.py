@@ -7,12 +7,21 @@ import torch.nn.functional as F
 from typing import Dict, List, Union, Tuple, Optional, Any
 import sys
 import logging
+from pathlib import Path
+from sonata.models.model_loader import load_audioset
+from scipy.special import softmax
+from sonata.constants import EMOTIVE_THRESHOLD, EmotiveEventType, EMOTIVE_CLASS_MAPPING
+
+# Temporary - Set up debug logging
+logging.basicConfig(
+    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+
 from dataclasses import dataclass
 import scipy.signal as signal
 import tempfile
 import soundfile as sf
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
-from sonata.constants import EMOTIVE_THRESHOLD, EmotiveEventType
 
 
 @dataclass
@@ -426,147 +435,80 @@ class ModelBasedClassifier(EmotiveClassifier):
 class AudiosetEmotiveDetector:
     """Class for detecting emotional sounds using AudioSet-based AST model"""
 
-    def __init__(
-        self,
-        model_name="MIT/ast-finetuned-audioset-10-10-0.4593",
-        device=None,
-        threshold=EMOTIVE_THRESHOLD,
-    ):
-        # Set device
-        if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    def __init__(self, model_dir: Optional[str] = None, device: str = "cuda"):
+        self.device = device
+        self.model = load_audioset(model_dir, device)
+        self.valid_classes = list(EMOTIVE_CLASS_MAPPING.keys())
+        logging.info(
+            f"Added valid emotion classes: {', '.join([str(c) for c in self.valid_classes])}"
+        )
+
+    def detect_events(
+        self, audio: Union[str, torch.Tensor, np.ndarray], sr: int = 16000
+    ) -> List[dict]:
+        detections = []
+
+        # Handle string path to audio file
+        if isinstance(audio, str):
+            # Load audio file
+            try:
+                logging.debug(f"Loading audio from file: {audio}")
+                y, sr = librosa.load(audio, sr=sr)
+                audio = y
+            except Exception as e:
+                logging.error(f"Failed to load audio file: {str(e)}")
+                return []
+
+        # Process the audio array
+        probs = self.detect_from_array(audio, sr)
+
+        if len(probs.shape) > 1:
+            for i in range(probs.shape[0]):
+                for cls_idx in self.valid_classes:
+                    prob = probs[i, cls_idx]
+                    if prob > 0.1:
+                        emotive_type = EMOTIVE_CLASS_MAPPING[cls_idx]
+                        detections.append({"type": emotive_type, "score": float(prob)})
         else:
-            self.device = torch.device(device)
+            for cls_idx in self.valid_classes:
+                prob = probs[cls_idx]
+                if prob > 0.1:
+                    emotive_type = EMOTIVE_CLASS_MAPPING[cls_idx]
+                    detections.append({"type": emotive_type, "score": float(prob)})
 
-        # Load model
-        try:
-            self.feature_extractor = AutoFeatureExtractor.from_pretrained(model_name)
-            self.model = AutoModelForAudioClassification.from_pretrained(model_name).to(
-                self.device
-            )
-            self.model.eval()
-            logging.info(f"Loaded AudioSet AST model from {model_name}")
-        except Exception as e:
-            logging.error(f"Failed to load AudioSet AST model: {str(e)}")
-            self.model = None
-            self.feature_extractor = None
-
-        self.threshold = threshold
-
-        # Map only relevant emotional sound classes
-        # AudioSet classes reference: https://github.com/audioset/ontology/blob/master/ontology.json
-        self.emotion_class_mapping = {
-            # Main emotional sounds
-            "Sigh": "sigh",
-            "Cough": "cough",
-            "Sneeze": "sneeze",
-            "Sniff": "sniffle",
-            "Gasp": "inhale",
-            "Groan": "groan",
-            "Whimper": "whimper",
-            # Laughter related (used with laughter detection)
-            "Giggle": "laugh",
-            "Laughter": "laugh",
-            "Chuckle, chortle": "laugh",
-            # Additional emotional sounds (activate as needed)
-            # "Crying, sobbing": "cry",
-            # "Screaming": "scream",
-            # "Breathing": "breathing",
-        }
-
-        # Class ID mapping from AudioSet (use when needed)
-        # Maps model's returned class labels with internal IDs
-        self.id2label = self.model.config.id2label if self.model else {}
-
-        # Filter only relevant class indices from AudioSet classes
-        self.target_class_indices = []
-        for i, label in self.id2label.items():
-            if label in self.emotion_class_mapping:
-                self.target_class_indices.append(int(i))
-
-    def detect_events(self, audio_path: str) -> List[EmotiveEvent]:
-        """Detect emotional events from audio"""
-        if self.model is None or self.feature_extractor is None:
-            logging.error("AudioSet AST model not initialized")
-            return []
-
-        try:
-            # Load and resample audio
-            waveform, sr = librosa.load(audio_path, sr=16000, mono=True)
-
-            # Process audio
-            inputs = self.feature_extractor(
-                waveform, sampling_rate=16000, return_tensors="pt"
-            ).to(self.device)
-
-            # Model inference
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-                logits = outputs.logits[0]
-                probs = torch.nn.functional.softmax(logits, dim=0)
-
-            # Create events
-            emotive_events = []
-
-            # Total audio duration in seconds
-            audio_duration = len(waveform) / 16000
-
-            # Check probability for each class
-            for class_idx in self.target_class_indices:
-                prob = probs[class_idx].item()
-                label = self.id2label[str(class_idx)]
-
-                # Add as event if probability is above threshold
-                if prob >= self.threshold:
-                    event_type = self.emotion_class_mapping[label]
-
-                    # Currently treating as one event for entire audio
-                    # In real implementation, add logic to calculate timestamps
-                    event = EmotiveEvent(
-                        type=event_type,
-                        start_time=0.0,
-                        end_time=audio_duration,
-                        confidence=prob,
-                    )
-                    emotive_events.append(event)
-                    logging.info(f"Detected {event_type} with confidence {prob:.2f}")
-
-            return emotive_events
-
-        except Exception as e:
-            logging.error(f"Error in AudioSet AST detection: {str(e)}")
-            return []
+        return detections
 
     def detect_from_array(
-        self, audio_array: np.ndarray, sr: int = 22050
-    ) -> List[EmotiveEvent]:
-        """Detect emotive events directly from audio array."""
-        temp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-        temp_path = temp.name
-        try:
-            sf.write(temp_path, audio_array, sr)
-            return self.detect_events(temp_path)
-        finally:
-            temp.close()
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-        return []
+        self, audio: Union[torch.Tensor, np.ndarray], sr: int = 16000
+    ) -> np.ndarray:
+        if isinstance(audio, np.ndarray):
+            audio = torch.from_numpy(audio)
+
+        if len(audio.shape) == 1:
+            audio = audio.unsqueeze(0)
+
+        if audio.shape[1] != 1:
+            audio = audio.unsqueeze(1)
+
+        audio = audio.to(self.device)
+
+        with torch.no_grad():
+            logits = self.model(audio, sr)
+
+        logits_np = logits.cpu().numpy()
+        probs = softmax(logits_np, axis=-1)
+
+        logging.debug(f"Model output logits shape: {logits.shape}")
+        return probs
 
 
 class EmotiveDetector(AudiosetEmotiveDetector):
-    """EmotiveDetector class using only AudioSet AST model."""
+    """
+    Detector for emotive events in audio using AudioSet-based model.
 
-    # Use EmotiveEventType values instead of raw strings
-    EMOTIVE_TYPES = [
-        EmotiveEventType.LAUGH.value,
-        EmotiveEventType.SIGH.value,
-        EmotiveEventType.INHALE.value,
-        EmotiveEventType.GROAN.value,
-        EmotiveEventType.COUGH.value,
-        EmotiveEventType.SNEEZE.value,
-        EmotiveEventType.SNIFFLE.value,
-        EmotiveEventType.WHIMPER.value,
-    ]
+    This class extends AudiosetEmotiveDetector with additional functionality
+    specific to detecting emotive events like laughs, sighs, etc.
+    """
 
     def __init__(
         self,
@@ -575,10 +517,20 @@ class EmotiveDetector(AudiosetEmotiveDetector):
         device: str = None,
         emotive_types: Optional[List[str]] = None,
     ):
-        model_name = (
-            model_path if model_path else "MIT/ast-finetuned-audioset-10-10-0.4593"
-        )
-        super().__init__(model_name=model_name, threshold=threshold, device=device)
+        """
+        Initialize the emotive detector.
 
-        if emotive_types is not None:
-            self.EMOTIVE_TYPES = emotive_types
+        Args:
+            model_path: Path to a custom model (optional)
+            threshold: Detection confidence threshold
+            device: Compute device (cpu/cuda)
+            emotive_types: List of emotive event types to detect (optional)
+        """
+        super().__init__(model_dir=model_path, device=device)
+        self.threshold = threshold
+
+        # Use the EmotiveEventType enum values for emotive types if not provided
+        if emotive_types is None:
+            self.emotive_types = [event_type.value for event_type in EmotiveEventType]
+        else:
+            self.emotive_types = emotive_types
