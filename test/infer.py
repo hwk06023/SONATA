@@ -6,6 +6,8 @@ import argparse
 import tempfile
 import wave
 import subprocess
+import io
+from contextlib import redirect_stdout
 from pathlib import Path
 from sonata.core.transcriber import IntegratedTranscriber
 from sonata.constants import (
@@ -214,7 +216,10 @@ def main():
 
     # Initialize transcriber
     print(f"Initializing transcriber with {args.model} model on {args.device}...")
-    transcriber = IntegratedTranscriber(asr_model=args.model, device=args.device)
+
+    # Suppress version warnings during initialization
+    with redirect_stdout(io.StringIO()):
+        transcriber = IntegratedTranscriber(asr_model=args.model, device=args.device)
 
     # Prepare input file - preprocessing
     processed_file = args.input
@@ -292,9 +297,13 @@ def main():
                         f"Warning: Could not load alignment model for {language}. Falling back to transcription without alignment."
                     )
                     if self.model is None:
-                        self.model = whisperx.load_model(
-                            self.model_name, self.device, compute_type=self.compute_type
-                        )
+                        # Suppress version warnings
+                        with redirect_stdout(io.StringIO()):
+                            self.model = whisperx.load_model(
+                                self.model_name,
+                                self.device,
+                                compute_type=self.compute_type,
+                            )
 
             # Transcribe with whisperx
             audio = whisperx.load_audio(audio_path)
