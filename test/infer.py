@@ -25,6 +25,30 @@ os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 os.environ["PYTHONWARNINGS"] = "ignore::UserWarning,ignore::DeprecationWarning"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+# Monkey patch PyTorch Lightning's LightningModule to disable checkpoint upgrade message
+try:
+    import pytorch_lightning as pl
+
+    orig_load_from_checkpoint = pl.LightningModule.load_from_checkpoint
+
+    # Define a wrapper function to replace the original method
+    def silent_load_from_checkpoint(*args, **kwargs):
+        # Redirect stdout and stderr during the function call
+        with open(os.devnull, "w") as devnull:
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+            sys.stdout, sys.stderr = devnull, devnull
+            try:
+                result = orig_load_from_checkpoint(*args, **kwargs)
+            finally:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
+        return result
+
+    # Replace the original method with our silent version
+    pl.LightningModule.load_from_checkpoint = silent_load_from_checkpoint
+except ImportError:
+    # PyTorch Lightning not installed, nothing to patch
+    pass
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="SONATA Inference Tool")
