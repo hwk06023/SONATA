@@ -451,9 +451,10 @@ class AudiosetEmotiveDetector:
 
             # Redirect both stdout and stderr during model loading
             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                self.model, self.labels = load_audioset(
-                    device=device, model_dir=model_dir
-                )
+                # Fix: load_audioset returns a single function, not a tuple
+                self.model = load_audioset(device=device, model_dir=model_dir)
+                # Initialize empty labels dictionary - will be populated later if needed
+                self.labels = EMOTIVE_CLASS_MAPPING
         finally:
             # Restore original logging level
             logging.getLogger().setLevel(original_level)
@@ -480,39 +481,48 @@ class AudiosetEmotiveDetector:
         # Process the audio array
         probs = self.detect_from_array(audio, sr)
 
-        if len(probs.shape) > 1:
-            for i in range(probs.shape[0]):
-                for cls_idx in self.labels:
-                    prob = probs[i, cls_idx]
+        # Process the results
+        for cls_idx, emotive_type in self.labels.items():
+            try:
+                cls_idx_int = int(
+                    cls_idx
+                )  # Convert string indices to integers if needed
+
+                # Check if we have enough dimensions and indices in bounds
+                if len(probs.shape) > 1 and cls_idx_int < probs.shape[1]:
+                    # For multiple segments/batches
+                    for i in range(probs.shape[0]):
+                        prob = probs[i, cls_idx_int]
+                        if prob > 0.1:
+                            detections.append(
+                                {"type": emotive_type, "score": float(prob)}
+                            )
+                elif cls_idx_int < len(probs):
+                    # For single segment/batch
+                    prob = probs[cls_idx_int]
                     if prob > 0.1:
-                        emotive_type = self.labels[cls_idx]
                         detections.append({"type": emotive_type, "score": float(prob)})
-        else:
-            for cls_idx in self.labels:
-                prob = probs[cls_idx]
-                if prob > 0.1:
-                    emotive_type = self.labels[cls_idx]
-                    detections.append({"type": emotive_type, "score": float(prob)})
+            except (ValueError, IndexError, TypeError) as e:
+                logging.warning(f"Error processing class index {cls_idx}: {str(e)}")
+                continue
 
         return detections
 
     def detect_from_array(
         self, audio: Union[torch.Tensor, np.ndarray], sr: int = 16000
     ) -> np.ndarray:
+        """Process audio through the model and return probabilities."""
         if isinstance(audio, np.ndarray):
-            audio = torch.from_numpy(audio)
+            audio = torch.from_numpy(audio).float()
 
+        # Ensure audio has the right shape
         if len(audio.shape) == 1:
-            audio = audio.unsqueeze(0)
+            audio = audio.unsqueeze(0)  # Add batch dimension
 
-        if audio.shape[1] != 1:
-            audio = audio.unsqueeze(1)
+        # The model function now handles both feature extraction and forward pass
+        logits = self.model(audio, sr)
 
-        audio = audio.to(self.device)
-
-        with torch.no_grad():
-            logits = self.model(audio, sr)
-
+        # Convert logits to probabilities
         logits_np = logits.cpu().numpy()
         probs = softmax(logits_np, axis=-1)
 
