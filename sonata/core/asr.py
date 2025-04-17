@@ -3,7 +3,34 @@ import numpy as np
 import torch
 import whisperx
 import ssl
+import io
+import sys
+import logging
+import warnings
+from contextlib import redirect_stdout, redirect_stderr, nullcontext
 from typing import Dict, List, Union, Tuple, Optional
+from sonata.constants import LanguageCode
+from tqdm import tqdm
+
+# Base environment variables
+os.environ["PL_DISABLE_FORK"] = "1"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Check current root logger level
+root_logger = logging.getLogger()
+current_level = root_logger.level
+
+# Suppress warnings only at ERROR level
+if current_level >= logging.ERROR:
+    os.environ["PYTHONWARNINGS"] = "ignore::UserWarning,ignore::DeprecationWarning"
+    warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
+    warnings.filterwarnings("ignore", message=".*Trying to infer the `batch_size`.*")
+
+    for logger_name in ["pytorch_lightning", "whisperx", "pyannote.audio"]:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
 
 
 class ASRProcessor:
@@ -21,40 +48,190 @@ class ASRProcessor:
         self.align_metadata = None
         self.current_language = None
 
-    def load_models(self, language_code: str = "en"):
+    def load_models(self, language_code: str = LanguageCode.ENGLISH.value):
+        """Load WhisperX and alignment models for the specified language.
+
+        Args:
+            language_code: ISO language code (e.g., "en", "ko", "zh")
+        """
         ssl._create_default_https_context = ssl._create_unverified_context
 
-        self.model = whisperx.load_model(
-            self.model_name, self.device, compute_type=self.compute_type
-        )
-        self.align_model, self.align_metadata = whisperx.load_align_model(
-            language_code=language_code, device=self.device
-        )
-        self.current_language = language_code
+        # Current logging level is irrelevant when loading models
+        original_level = logging.getLogger().level
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+
+        # Create context managers for filtering stderr/stdout
+        redirect_context = redirect_stdout(stdout_buffer)
+        redirect_err_context = redirect_stderr(stderr_buffer)
+
+        # Create context manager for filtering warnings
+        warning_context = warnings.catch_warnings()
+
+        try:
+            # Temporarily set all logging to ERROR level
+            logging.getLogger().setLevel(logging.ERROR)
+
+            # Filter warnings
+            warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
+            warnings.filterwarnings("ignore", message=".*set_stage.*")
+            warnings.filterwarnings(
+                "ignore", message=".*Trying to infer the `batch_size`.*"
+            )
+
+            # Run all context managers
+            with redirect_context, redirect_err_context, warning_context:
+                # Load model
+                self.model = whisperx.load_model(
+                    self.model_name,
+                    self.device,
+                    compute_type=self.compute_type,
+                    language=language_code,  # Pass language parameter directly
+                )
+        finally:
+            # Restore original logging level
+            logging.getLogger().setLevel(original_level)
+
+        # Ensure preset_language is set
+        if hasattr(self.model, "preset_language"):
+            self.model.preset_language = language_code
+
+        try:
+            # Reset warning filtering
+            warning_context = warnings.catch_warnings()
+
+            try:
+                # Temporarily set all logging to ERROR level
+                logging.getLogger().setLevel(logging.ERROR)
+
+                # Filter warnings
+                warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
+                warnings.filterwarnings("ignore", message=".*set_stage.*")
+                warnings.filterwarnings(
+                    "ignore", message=".*Trying to infer the `batch_size`.*"
+                )
+
+                # Run all context managers
+                with redirect_stdout(stdout_buffer), redirect_stderr(
+                    stderr_buffer
+                ), warning_context:
+                    self.align_model, self.align_metadata = whisperx.load_align_model(
+                        language_code=language_code, device=self.device
+                    )
+                self.current_language = language_code
+            finally:
+                # Restore original logging level
+                logging.getLogger().setLevel(original_level)
+        except Exception as e:
+            print(
+                f"Warning: Could not load alignment model for {language_code}. Falling back to transcription without alignment."
+            )
+            self.align_model = None
+            self.align_metadata = None
+            self.current_language = language_code
 
     def process_audio(
-        self, audio_path: str, batch_size: int = 16, language: str = "en"
+        self,
+        audio_path: str,
+        language: str = LanguageCode.ENGLISH.value,
+        batch_size: int = 16,
+        show_progress: bool = True,
     ) -> Dict:
-        """Process audio file with WhisperX to get transcription with timestamps."""
+        """Process audio file with WhisperX to get transcription with timestamps.
+
+        Args:
+            audio_path: Path to the audio file
+            language: ISO language code (e.g., "en", "ko")
+            batch_size: Batch size for processing
+            show_progress: Whether to show progress indicators
+
+        Returns:
+            Dictionary containing transcription results
+        """
+        # Ensure batch_size is an integer
+        if not isinstance(batch_size, int):
+            print(
+                f"Warning: batch_size must be an integer. Got {type(batch_size)}. Using default value 16."
+            )
+            batch_size = 16
+
+        # Always check if models need to be loaded or reloaded
         if self.model is None or self.current_language != language:
+            if show_progress:
+                print(f"[ASR] Loading models for language: {language}...", flush=True)
+
             try:
                 self.load_models(language_code=language)
+                if show_progress:
+                    print(f"[ASR] Models loaded successfully.", flush=True)
             except Exception as e:
                 print(
                     f"Warning: Could not load alignment model for {language}. Falling back to transcription without alignment."
                 )
                 if self.model is None:
-                    self.model = whisperx.load_model(
-                        self.model_name, self.device, compute_type=self.compute_type
-                    )
+                    # Set up comprehensive warning suppression
+                    original_level = logging.getLogger().level
+                    stdout_buffer = io.StringIO()
+                    stderr_buffer = io.StringIO()
+
+                    try:
+                        # Temporarily suppress all logging
+                        logging.getLogger().setLevel(logging.ERROR)
+
+                        # Redirect both stdout and stderr
+                        with redirect_stdout(stdout_buffer), redirect_stderr(
+                            stderr_buffer
+                        ):
+                            if show_progress:
+                                print(f"[ASR] Loading base model...", flush=True)
+
+                            self.model = whisperx.load_model(
+                                self.model_name,
+                                self.device,
+                                compute_type=self.compute_type,
+                            )
+
+                            if show_progress:
+                                print(
+                                    f"[ASR] Base model loaded successfully.", flush=True
+                                )
+                    finally:
+                        # Restore original logging level
+                        logging.getLogger().setLevel(original_level)
+
+        # Print parameters for debugging
+        print(
+            f"Transcribing with parameters - language: {language}, batch_size: {batch_size}"
+        )
 
         # Transcribe with whisperx
+        if show_progress:
+            print(f"[ASR] Loading audio: {audio_path}", flush=True)
+
         audio = whisperx.load_audio(audio_path)
-        result = self.model.transcribe(audio, batch_size=batch_size, language=language)
+
+        if show_progress:
+            print(f"[ASR] Running speech recognition...", flush=True)
+            sys.stdout.flush()
+
+        result = self.model.transcribe(
+            audio,
+            batch_size=batch_size,
+            language=language,  # Explicitly pass language parameter
+        )
+
+        if show_progress:
+            print(
+                f"[ASR] Transcription complete. Processing {len(result.get('segments', []))} segments.",
+                flush=True,
+            )
 
         # Align timestamps if alignment model is available
         if self.align_model is not None:
             try:
+                if show_progress:
+                    print(f"[ASR] Aligning timestamps...", flush=True)
+
                 result = whisperx.align(
                     result["segments"],
                     self.align_model,
@@ -62,6 +239,9 @@ class ASRProcessor:
                     audio,
                     self.device,
                 )
+
+                if show_progress:
+                    print(f"[ASR] Alignment complete.", flush=True)
             except Exception as e:
                 print(
                     f"Warning: Alignment failed. Using original timestamps. Error: {e}"

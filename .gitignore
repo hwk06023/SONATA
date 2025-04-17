@@ -28,6 +28,7 @@ env/
 # IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 
@@ -63,8 +64,7 @@ result/
 sonata_output/
 *_transcript.json
 *_transcript.txt
-debug_transcripts/
-debug_*/
+debug/*
 
 # External libraries
 external_libs/
