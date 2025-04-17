@@ -25,6 +25,8 @@ class IntegratedTranscriber:
         audio_model_path: Optional[str] = None,
         device: str = DEFAULT_DEVICE,
         compute_type: str = DEFAULT_COMPUTE_TYPE,
+        offline_diarization: bool = False,
+        offline_config_path: Optional[str] = None,
     ):
         """Initialize the integrated transcriber.
 
@@ -33,8 +35,12 @@ class IntegratedTranscriber:
             audio_model_path: Path to custom audio event detection model (optional)
             device: Compute device (cpu/cuda)
             compute_type: Compute precision (float32, float16, etc.)
+            offline_diarization: Whether to use offline diarization mode
+            offline_config_path: Path to offline diarization config file
         """
         self.device = device
+        self.offline_diarization = offline_diarization
+        self.offline_config_path = offline_config_path
 
         # Set up comprehensive warning suppression
         original_level = logging.getLogger().level
@@ -80,7 +86,7 @@ class IntegratedTranscriber:
             diarize: Whether to perform speaker diarization
             min_speakers: Minimum number of speakers for diarization
             max_speakers: Maximum number of speakers for diarization
-            hf_token: HuggingFace token for diarization model (required if diarize=True)
+            hf_token: HuggingFace token for diarization model (may not be required if using offline mode)
 
         Returns:
             Dictionary containing the complete transcription results
@@ -95,10 +101,7 @@ class IntegratedTranscriber:
             language=language,
             batch_size=batch_size,
             show_progress=True,
-            diarize=diarize,
-            min_speakers=min_speakers,
-            max_speakers=max_speakers,
-            hf_token=hf_token,
+            diarize=False,  # We'll handle diarization separately
         )
 
         # Then run audio event detection with progress indicators
@@ -110,6 +113,51 @@ class IntegratedTranscriber:
 
         # Get word timestamps after ASR is done
         word_timestamps = self.asr.get_word_timestamps(asr_result)
+
+        # Handle diarization if requested
+        if diarize:
+            print("\nRunning speaker diarization...", flush=True)
+
+            # Load diarization model if needed
+            if self.asr.diarize_model is None:
+                self.asr.load_diarize_model(
+                    hf_token=hf_token,
+                    show_progress=True,
+                    offline_mode=self.offline_diarization,
+                    offline_config_path=self.offline_config_path,
+                )
+
+            if self.asr.diarize_model is not None:
+                try:
+                    # Run diarization
+                    diarize_segments = self.asr.diarize_audio(
+                        audio_path=audio_path,
+                        min_speakers=min_speakers,
+                        max_speakers=max_speakers,
+                        show_progress=True,
+                    )
+
+                    # Assign speakers to words
+                    for word in word_timestamps:
+                        # Find matching segment
+                        for segment in diarize_segments:
+                            if (
+                                word["start"] >= segment["start"]
+                                and word["end"] <= segment["end"]
+                            ):
+                                word["speaker"] = segment["speaker"]
+                                break
+
+                    print(
+                        f"Speaker diarization complete with {len(set(s['speaker'] for s in diarize_segments))} speakers detected",
+                        flush=True,
+                    )
+                except Exception as e:
+                    print(f"Warning: Speaker diarization failed. Error: {str(e)}")
+            else:
+                print(
+                    f"Warning: Speaker diarization was requested but the model couldn't be loaded."
+                )
 
         # Integrate transcription and audio events
         integrated_result = self._integrate_results(word_timestamps, audio_events)

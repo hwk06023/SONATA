@@ -112,7 +112,25 @@ def parse_args():
     parser.add_argument(
         "--hf-token",
         type=str,
-        help="HuggingFace token for accessing diarization models (required for diarization)",
+        help="HuggingFace token for accessing diarization models (required for online diarization)",
+    )
+
+    # Offline diarization options
+    parser.add_argument(
+        "--offline-diarize",
+        action="store_true",
+        help="Use offline diarization (no HuggingFace token required after setup)",
+    )
+    parser.add_argument(
+        "--offline-config",
+        type=str,
+        help="Path to offline diarization config file",
+        default="~/.sonata/models/offline_config.yaml",
+    )
+    parser.add_argument(
+        "--setup-offline",
+        action="store_true",
+        help="Download and setup offline diarization models",
     )
 
     return parser.parse_args()
@@ -137,6 +155,14 @@ def show_usage_and_exit():
     print(
         "  --diarize               Enable speaker diarization to identify different speakers"
     )
+    print("\nDiarization options:")
+    print("  --hf-token TOKEN        HuggingFace token (for online diarization)")
+    print(
+        "  --offline-diarize       Use offline diarization (no token needed after setup)"
+    )
+    print(
+        "  --setup-offline         Download and set up offline diarization models (one-time setup)"
+    )
     print("\nFor more options:")
     print("  sonata-asr --help")
     print("\nExamples:")
@@ -145,6 +171,7 @@ def show_usage_and_exit():
     print("  sonata-asr input.wav -d cuda --preprocess")
     print("  sonata-asr input.wav --format concise --text-output transcript.txt")
     print("  sonata-asr input.wav --diarize --hf-token YOUR_HF_TOKEN")
+    print("  sonata-asr input.wav --diarize --offline-diarize")
     sys.exit(1)
 
 
@@ -157,6 +184,32 @@ def main():
         print(f"SONATA v{__version__}")
         sys.exit(0)
 
+    # Handle offline diarization setup
+    if args.setup_offline:
+        if not args.hf_token:
+            print(
+                "Error: HuggingFace token is required for initial setup of offline diarization"
+            )
+            print("Please provide a token with the --hf-token option")
+            sys.exit(1)
+
+        try:
+            from sonata.core.offline_diarization import download_diarization_models
+
+            print("Setting up offline diarization models...")
+            save_dir = os.path.expanduser("~/.sonata/models")
+            result = download_diarization_models(args.hf_token, save_dir)
+
+            print(f"Offline diarization models setup complete!")
+            print(f"Configuration saved to: {result['config_path']}")
+            print(f"Model saved to: {result['model_path']}")
+            print("\nTo use offline diarization, run with:")
+            print(f"  sonata-asr path/to/audio.wav --diarize --offline-diarize")
+            sys.exit(0)
+        except Exception as e:
+            print(f"Error setting up offline diarization models: {str(e)}")
+            sys.exit(1)
+
     # If no input file is provided, show usage and exit
     if not args.input:
         show_usage_and_exit()
@@ -166,11 +219,22 @@ def main():
         print(f"Error: Input file '{args.input}' does not exist.")
         show_usage_and_exit()
 
-    # Check if diarization is requested but token is missing
-    if args.diarize and not args.hf_token:
-        print("Error: Speaker diarization requires a HuggingFace token (--hf-token).")
-        print("Please provide your token or disable diarization.")
+    # Check diarization token requirements
+    if args.diarize and not args.offline_diarize and not args.hf_token:
+        print("Error: Speaker diarization requires either:")
+        print("  - A HuggingFace token (--hf-token) for online mode")
+        print("  - Offline mode (--offline-diarize) with pre-configured models")
+        print(
+            "To set up offline mode, run: sonata-asr --setup-offline --hf-token YOUR_HF_TOKEN"
+        )
         sys.exit(1)
+
+    # Verify offline configuration if requested
+    if args.offline_diarize:
+        if not os.path.exists(os.path.expanduser(args.offline_config)):
+            print(f"Error: Offline configuration file {args.offline_config} not found")
+            print("Please run: sonata-asr --setup-offline --hf-token YOUR_HF_TOKEN")
+            sys.exit(1)
 
     # Create output filenames if not specified
     input_basename = os.path.splitext(os.path.basename(args.input))[0]
@@ -202,7 +266,11 @@ def main():
     # Initialize the transcriber
     print(f"Initializing transcriber with {args.model} model on {args.device}...")
     transcriber = IntegratedTranscriber(
-        asr_model=args.model, audio_model_path=args.audio_model, device=args.device
+        asr_model=args.model,
+        audio_model_path=args.audio_model,
+        device=args.device,
+        offline_diarization=args.offline_diarize,
+        offline_config_path=args.offline_config if args.offline_diarize else None,
     )
 
     # Process audio
