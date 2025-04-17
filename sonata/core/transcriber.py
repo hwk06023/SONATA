@@ -80,22 +80,20 @@ class IntegratedTranscriber:
         # Set threshold for the detector
         self.emotive_detector.threshold = emotive_threshold
 
-        # Run ASR and emotive detection in parallel
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            # Start both tasks - pass all parameters explicitly with names to avoid confusion
-            asr_future = executor.submit(
-                self.asr.process_audio,
-                audio_path=audio_path,
-                language=language,
-                batch_size=batch_size,
-            )
-            emotive_future = executor.submit(
-                self.emotive_detector.detect_events, audio_path
-            )
+        # Run ASR first
+        print("Running speech recognition...", flush=True)
+        asr_result = self.asr.process_audio(
+            audio_path=audio_path,
+            language=language,
+            batch_size=batch_size,
+            show_progress=True,
+        )
 
-            # Wait for both to complete
-            asr_result = asr_future.result()
-            emotive_events = emotive_future.result()
+        # Then run emotive detection with progress indicators
+        print("\nRunning emotive sound detection...", flush=True)
+        emotive_events = self.emotive_detector.detect_events(
+            audio=audio_path, show_progress=True
+        )
 
         # Get word timestamps after ASR is done
         word_timestamps = self.asr.get_word_timestamps(asr_result)

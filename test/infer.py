@@ -299,11 +299,9 @@ def main():
             print(f"Processing split {i+1}/{len(split_files)}: {split_file}")
 
             # Configure batch size handling
-            transcriber.asr.process_audio = (
-                lambda audio_path, language, batch_size=args.batch_size: (
-                    transcriber.asr._process_audio_with_batch_size(
-                        audio_path, language, batch_size
-                    )
+            transcriber.asr.process_audio = lambda audio_path, language, batch_size=args.batch_size, show_progress=True: (
+                transcriber.asr._process_audio_with_batch_size(
+                    audio_path, language, batch_size, show_progress
                 )
             )
 
@@ -318,20 +316,27 @@ def main():
         print(f"Processing audio file: {processed_file}")
 
         # Modify ASR processor to use the specified batch size
-        transcriber.asr.process_audio = (
-            lambda audio_path, language, batch_size=args.batch_size: (
-                transcriber.asr._process_audio_with_batch_size(
-                    audio_path, language, batch_size
-                )
+        transcriber.asr.process_audio = lambda audio_path, language, batch_size=args.batch_size, show_progress=True: (
+            transcriber.asr._process_audio_with_batch_size(
+                audio_path, language, batch_size, show_progress
             )
         )
 
         # Add the method to ASRProcessor class dynamically
-        def _process_audio_with_batch_size(self, audio_path, language, batch_size):
+        def _process_audio_with_batch_size(
+            self, audio_path, language, batch_size, show_progress=True
+        ):
             """Wrapper method that ensures batch_size is correctly used."""
             if self.model is None or self.current_language != language:
                 try:
+                    if show_progress:
+                        print(
+                            f"[ASR] Loading models for language: {language}...",
+                            flush=True,
+                        )
                     self.load_models(language_code=language)
+                    if show_progress:
+                        print(f"[ASR] Models loaded successfully.", flush=True)
                 except Exception as e:
                     print(
                         f"Warning: Could not load alignment model for {language}. Falling back to transcription without alignment."
@@ -367,21 +372,38 @@ def main():
                                     warnings.filterwarnings(
                                         "ignore", category=UserWarning
                                     )
+                                    if show_progress:
+                                        print(
+                                            f"[ASR] Loading base model...", flush=True
+                                        )
                                     self.model = whisperx.load_model(
                                         self.model_name,
                                         self.device,
                                         compute_type=self.compute_type,
                                     )
+                                    if show_progress:
+                                        print(
+                                            f"[ASR] Base model loaded successfully.",
+                                            flush=True,
+                                        )
                         finally:
                             # Restore original logging level
                             logging.getLogger().setLevel(original_level)
 
             # Transcribe with whisperx
+            if show_progress:
+                print(f"[ASR] Loading audio: {audio_path}", flush=True)
             audio = whisperx.load_audio(audio_path)
 
             # Use the specified batch size
             # Also suppress Lightning warnings during transcription
             import warnings
+
+            if show_progress:
+                print(f"[ASR] Running speech recognition...", flush=True)
+                import sys
+
+                sys.stdout.flush()
 
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
@@ -391,9 +413,17 @@ def main():
                     audio, batch_size=batch_size, language=language
                 )
 
+            if show_progress:
+                print(
+                    f"[ASR] Transcription complete. Processing {len(result.get('segments', []))} segments.",
+                    flush=True,
+                )
+
             # Align timestamps if alignment model is available
             if self.align_model is not None:
                 try:
+                    if show_progress:
+                        print(f"[ASR] Aligning timestamps...", flush=True)
                     result = whisperx.align(
                         result["segments"],
                         self.align_model,
@@ -401,6 +431,8 @@ def main():
                         audio,
                         self.device,
                     )
+                    if show_progress:
+                        print(f"[ASR] Alignment complete.", flush=True)
                 except Exception as e:
                     print(
                         f"Warning: Alignment failed. Using original timestamps. Error: {e}"

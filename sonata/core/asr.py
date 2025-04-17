@@ -10,6 +10,7 @@ import warnings
 from contextlib import redirect_stdout, redirect_stderr, nullcontext
 from typing import Dict, List, Union, Tuple, Optional
 from sonata.constants import LanguageCode
+from tqdm import tqdm
 
 # Base environment variables
 os.environ["PL_DISABLE_FORK"] = "1"
@@ -134,6 +135,7 @@ class ASRProcessor:
         audio_path: str,
         language: str = LanguageCode.ENGLISH.value,
         batch_size: int = 16,
+        show_progress: bool = True,
     ) -> Dict:
         """Process audio file with WhisperX to get transcription with timestamps.
 
@@ -141,6 +143,7 @@ class ASRProcessor:
             audio_path: Path to the audio file
             language: ISO language code (e.g., "en", "ko")
             batch_size: Batch size for processing
+            show_progress: Whether to show progress indicators
 
         Returns:
             Dictionary containing transcription results
@@ -154,8 +157,13 @@ class ASRProcessor:
 
         # Always check if models need to be loaded or reloaded
         if self.model is None or self.current_language != language:
+            if show_progress:
+                print(f"[ASR] Loading models for language: {language}...", flush=True)
+
             try:
                 self.load_models(language_code=language)
+                if show_progress:
+                    print(f"[ASR] Models loaded successfully.", flush=True)
             except Exception as e:
                 print(
                     f"Warning: Could not load alignment model for {language}. Falling back to transcription without alignment."
@@ -174,11 +182,19 @@ class ASRProcessor:
                         with redirect_stdout(stdout_buffer), redirect_stderr(
                             stderr_buffer
                         ):
+                            if show_progress:
+                                print(f"[ASR] Loading base model...", flush=True)
+
                             self.model = whisperx.load_model(
                                 self.model_name,
                                 self.device,
                                 compute_type=self.compute_type,
                             )
+
+                            if show_progress:
+                                print(
+                                    f"[ASR] Base model loaded successfully.", flush=True
+                                )
                     finally:
                         # Restore original logging level
                         logging.getLogger().setLevel(original_level)
@@ -189,16 +205,33 @@ class ASRProcessor:
         )
 
         # Transcribe with whisperx
+        if show_progress:
+            print(f"[ASR] Loading audio: {audio_path}", flush=True)
+
         audio = whisperx.load_audio(audio_path)
+
+        if show_progress:
+            print(f"[ASR] Running speech recognition...", flush=True)
+            sys.stdout.flush()
+
         result = self.model.transcribe(
             audio,
             batch_size=batch_size,
             language=language,  # Explicitly pass language parameter
         )
 
+        if show_progress:
+            print(
+                f"[ASR] Transcription complete. Processing {len(result.get('segments', []))} segments.",
+                flush=True,
+            )
+
         # Align timestamps if alignment model is available
         if self.align_model is not None:
             try:
+                if show_progress:
+                    print(f"[ASR] Aligning timestamps...", flush=True)
+
                 result = whisperx.align(
                     result["segments"],
                     self.align_model,
@@ -206,6 +239,9 @@ class ASRProcessor:
                     audio,
                     self.device,
                 )
+
+                if show_progress:
+                    print(f"[ASR] Alignment complete.", flush=True)
             except Exception as e:
                 print(
                     f"Warning: Alignment failed. Using original timestamps. Error: {e}"

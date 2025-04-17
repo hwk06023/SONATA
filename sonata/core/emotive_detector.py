@@ -13,6 +13,7 @@ from pathlib import Path
 from sonata.models.model_loader import load_audioset
 from scipy.special import softmax
 from sonata.constants import EMOTIVE_THRESHOLD, EmotiveEventType, EMOTIVE_CLASS_MAPPING
+from tqdm import tqdm
 
 # Temporary - Set up debug logging
 logging.basicConfig(
@@ -107,7 +108,10 @@ class AudioProcessor:
 
     @staticmethod
     def segment_audio(
-        audio_path: str, window_size: float = 1.0, hop_size: float = 0.5
+        audio_path: str,
+        window_size: float = 1.0,
+        hop_size: float = 0.5,
+        show_progress: bool = True,
     ) -> List[Tuple[float, float, np.ndarray]]:
         """Segment audio into overlapping windows for analysis."""
         try:
@@ -118,7 +122,18 @@ class AudioProcessor:
             window_samples = int(window_size * sr)
             hop_samples = int(hop_size * sr)
 
-            for start_sample in range(0, len(y) - window_samples + 1, hop_samples):
+            total_segments = (len(y) - window_samples) // hop_samples + 1
+
+            iterator = range(0, len(y) - window_samples + 1, hop_samples)
+            if show_progress:
+                iterator = tqdm(
+                    iterator,
+                    desc="Segmenting audio",
+                    unit="segments",
+                    total=total_segments,
+                )
+
+            for start_sample in iterator:
                 start_time = start_sample / sr
                 end_time = start_time + window_size
                 if end_time > duration:
@@ -136,14 +151,25 @@ class AudioProcessor:
             return []
 
     @staticmethod
-    def extract_features(audio_path: str) -> Optional[torch.Tensor]:
+    def extract_features(
+        audio_path: str, show_progress: bool = True
+    ) -> Optional[torch.Tensor]:
         """Extract mel spectrogram features from audio for model input."""
         try:
+            if show_progress:
+                print("Loading audio file...")
+
             # Load audio file
             y, sr = librosa.load(audio_path, sr=22050)
 
+            if show_progress:
+                print("Extracting mel spectrogram...")
+
             # Extract mel spectrogram
             mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=8000)
+
+            if show_progress:
+                print("Processing spectrogram...")
 
             # Convert to decibels
             mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
@@ -173,6 +199,10 @@ class AudioProcessor:
 
             # Convert to tensor
             features = torch.FloatTensor(mel_spec_db)
+
+            if show_progress:
+                print("Feature extraction complete.")
+
             return features
         except Exception as e:
             logging.error(f"Feature extraction failed: {str(e)}")
@@ -180,10 +210,13 @@ class AudioProcessor:
 
     @staticmethod
     def extract_segment_features(
-        segment: np.ndarray, sr: int = 22050
+        segment: np.ndarray, sr: int = 22050, show_progress: bool = False
     ) -> Dict[str, float]:
         """Extract comprehensive features from audio segment for classification."""
         try:
+            if show_progress:
+                print("Extracting segment features...")
+
             # Time-domain features
             rms = np.sqrt(np.mean(segment**2))
             zcr = np.mean(librosa.feature.zero_crossing_rate(segment))
@@ -252,6 +285,9 @@ class AudioProcessor:
             # Add MFCC features
             for i, mfcc in enumerate(mfccs):
                 features[f"mfcc_{i}"] = float(mfcc)
+
+            if show_progress:
+                print("Feature extraction complete.")
 
             return features
         except Exception as e:
@@ -463,7 +499,10 @@ class AudiosetEmotiveDetector:
         self.device = device
 
     def detect_events(
-        self, audio: Union[str, torch.Tensor, np.ndarray], sr: int = 16000
+        self,
+        audio: Union[str, torch.Tensor, np.ndarray],
+        sr: int = 16000,
+        show_progress: bool = True,
     ) -> List[dict]:
         detections = []
 
@@ -471,18 +510,42 @@ class AudiosetEmotiveDetector:
         if isinstance(audio, str):
             # Load audio file
             try:
+                if show_progress:
+                    print(
+                        f"[EmotiveDetector] Loading audio from file: {audio}",
+                        flush=True,
+                    )
                 logging.debug(f"Loading audio from file: {audio}")
                 y, sr = librosa.load(audio, sr=sr)
                 audio = y
+                if show_progress:
+                    print("[EmotiveDetector] Audio loaded successfully.", flush=True)
             except Exception as e:
                 logging.error(f"Failed to load audio file: {str(e)}")
                 return []
 
         # Process the audio array
-        probs = self.detect_from_array(audio, sr)
+        if show_progress:
+            print("[EmotiveDetector] Processing audio through model...", flush=True)
+        probs = self.detect_from_array(audio, sr, show_progress=show_progress)
+        if show_progress:
+            print("[EmotiveDetector] Audio processing complete.", flush=True)
 
         # Process the results
-        for cls_idx, emotive_type in self.labels.items():
+        if show_progress:
+            print("[EmotiveDetector] Analyzing detection results...", flush=True)
+            sys.stdout.flush()
+            cls_items = list(self.labels.items())
+            iterator = tqdm(
+                cls_items,
+                desc="[EmotiveDetector] Processing detections",
+                unit="class",
+                file=sys.stdout,
+            )
+        else:
+            iterator = self.labels.items()
+
+        for cls_idx, emotive_type in iterator:
             try:
                 cls_idx_int = int(
                     cls_idx
@@ -506,12 +569,24 @@ class AudiosetEmotiveDetector:
                 logging.warning(f"Error processing class index {cls_idx}: {str(e)}")
                 continue
 
+        if show_progress:
+            print(
+                f"[EmotiveDetector] Detection complete. Found {len(detections)} emotive events.",
+                flush=True,
+            )
+
         return detections
 
     def detect_from_array(
-        self, audio: Union[torch.Tensor, np.ndarray], sr: int = 16000
+        self,
+        audio: Union[torch.Tensor, np.ndarray],
+        sr: int = 16000,
+        show_progress: bool = False,
     ) -> np.ndarray:
         """Process audio through the model and return probabilities."""
+        if show_progress:
+            print("[EmotiveDetector] Preparing audio for model...", flush=True)
+
         if isinstance(audio, np.ndarray):
             audio = torch.from_numpy(audio).float()
 
@@ -519,12 +594,18 @@ class AudiosetEmotiveDetector:
         if len(audio.shape) == 1:
             audio = audio.unsqueeze(0)  # Add batch dimension
 
+        if show_progress:
+            print("[EmotiveDetector] Running model inference...", flush=True)
+
         # The model function now handles both feature extraction and forward pass
         logits = self.model(audio, sr)
 
         # Convert logits to probabilities
         logits_np = logits.cpu().numpy()
         probs = softmax(logits_np, axis=-1)
+
+        if show_progress:
+            print("[EmotiveDetector] Model inference complete.", flush=True)
 
         logging.debug(f"Model output logits shape: {logits.shape}")
         return probs
