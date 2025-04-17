@@ -24,13 +24,30 @@ class ASRProcessor:
     def load_models(self, language_code: str = "en"):
         ssl._create_default_https_context = ssl._create_unverified_context
 
+        # Load model with explicit language parameter
         self.model = whisperx.load_model(
-            self.model_name, self.device, compute_type=self.compute_type
+            self.model_name,
+            self.device,
+            compute_type=self.compute_type,
+            language=language_code,  # Pass language parameter directly
         )
-        self.align_model, self.align_metadata = whisperx.load_align_model(
-            language_code=language_code, device=self.device
-        )
-        self.current_language = language_code
+
+        # Ensure preset_language is set
+        if hasattr(self.model, "preset_language"):
+            self.model.preset_language = language_code
+
+        try:
+            self.align_model, self.align_metadata = whisperx.load_align_model(
+                language_code=language_code, device=self.device
+            )
+            self.current_language = language_code
+        except Exception as e:
+            print(
+                f"Warning: Could not load alignment model for {language_code}. Falling back to transcription without alignment."
+            )
+            self.align_model = None
+            self.align_metadata = None
+            self.current_language = language_code
 
     def process_audio(
         self, audio_path: str, batch_size: int = 16, language: str = "en"
@@ -43,25 +60,21 @@ class ASRProcessor:
             )
             batch_size = 16
 
-        if self.model is None or self.current_language != language:
-            try:
-                self.load_models(language_code=language)
-            except Exception as e:
-                print(
-                    f"Warning: Could not load alignment model for {language}. Falling back to transcription without alignment."
-                )
-                if self.model is None:
-                    self.model = whisperx.load_model(
-                        self.model_name, self.device, compute_type=self.compute_type
-                    )
+        # Always reload models to ensure language is set correctly
+        self.load_models(language_code=language)
 
-        # Transcribe with whisperx
-        audio = whisperx.load_audio(audio_path)
         # Print parameters for debugging
         print(
             f"Transcribing with parameters - language: {language}, batch_size: {batch_size}"
         )
-        result = self.model.transcribe(audio, batch_size=batch_size, language=language)
+
+        # Transcribe with whisperx
+        audio = whisperx.load_audio(audio_path)
+        result = self.model.transcribe(
+            audio,
+            batch_size=batch_size,
+            language=language,  # Explicitly pass language parameter
+        )
 
         # Align timestamps if alignment model is available
         if self.align_model is not None:
