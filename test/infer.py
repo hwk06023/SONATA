@@ -7,7 +7,8 @@ import tempfile
 import wave
 import subprocess
 import io
-from contextlib import redirect_stdout
+import logging
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from sonata.core.transcriber import IntegratedTranscriber
 from sonata.constants import (
@@ -217,9 +218,24 @@ def main():
     # Initialize transcriber
     print(f"Initializing transcriber with {args.model} model on {args.device}...")
 
-    # Suppress version warnings during initialization
-    with redirect_stdout(io.StringIO()):
-        transcriber = IntegratedTranscriber(asr_model=args.model, device=args.device)
+    # Set up comprehensive warning suppression
+    original_level = logging.getLogger().level
+    stdout_buffer = io.StringIO()
+    stderr_buffer = io.StringIO()
+
+    try:
+        # Temporarily suppress all logging
+        logging.getLogger().setLevel(logging.ERROR)
+
+        # Suppress PyTorch Lightning and other package warnings
+        # Redirect both stdout and stderr
+        with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+            transcriber = IntegratedTranscriber(
+                asr_model=args.model, device=args.device
+            )
+    finally:
+        # Restore original logging level
+        logging.getLogger().setLevel(original_level)
 
     # Prepare input file - preprocessing
     processed_file = args.input
@@ -297,13 +313,27 @@ def main():
                         f"Warning: Could not load alignment model for {language}. Falling back to transcription without alignment."
                     )
                     if self.model is None:
-                        # Suppress version warnings
-                        with redirect_stdout(io.StringIO()):
-                            self.model = whisperx.load_model(
-                                self.model_name,
-                                self.device,
-                                compute_type=self.compute_type,
-                            )
+                        # Set up comprehensive warning suppression
+                        original_level = logging.getLogger().level
+                        stdout_buffer = io.StringIO()
+                        stderr_buffer = io.StringIO()
+
+                        try:
+                            # Temporarily suppress all logging
+                            logging.getLogger().setLevel(logging.ERROR)
+
+                            # Redirect both stdout and stderr
+                            with redirect_stdout(stdout_buffer), redirect_stderr(
+                                stderr_buffer
+                            ):
+                                self.model = whisperx.load_model(
+                                    self.model_name,
+                                    self.device,
+                                    compute_type=self.compute_type,
+                                )
+                        finally:
+                            # Restore original logging level
+                            logging.getLogger().setLevel(original_level)
 
             # Transcribe with whisperx
             audio = whisperx.load_audio(audio_path)

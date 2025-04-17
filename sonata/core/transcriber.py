@@ -1,5 +1,9 @@
 import os
 import json
+import io
+import logging
+import sys
+from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, List, Union, Tuple, Optional
 import concurrent.futures
 from sonata.core.asr import ASRProcessor
@@ -31,12 +35,29 @@ class IntegratedTranscriber:
             compute_type: Compute precision (float32, float16, etc.)
         """
         self.device = device
-        self.asr = ASRProcessor(
-            model_name=asr_model, device=device, compute_type=compute_type
-        )
-        self.emotive_detector = EmotiveDetector(
-            model_path=emotive_model_path, device=device, threshold=EMOTIVE_THRESHOLD
-        )
+
+        # Set up comprehensive warning suppression
+        original_level = logging.getLogger().level
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+
+        try:
+            # Temporarily suppress all logging
+            logging.getLogger().setLevel(logging.ERROR)
+
+            # Redirect both stdout and stderr during initialization
+            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                self.asr = ASRProcessor(
+                    model_name=asr_model, device=device, compute_type=compute_type
+                )
+                self.emotive_detector = EmotiveDetector(
+                    model_path=emotive_model_path,
+                    device=device,
+                    threshold=EMOTIVE_THRESHOLD,
+                )
+        finally:
+            # Restore original logging level
+            logging.getLogger().setLevel(original_level)
 
     def process_audio(
         self,
