@@ -7,9 +7,9 @@ from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, List, Union, Tuple, Optional
 import concurrent.futures
 from sonata.core.asr import ASRProcessor
-from sonata.core.emotive_detector import EmotiveDetector, EmotiveEvent
+from sonata.core.audio_event_detector import AudioEventDetector, AudioEvent
 from sonata.constants import (
-    EMOTIVE_THRESHOLD,
+    AUDIO_EVENT_THRESHOLD,
     DEFAULT_MODEL,
     DEFAULT_LANGUAGE,
     DEFAULT_DEVICE,
@@ -22,7 +22,7 @@ class IntegratedTranscriber:
     def __init__(
         self,
         asr_model: str = DEFAULT_MODEL,
-        emotive_model_path: Optional[str] = None,
+        audio_model_path: Optional[str] = None,
         device: str = DEFAULT_DEVICE,
         compute_type: str = DEFAULT_COMPUTE_TYPE,
     ):
@@ -30,7 +30,7 @@ class IntegratedTranscriber:
 
         Args:
             asr_model: WhisperX model name to use
-            emotive_model_path: Path to custom emotive detection model (optional)
+            audio_model_path: Path to custom audio event detection model (optional)
             device: Compute device (cpu/cuda)
             compute_type: Compute precision (float32, float16, etc.)
         """
@@ -50,10 +50,10 @@ class IntegratedTranscriber:
                 self.asr = ASRProcessor(
                     model_name=asr_model, device=device, compute_type=compute_type
                 )
-                self.emotive_detector = EmotiveDetector(
-                    model_path=emotive_model_path,
+                self.audio_detector = AudioEventDetector(
+                    model_path=audio_model_path,
                     device=device,
-                    threshold=EMOTIVE_THRESHOLD,
+                    threshold=AUDIO_EVENT_THRESHOLD,
                 )
         finally:
             # Restore original logging level
@@ -63,22 +63,22 @@ class IntegratedTranscriber:
         self,
         audio_path: str,
         language: str = DEFAULT_LANGUAGE,
-        emotive_threshold: float = EMOTIVE_THRESHOLD,
+        audio_threshold: float = AUDIO_EVENT_THRESHOLD,
         batch_size: int = 16,
     ) -> Dict:
-        """Process audio to get transcription with emotive events integrated.
+        """Process audio to get transcription with audio events integrated.
 
         Args:
             audio_path: Path to the audio file
             language: ISO language code (e.g., "en", "ko")
-            emotive_threshold: Detection threshold for emotive events
+            audio_threshold: Detection threshold for audio events
             batch_size: Batch size for processing
 
         Returns:
             Dictionary containing the complete transcription results
         """
         # Set threshold for the detector
-        self.emotive_detector.threshold = emotive_threshold
+        self.audio_detector.threshold = audio_threshold
 
         # Run ASR first
         print("Running speech recognition...", flush=True)
@@ -89,28 +89,29 @@ class IntegratedTranscriber:
             show_progress=True,
         )
 
-        # Then run emotive detection with progress indicators
-        print("\nRunning emotive sound detection...", flush=True)
-        emotive_events = self.emotive_detector.detect_events(
-            audio=audio_path, show_progress=True
+        # Then run audio event detection with progress indicators
+        print("\nRunning audio event detection...", flush=True)
+        audio_events = self.audio_detector.detect_events(
+            audio=audio_path,
+            show_progress=True,
         )
 
         # Get word timestamps after ASR is done
         word_timestamps = self.asr.get_word_timestamps(asr_result)
 
-        # Integrate transcription and emotive events
-        integrated_result = self._integrate_results(word_timestamps, emotive_events)
+        # Integrate transcription and audio events
+        integrated_result = self._integrate_results(word_timestamps, audio_events)
 
         return {
             "raw_asr": asr_result,
-            "emotive_events": [e.to_dict() for e in emotive_events],
+            "audio_events": [e.to_dict() for e in audio_events],
             "integrated_transcript": integrated_result,
         }
 
     def _integrate_results(
-        self, word_timestamps: List[Dict], emotive_events: List[EmotiveEvent]
+        self, word_timestamps: List[Dict], audio_events: List[AudioEvent]
     ) -> Dict:
-        """Integrate ASR results with emotive events based on timestamps."""
+        """Integrate ASR results with audio events based on timestamps."""
         # Sort all elements by their timestamps
         sorted_elements = []
 
@@ -126,11 +127,11 @@ class IntegratedTranscriber:
                 }
             )
 
-        # Add emotive events
-        for event in emotive_events:
+        # Add audio events
+        for event in audio_events:
             sorted_elements.append(
                 {
-                    "type": "emotive",
+                    "type": "audio_event",
                     "content": event.to_tag(),
                     "event_type": event.type,
                     "start": event.start_time,
@@ -158,11 +159,11 @@ class IntegratedTranscriber:
                         "score": element.get("score", 0.0),
                     }
                 )
-            else:  # emotive
+            else:  # audio_event
                 plain_text += element["content"] + " "
                 rich_text.append(
                     {
-                        "type": "emotive",
+                        "type": "audio_event",
                         "content": element["content"],
                         "event_type": element["event_type"],
                         "start": element["start"],
@@ -186,7 +187,7 @@ class IntegratedTranscriber:
         Args:
             result: The transcription result
             format_type: The format type ('concise', 'default', or 'extended')
-                - concise: Text with integrated emotive tags
+                - concise: Text with integrated audio event tags
                 - default: Text with timestamps (default format)
                 - extended: Default format with confidence scores
 
@@ -195,7 +196,7 @@ class IntegratedTranscriber:
         """
         rich_text = result["integrated_transcript"]["rich_text"]
 
-        # Concise format: simple text with emotive tags integrated
+        # Concise format: simple text with audio event tags integrated
         if format_type == "concise":
             text_parts = []
             current_sentence = []
@@ -207,7 +208,7 @@ class IntegratedTranscriber:
                     if word not in [".", ",", "!", "?", ":", ";"] and current_sentence:
                         current_sentence.append(" ")
                     current_sentence.append(word)
-                else:  # emotive
+                else:  # audio_event
                     current_sentence.append(f" {item['content']}")
 
             text = "".join(current_sentence)
@@ -220,7 +221,7 @@ class IntegratedTranscriber:
                 start_time = self._format_time(item["start"])
                 if item["type"] == "word":
                     formatted_lines.append(f"[{start_time}] {item['content']}")
-                else:  # emotive
+                else:  # audio_event
                     formatted_lines.append(f"[{start_time}] {item['content']}")
             return "\n".join(formatted_lines)
 
@@ -231,7 +232,7 @@ class IntegratedTranscriber:
                 start_time = self._format_time(item["start"])
                 if item["type"] == "word":
                     formatted_lines.append(f"[{start_time}] {item['content']}")
-                else:  # emotive
+                else:  # audio_event
                     confidence = item.get("confidence", 0.0)
                     formatted_lines.append(
                         f"[{start_time}] {item['content']} (confidence: {confidence:.2f})"
