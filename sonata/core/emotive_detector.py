@@ -484,8 +484,16 @@ class AudiosetEmotiveDetector:
             if label in self.emotion_class_mapping:
                 self.target_class_indices.append(int(i))
 
-    def detect_events(self, audio_path: str) -> List[EmotiveEvent]:
-        """Detect emotional events from audio"""
+    def detect_events(self, audio_path: str, **kwargs) -> List[EmotiveEvent]:
+        """Detect emotional events from audio
+
+        Args:
+            audio_path: Path to the audio file
+            **kwargs: Additional keyword arguments (ignored)
+
+        Returns:
+            List of detected emotive events
+        """
         if self.model is None or self.feature_extractor is None:
             logging.error("AudioSet AST model not initialized")
             return []
@@ -538,14 +546,23 @@ class AudiosetEmotiveDetector:
             return []
 
     def detect_from_array(
-        self, audio_array: np.ndarray, sr: int = 22050
+        self, audio_array: np.ndarray, sr: int = 22050, **kwargs
     ) -> List[EmotiveEvent]:
-        """Detect emotive events directly from audio array."""
+        """Detect emotive events directly from audio array.
+
+        Args:
+            audio_array: Audio samples as numpy array
+            sr: Sample rate of the audio
+            **kwargs: Additional keyword arguments (ignored)
+
+        Returns:
+            List of detected emotive events
+        """
         temp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         temp_path = temp.name
         try:
             sf.write(temp_path, audio_array, sr)
-            return self.detect_events(temp_path)
+            return self.detect_events(audio_path=temp_path)
         finally:
             temp.close()
             if os.path.exists(temp_path):
