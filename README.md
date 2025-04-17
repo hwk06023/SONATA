@@ -1,17 +1,26 @@
-# SONATA
+# SONATA 🎵🔊
+
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![PyPI version](https://badge.fury.io/py/sonata-asr.svg)](https://badge.fury.io/py/sonata-asr)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![GitHub stars](https://img.shields.io/github/stars/hwk06023/SONATA?style=social)](https://github.com/hwk06023/SONATA/stargazers)
 
 **SOund and Narrative Advanced Transcription Assistant**
 
 SONATA is an advanced Automatic Speech Recognition (ASR) system that captures the symphony of human expression by recognizing and transcribing both verbal content and emotive sounds.
 
-## Features
+## ✨ Features
 
-- High-accuracy speech-to-text transcription
-- Recognition of emotive sounds and non-verbal cues
-- Support for tags like `<laugh>`, `<sigh>`, `<yawn>`, `<surprise>`, `<inhale>`, `<groan>`, `<cough>`, `<sneeze>`, `<sniffle>`
-- Open-source and extensible architecture
+- 🎙️ High-accuracy speech-to-text transcription using WhisperX
+- 😀 Recognition of 523+ emotive sounds and non-verbal cues
+- 🌍 Multi-language support with 10 languages
+- 👥 Speaker diarization for multi-speaker transcription
+- ⏱️ Rich timestamp information at the word level
+- 🔄 Audio preprocessing capabilities
 
-## Installation
+[📚 See detailed features documentation](docs/FEATURES.md)
+
+## 🚀 Installation
 
 Install the package from PyPI:
 
@@ -27,7 +36,7 @@ cd SONATA
 pip install -e .
 ```
 
-## Usage Examples
+## 📖 Quick Start
 
 ### Basic Transcription
 
@@ -39,148 +48,57 @@ transcriber = IntegratedTranscriber(asr_model="large-v3", device="cpu")
 
 # Transcribe an audio file
 result = transcriber.process_audio("path/to/audio.wav", language="en")
-
-# Save the result to a file
-transcriber.save_result(result, "output.json")
-
-# Get the plain text transcript
-plain_text = result["integrated_transcript"]["plain_text"]
-print(plain_text)
+print(result["integrated_transcript"]["plain_text"])
 ```
 
-### Extracting Timestamps
-
-```python
-from sonata.core.transcriber import IntegratedTranscriber
-
-# Initialize the transcriber
-transcriber = IntegratedTranscriber()
-
-# Process audio with timestamps
-result = transcriber.process_audio("path/to/audio.wav")
-
-# Extract words with their timestamps
-for item in result["integrated_transcript"]["rich_text"]:
-    if item["type"] == "word":
-        word = item["content"]
-        start_time = item["start"]
-        end_time = item["end"]
-        print(f"{word}: {start_time:.2f}s - {end_time:.2f}s")
-```
-
-### Processing with GPU Acceleration
-
-```python
-from sonata.core.transcriber import IntegratedTranscriber
-
-# Initialize with CUDA device
-transcriber = IntegratedTranscriber(
-    asr_model="large-v3",
-    device="cuda",
-    compute_type="float16"  # Use float16 for faster GPU processing
-)
-
-# Process audio
-result = transcriber.process_audio("path/to/audio.wav")
-```
-
-## Command Line Interface
-
-SONATA provides a command-line interface for quick transcription:
+### CLI Usage
 
 ```bash
 # Basic usage
 sonata-asr path/to/audio.wav
 
-# Save output to specific file
-sonata-asr path/to/audio.wav --output result.json
-
-# Use GPU acceleration
-sonata-asr path/to/audio.wav --device cuda
-
-# Process audio with preprocessing (format conversion and silence trimming)
-sonata-asr path/to/audio.wav --preprocess
-
-# Split and process long audio files
-sonata-asr path/to/audio.wav --split --split-length 30 --split-overlap 5
+# With speaker diarization
+sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
 ```
 
-## Inference Tools
+[📚 See full usage documentation](docs/USAGE.md)  
+[⌨️ See complete CLI documentation](docs/CLI.md)
 
-The `test` directory contains additional inference tools for more advanced usage:
+## 🗣️ Supported Languages
 
-### Basic Inference Script
+SONATA supports 10 languages including English, Korean, Chinese, Japanese, French, German, Spanish, Italian, Portuguese, and Russian.
 
-```bash
-# Process a single file
-python test/infer.py path/to/audio.wav
+[🌐 See languages documentation](docs/LANGUAGES.md)
 
-# Specify output file and use GPU
-python test/infer.py path/to/audio.wav -o output.json -d cuda
-```
+## 🔊 Audio Event Detection
 
-### Advanced Processing
+SONATA can detect over 500 different audio events, from laughter and applause to ambient sounds and music.
 
-The advanced inference script supports batch processing and additional features:
+[🎵 See audio events documentation](docs/AUDIO_EVENTS.md)
 
-```bash
-# Process a directory of audio files in parallel
-python test/advanced_infer.py path/to/audio_directory/ --batch --max-workers 4
+## 🛣️ Roadmap
 
-# Preprocess audio before transcription
-python test/advanced_infer.py path/to/audio.wav --preprocess
-```
+- 🌐 Enhanced multilingual support
+- 🧠 Advanced ASR model diversity
+- 😢 Improved emotive detection
+- 🔊 Better speaker diarization
+- ⚡ Performance optimization
 
-The preprocessing option performs two important operations:
-1. Converts audio to WAV format for maximum compatibility
-2. Trims silence from the beginning and end, improving accuracy and reducing processing time
+[📋 See full roadmap](docs/ROADMAP.md)
 
-See the [inference tools documentation](test/README.md) for more details.
-
-## Future Roadmap
-
-SONATA is under active development. Here are some planned features and improvements:
-
-### Enhanced Multilingual Support
-- Expand language coverage beyond current supported languages
-- Improve transcription quality for non-English languages
-- Add language auto-detection capabilities
-
-### ASR Model Diversity
-- Support for additional ASR models beyond WhisperX
-- Integration with local models for offline/private use
-- Finetuned models for specific domains (medical, legal, etc.)
-
-### Advanced Emotive Detection
-- Expand the range of detectable emotive events
-- Improve accuracy of emotive event detection
-- Add custom emotive event training capabilities
-
-### Performance Improvements
-- Optimize processing for large audio files
-- Enhance parallel processing capabilities
-- Reduce memory footprint for resource-constrained environments
-
-### User Interface
-- Add web-based UI for transcription monitoring
-- Develop visualization tools for speech analytics
-- Create interactive transcript editor
-
-We welcome contributions in any of these areas!
-
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+[📝 See contribution guidelines](docs/CONTRIBUTING.md)
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details. This license ensures that derivative works must also be open source and use the same license.
+## 📄 License
 
-## Acknowledgements
+This project is licensed under the GNU General Public License v3.0.
 
-This project leverages the following key open source components:
+## 🙏 Acknowledgements
 
-- [WhisperX](https://github.com/m-bain/whisperX) - Fast speech recognition with word-level timestamps
-- [Laughter-Detection](https://github.com/jrgillick/laughter-detection) - Automatic detection of laughter in audio files (MIT License)
-
-We are grateful to the developers and contributors of these libraries for their valuable work.
+- [WhisperX](https://github.com/m-bain/whisperX) - Fast speech recognition
+- [AudioSet AST](https://github.com/YuanGongND/ast) - Audio event detection
+- [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - Speaker diarization
+- [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP tools

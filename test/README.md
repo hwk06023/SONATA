@@ -23,6 +23,41 @@ python infer.py /path/to/audio.wav -d cuda
 python infer.py /path/to/audio.wav --format
 ```
 
+## Speaker Diarization
+
+The `diarize_test.py` script provides a specialized tool for speaker diarization testing:
+
+```bash
+# Basic usage (requires HuggingFace token)
+./diarize_test.py /path/to/audio.wav --hf-token YOUR_HF_TOKEN
+
+# Specify minimum and maximum number of speakers
+./diarize_test.py /path/to/audio.wav --hf-token YOUR_HF_TOKEN --min-speakers 2 --max-speakers 4
+
+# Change output format (concise, default, or extended)
+./diarize_test.py /path/to/audio.wav --hf-token YOUR_HF_TOKEN --format default
+
+# Full example with all options
+./diarize_test.py /path/to/audio.wav \
+  --hf-token YOUR_HF_TOKEN \
+  --output diarized_result.json \
+  --text-output diarized_transcript.txt \
+  --language en \
+  --model large-v3 \
+  --device cuda \
+  --min-speakers 2 \
+  --max-speakers 5 \
+  --format default
+```
+
+The script will:
+1. Process the audio with WhisperX and speaker diarization
+2. Save the full results to a JSON file
+3. Generate a formatted transcript with speaker labels
+4. Print processing statistics, including detected speakers
+
+Note: To use speaker diarization, you need a HuggingFace token with access to the pyannote/speaker-diarization models. See [HuggingFace Access Tokens](https://huggingface.co/settings/tokens) for more information.
+
 ## Advanced Inference
 
 The `advanced_infer.py` script provides additional features such as batch processing and audio preprocessing:
@@ -73,6 +108,34 @@ transcript = result["integrated_transcript"]["plain_text"]
 print(transcript)
 ```
 
+### Speaker Diarization in Python
+
+```python
+from sonata.core.transcriber import IntegratedTranscriber
+
+# Initialize transcriber
+transcriber = IntegratedTranscriber(asr_model="large-v3", device="cuda")
+
+# Process audio with speaker diarization
+result = transcriber.process_audio(
+    audio_path="path/to/audio.wav",
+    language="en",
+    diarize=True,
+    hf_token="YOUR_HUGGINGFACE_TOKEN",
+    min_speakers=2,  # Optional
+    max_speakers=5   # Optional
+)
+
+# Get transcript with speaker labels
+formatted = transcriber.get_formatted_transcript(result, "concise")
+print(formatted)
+
+# Extract words with speaker information
+for item in result["integrated_transcript"]["rich_text"]:
+    if item["type"] == "word" and "speaker" in item:
+        print(f"[{item['speaker']}] {item['content']}: {item['start']:.2f}s")
+```
+
 ### Working with Timestamps
 
 ```python
@@ -102,7 +165,7 @@ The output JSON file contains:
 2. `emotive_events`: Detected emotive events (laughter, sighs, etc.)
 3. `integrated_transcript`: The final transcript with:
    - `plain_text`: Text-only transcript
-   - `rich_text`: Array of words and events with timestamps
+   - `rich_text`: Array of words and events with timestamps, including speaker information when diarization is enabled
 
 When using the `--format` option, a text file with timestamped content is also generated.
 
@@ -120,4 +183,5 @@ This will produce `podcast_bobbylee_transcript.json` in the current directory.
 
 1. Use CUDA for faster processing if you have a compatible GPU
 2. For long audio files, consider using the advanced script with preprocessing
-3. Batch processing can significantly improve throughput when processing multiple files 
+3. Batch processing can significantly improve throughput when processing multiple files
+4. Speaker diarization adds additional processing time, use only when needed 

@@ -97,6 +97,23 @@ def parse_args():
     parser.add_argument(
         "--version", action="store_true", help="Show SONATA version and exit"
     )
+    # Speaker diarization options
+    parser.add_argument(
+        "--diarize",
+        action="store_true",
+        help="Enable speaker diarization to identify different speakers",
+    )
+    parser.add_argument(
+        "--min-speakers", type=int, help="Minimum number of speakers for diarization"
+    )
+    parser.add_argument(
+        "--max-speakers", type=int, help="Maximum number of speakers for diarization"
+    )
+    parser.add_argument(
+        "--hf-token",
+        type=str,
+        help="HuggingFace token for accessing diarization models (required for diarization)",
+    )
 
     return parser.parse_args()
 
@@ -117,6 +134,9 @@ def show_usage_and_exit():
     print("                           - default: Text with timestamps")
     print("                           - extended: Includes confidence scores")
     print("  --text-output [FILE]    Save formatted transcript to specified text file")
+    print(
+        "  --diarize               Enable speaker diarization to identify different speakers"
+    )
     print("\nFor more options:")
     print("  sonata-asr --help")
     print("\nExamples:")
@@ -124,6 +144,7 @@ def show_usage_and_exit():
     print("  sonata-asr input.wav -o transcript.json")
     print("  sonata-asr input.wav -d cuda --preprocess")
     print("  sonata-asr input.wav --format concise --text-output transcript.txt")
+    print("  sonata-asr input.wav --diarize --hf-token YOUR_HF_TOKEN")
     sys.exit(1)
 
 
@@ -144,6 +165,12 @@ def main():
     if not os.path.exists(args.input):
         print(f"Error: Input file '{args.input}' does not exist.")
         show_usage_and_exit()
+
+    # Check if diarization is requested but token is missing
+    if args.diarize and not args.hf_token:
+        print("Error: Speaker diarization requires a HuggingFace token (--hf-token).")
+        print("Please provide your token or disable diarization.")
+        sys.exit(1)
 
     # Create output filenames if not specified
     input_basename = os.path.splitext(os.path.basename(args.input))[0]
@@ -199,14 +226,19 @@ def main():
                 audio_path=segment["path"],
                 language=args.language,
                 audio_threshold=args.threshold,
+                diarize=args.diarize,
+                min_speakers=args.min_speakers,
+                max_speakers=args.max_speakers,
+                hf_token=args.hf_token,
             )
-
-            # Adjust timestamps to account for segment start time
-            offset = segment["start_time"]
-            for word in segment_result["integrated_transcript"]["rich_text"]:
-                word["start"] += offset
-                word["end"] += offset
-
+            # Add segment info to result
+            segment_result["segment_info"] = {
+                "index": i,
+                "start": segment["start"],
+                "end": segment["end"],
+                "overlap_start": segment["overlap_start"],
+                "overlap_end": segment["overlap_end"],
+            }
             all_results.append(segment_result)
 
         # Merge results
@@ -218,21 +250,36 @@ def main():
             audio_path=input_file,
             language=args.language,
             audio_threshold=args.threshold,
+            diarize=args.diarize,
+            min_speakers=args.min_speakers,
+            max_speakers=args.max_speakers,
+            hf_token=args.hf_token,
         )
 
     # Save results
+    print(f"Saving transcript to {args.output}...")
     transcriber.save_result(result, args.output)
-    print(f"Transcription saved to {args.output}")
 
-    # Generate formatted text file
-    print(f"Generating {args.format} format transcript...")
-    formatted_transcript = transcriber.get_formatted_transcript(
-        result, format_type=args.format
-    )
+    # Save formatted text if requested
+    formatted_transcript = transcriber.get_formatted_transcript(result, args.format)
+    if args.text_output or text_output:
+        output_path = args.text_output or text_output
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(formatted_transcript)
+        print(f"Saved formatted transcript to {output_path}")
 
-    print(f"Saving formatted transcript to: {text_output}")
-    with open(text_output, "w", encoding="utf-8") as f:
-        f.write(formatted_transcript)
+    # Print a preview of the transcript
+    print("\nTranscript preview:")
+    plain_text = result["integrated_transcript"]["plain_text"]
+    print_preview = plain_text[:500] + "..." if len(plain_text) > 500 else plain_text
+    print(print_preview)
+
+    # Print completion message
+    print(f"\nProcessing complete. Full results saved to {args.output}")
+    if args.text_output or text_output:
+        print(f"Text transcript saved to {args.text_output or text_output}")
+
+    return result
 
 
 def merge_segment_results(segment_results):
