@@ -8,6 +8,7 @@ import wave
 import subprocess
 import io
 import logging
+import warnings
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from sonata.core.transcriber import IntegratedTranscriber
@@ -18,6 +19,29 @@ from sonata.constants import (
     LanguageCode,
     FormatType,
 )
+
+# Base environment variables - applied to all logging levels
+os.environ["PL_DISABLE_FORK"] = "1"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Check current root logger level
+root_logger = logging.getLogger()
+current_level = root_logger.level
+
+# Suppress warnings only at ERROR level
+if current_level >= logging.ERROR:
+    os.environ["PYTHONWARNINGS"] = "ignore::UserWarning,ignore::DeprecationWarning"
+    warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
+    warnings.filterwarnings("ignore", message=".*Trying to infer the `batch_size`.*")
+
+    for logger_name in ["pytorch_lightning", "whisperx", "pyannote.audio"]:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
+else:
+    # Keep warnings visible for DEBUG or WARNING levels
+    pass
 
 
 def parse_args():
@@ -314,6 +338,10 @@ def main():
                     )
                     if self.model is None:
                         # Set up comprehensive warning suppression
+                        import io
+                        import logging
+                        from contextlib import redirect_stdout, redirect_stderr
+
                         original_level = logging.getLogger().level
                         stdout_buffer = io.StringIO()
                         stderr_buffer = io.StringIO()
@@ -326,11 +354,24 @@ def main():
                             with redirect_stdout(stdout_buffer), redirect_stderr(
                                 stderr_buffer
                             ):
-                                self.model = whisperx.load_model(
-                                    self.model_name,
-                                    self.device,
-                                    compute_type=self.compute_type,
-                                )
+                                # Also suppress Lightning-specific warnings
+                                import warnings
+
+                                with warnings.catch_warnings():
+                                    warnings.filterwarnings(
+                                        "ignore", message=".*upgrade_checkpoint.*"
+                                    )
+                                    warnings.filterwarnings(
+                                        "ignore", category=DeprecationWarning
+                                    )
+                                    warnings.filterwarnings(
+                                        "ignore", category=UserWarning
+                                    )
+                                    self.model = whisperx.load_model(
+                                        self.model_name,
+                                        self.device,
+                                        compute_type=self.compute_type,
+                                    )
                         finally:
                             # Restore original logging level
                             logging.getLogger().setLevel(original_level)
@@ -339,9 +380,16 @@ def main():
             audio = whisperx.load_audio(audio_path)
 
             # Use the specified batch size
-            result = self.model.transcribe(
-                audio, batch_size=batch_size, language=language
-            )
+            # Also suppress Lightning warnings during transcription
+            import warnings
+
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
+                warnings.filterwarnings("ignore", category=DeprecationWarning)
+                warnings.filterwarnings("ignore", category=UserWarning)
+                result = self.model.transcribe(
+                    audio, batch_size=batch_size, language=language
+                )
 
             # Align timestamps if alignment model is available
             if self.align_model is not None:

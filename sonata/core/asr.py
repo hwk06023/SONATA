@@ -6,9 +6,30 @@ import ssl
 import io
 import sys
 import logging
+import warnings
 from contextlib import redirect_stdout, redirect_stderr, nullcontext
 from typing import Dict, List, Union, Tuple, Optional
 from sonata.constants import LanguageCode
+
+# Base environment variables
+os.environ["PL_DISABLE_FORK"] = "1"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Check current root logger level
+root_logger = logging.getLogger()
+current_level = root_logger.level
+
+# Suppress warnings only at ERROR level
+if current_level >= logging.ERROR:
+    os.environ["PYTHONWARNINGS"] = "ignore::UserWarning,ignore::DeprecationWarning"
+    warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
+    warnings.filterwarnings("ignore", message=".*Trying to infer the `batch_size`.*")
+
+    for logger_name in ["pytorch_lightning", "whisperx", "pyannote.audio"]:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
 
 
 class ASRProcessor:
@@ -34,18 +55,32 @@ class ASRProcessor:
         """
         ssl._create_default_https_context = ssl._create_unverified_context
 
-        # Set up comprehensive warning suppression
+        # Current logging level is irrelevant when loading models
         original_level = logging.getLogger().level
         stdout_buffer = io.StringIO()
         stderr_buffer = io.StringIO()
 
+        # Create context managers for filtering stderr/stdout
+        redirect_context = redirect_stdout(stdout_buffer)
+        redirect_err_context = redirect_stderr(stderr_buffer)
+
+        # Create context manager for filtering warnings
+        warning_context = warnings.catch_warnings()
+
         try:
-            # Temporarily suppress all logging
+            # Temporarily set all logging to ERROR level
             logging.getLogger().setLevel(logging.ERROR)
 
-            # Redirect both stdout and stderr
-            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                # Load model with explicit language parameter
+            # Filter warnings
+            warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
+            warnings.filterwarnings("ignore", message=".*set_stage.*")
+            warnings.filterwarnings(
+                "ignore", message=".*Trying to infer the `batch_size`.*"
+            )
+
+            # Run all context managers
+            with redirect_context, redirect_err_context, warning_context:
+                # Load model
                 self.model = whisperx.load_model(
                     self.model_name,
                     self.device,
@@ -61,15 +96,24 @@ class ASRProcessor:
             self.model.preset_language = language_code
 
         try:
-            # Set up comprehensive warning suppression again for alignment model
-            original_level = logging.getLogger().level
+            # Reset warning filtering
+            warning_context = warnings.catch_warnings()
 
             try:
-                # Temporarily suppress all logging
+                # Temporarily set all logging to ERROR level
                 logging.getLogger().setLevel(logging.ERROR)
 
-                # Redirect both stdout and stderr
-                with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                # Filter warnings
+                warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
+                warnings.filterwarnings("ignore", message=".*set_stage.*")
+                warnings.filterwarnings(
+                    "ignore", message=".*Trying to infer the `batch_size`.*"
+                )
+
+                # Run all context managers
+                with redirect_stdout(stdout_buffer), redirect_stderr(
+                    stderr_buffer
+                ), warning_context:
                     self.align_model, self.align_metadata = whisperx.load_align_model(
                         language_code=language_code, device=self.device
                     )
