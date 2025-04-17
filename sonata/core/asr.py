@@ -47,6 +47,7 @@ class ASRProcessor:
         self.align_model = None
         self.align_metadata = None
         self.current_language = None
+        self.diarize_model = None
 
     def load_models(self, language_code: str = LanguageCode.ENGLISH.value):
         """Load WhisperX and alignment models for the specified language.
@@ -102,7 +103,7 @@ class ASRProcessor:
 
             try:
                 # Temporarily set all logging to ERROR level
-                logging.getLogger().setLevel(logging.ERROR)
+                logging.getLogger().level = logging.ERROR
 
                 # Filter warnings
                 warnings.filterwarnings("ignore", message=".*upgrade_checkpoint.*")
@@ -121,7 +122,7 @@ class ASRProcessor:
                 self.current_language = language_code
             finally:
                 # Restore original logging level
-                logging.getLogger().setLevel(original_level)
+                logging.getLogger().level = original_level
         except Exception as e:
             print(
                 f"Warning: Could not load alignment model for {language_code}. Falling back to transcription without alignment."
@@ -130,12 +131,151 @@ class ASRProcessor:
             self.align_metadata = None
             self.current_language = language_code
 
+    def load_diarize_model(
+        self,
+        hf_token: Optional[str] = None,
+        show_progress: bool = True,
+        offline_mode: bool = False,
+        offline_config_path: Optional[str] = None,
+    ):
+        """Load the speaker diarization model.
+
+        Args:
+            hf_token: Hugging Face token for model access
+            show_progress: Whether to display progress messages
+            offline_mode: Whether to use offline mode
+            offline_config_path: Path to offline config.yaml file
+        """
+        if self.diarize_model is None:
+            if show_progress:
+                print(f"[ASR] Loading diarization model...", flush=True)
+
+            # Suppress warnings and logging during model loading
+            original_level = logging.getLogger().level
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
+
+            try:
+                # Temporarily set all logging to ERROR level
+                logging.getLogger().setLevel(logging.ERROR)
+
+                # Redirect both stdout and stderr
+                with redirect_stdout(stdout_buffer), redirect_stderr(
+                    stderr_buffer
+                ), warnings.catch_warnings():
+                    warnings.filterwarnings("ignore")
+
+                    if offline_mode and offline_config_path:
+                        # For offline mode, use local config directly
+                        from pyannote.audio import Pipeline
+
+                        # Expand user directory if needed (e.g., ~ to /home/user)
+                        if offline_config_path.startswith("~"):
+                            offline_config_path = os.path.expanduser(
+                                offline_config_path
+                            )
+
+                        if show_progress:
+                            print(
+                                f"[ASR] Using offline diarization model from {offline_config_path}",
+                                flush=True,
+                            )
+
+                        # Load directly from config file path, no token needed
+                        self.diarize_model = Pipeline.from_pretrained(
+                            checkpoint_path=offline_config_path,
+                        )
+                    else:
+                        # For online mode, use standard HuggingFace loading
+                        if not hf_token:
+                            raise ValueError(
+                                "HuggingFace token is required for online diarization"
+                            )
+
+                        self.diarize_model = whisperx.DiarizationPipeline(
+                            use_auth_token=hf_token, device=self.device
+                        )
+
+                if show_progress:
+                    print(f"[ASR] Diarization model loaded successfully.", flush=True)
+            except Exception as e:
+                print(f"Warning: Could not load diarization model. Error: {str(e)}")
+                self.diarize_model = None
+            finally:
+                # Restore original logging level
+                logging.getLogger().setLevel(original_level)
+
+    def diarize_audio(
+        self,
+        audio_path: str,
+        min_speakers: Optional[int] = None,
+        max_speakers: Optional[int] = None,
+        show_progress: bool = True,
+    ) -> List[Dict]:
+        """Perform speaker diarization on an audio file.
+
+        Args:
+            audio_path: Path to the audio file
+            min_speakers: Minimum number of speakers
+            max_speakers: Maximum number of speakers
+            show_progress: Whether to show progress indicators
+
+        Returns:
+            List of diarization segments with speaker IDs and timestamps
+        """
+        if self.diarize_model is None:
+            raise RuntimeError("Diarization model is not loaded")
+
+        if show_progress:
+            print(f"[ASR] Processing audio for diarization...", flush=True)
+
+        # Load audio for diarization
+        try:
+            # Load audio using whisperx utility
+            audio = whisperx.load_audio(audio_path)
+
+            # Perform diarization
+            if hasattr(self.diarize_model, "__call__"):
+                # Direct Pipeline (offline mode)
+                diarize_segments = self.diarize_model(
+                    audio_path,  # Pipeline expects path, not audio data
+                    min_speakers=min_speakers,
+                    max_speakers=max_speakers,
+                )
+                # Convert output format to match whisperx format
+                result = []
+                for segment, track, label in diarize_segments.itertracks(
+                    yield_label=True
+                ):
+                    result.append(
+                        {
+                            "start": segment.start,
+                            "end": segment.end,
+                            "speaker": f"SPEAKER_{label}",
+                        }
+                    )
+                return result
+            else:
+                # WhisperX DiarizationPipeline
+                return self.diarize_model(
+                    audio,
+                    min_speakers=min_speakers,
+                    max_speakers=max_speakers,
+                )
+        except Exception as e:
+            print(f"Warning: Diarization failed. Error: {str(e)}")
+            return []
+
     def process_audio(
         self,
         audio_path: str,
         language: str = LanguageCode.ENGLISH.value,
         batch_size: int = 16,
         show_progress: bool = True,
+        diarize: bool = False,
+        min_speakers: Optional[int] = None,
+        max_speakers: Optional[int] = None,
+        hf_token: Optional[str] = None,
     ) -> Dict:
         """Process audio file with WhisperX to get transcription with timestamps.
 
@@ -144,6 +284,10 @@ class ASRProcessor:
             language: ISO language code (e.g., "en", "ko")
             batch_size: Batch size for processing
             show_progress: Whether to show progress indicators
+            diarize: Whether to perform speaker diarization
+            min_speakers: Minimum number of speakers for diarization
+            max_speakers: Maximum number of speakers for diarization
+            hf_token: HuggingFace token for diarization model (required if diarize=True)
 
         Returns:
             Dictionary containing transcription results
@@ -247,6 +391,37 @@ class ASRProcessor:
                     f"Warning: Alignment failed. Using original timestamps. Error: {e}"
                 )
 
+        # Perform speaker diarization if requested
+        if diarize:
+            if show_progress:
+                print(f"[ASR] Performing speaker diarization...", flush=True)
+
+            # Load diarization model if not already loaded
+            if self.diarize_model is None:
+                self.load_diarize_model(hf_token=hf_token, show_progress=show_progress)
+
+            if self.diarize_model is not None:
+                try:
+                    # Perform diarization
+                    diarize_segments = self.diarize_audio(
+                        audio_path=audio_path,
+                        min_speakers=min_speakers,
+                        max_speakers=max_speakers,
+                        show_progress=show_progress,
+                    )
+
+                    # Assign speakers to segments
+                    result = whisperx.assign_word_speakers(diarize_segments, result)
+
+                    if show_progress:
+                        print(f"[ASR] Speaker diarization complete.", flush=True)
+                except Exception as e:
+                    print(f"Warning: Speaker diarization failed. Error: {str(e)}")
+            else:
+                print(
+                    f"Warning: Speaker diarization was requested but the model couldn't be loaded."
+                )
+
         return result
 
     def get_word_timestamps(self, result: Dict) -> List[Dict]:
@@ -271,68 +446,27 @@ class ASRProcessor:
             return []
 
         for segment in result["segments"]:
-            try:
-                if "words" in segment and segment["words"]:
-                    for word in segment["words"]:
-                        # Check if word has the required keys
-                        if "word" in word and "start" in word and "end" in word:
-                            words_with_timestamps.append(
-                                {
-                                    "word": word["word"],
-                                    "start": word["start"],
-                                    "end": word["end"],
-                                    "confidence": word.get("confidence", 1.0),
-                                }
-                            )
-                        else:
-                            # Handle missing keys
-                            missing_keys = [
-                                k for k in ["word", "start", "end"] if k not in word
-                            ]
-                            print(
-                                f"Warning: Word missing required keys: {missing_keys}. Available keys: {list(word.keys())}"
-                            )
-                            # Use available keys or defaults
-                            words_with_timestamps.append(
-                                {
-                                    "word": word.get("word", "[UNKNOWN]"),
-                                    "start": word.get(
-                                        "start", segment.get("start", 0.0)
-                                    ),
-                                    "end": word.get("end", segment.get("end", 0.0)),
-                                    "confidence": word.get("confidence", 0.5),
-                                }
-                            )
-                else:
-                    # If word-level alignment is not available, use segment-level timing
-                    if "text" in segment and "start" in segment and "end" in segment:
-                        words_with_timestamps.append(
-                            {
-                                "word": segment["text"],
-                                "start": segment["start"],
-                                "end": segment["end"],
-                                "confidence": segment.get("confidence", 1.0),
-                            }
-                        )
-                    else:
-                        # Handle missing segment keys
-                        missing_keys = [
-                            k for k in ["text", "start", "end"] if k not in segment
-                        ]
-                        print(
-                            f"Warning: Segment missing required keys: {missing_keys}. Available keys: {list(segment.keys())}"
-                        )
-                        # Use available keys or defaults
-                        words_with_timestamps.append(
-                            {
-                                "word": segment.get("text", "[UNKNOWN]"),
-                                "start": segment.get("start", 0.0),
-                                "end": segment.get("end", 0.0),
-                                "confidence": segment.get("confidence", 0.5),
-                            }
-                        )
-            except Exception as e:
-                print(f"Warning: Error processing segment: {e}")
-                # Continue with next segment
+            # Check for word-level information
+            if "words" in segment:
+                for word_data in segment["words"]:
+                    word_with_time = {
+                        "word": word_data["word"],
+                        "start": word_data["start"],
+                        "end": word_data["end"],
+                    }
+                    if "score" in word_data:
+                        word_with_time["score"] = word_data["score"]
+                    if "speaker" in word_data:
+                        word_with_time["speaker"] = word_data["speaker"]
+                    words_with_timestamps.append(word_with_time)
+            else:
+                # Fallback if no word-level data (shouldn't happen with alignment)
+                words_with_timestamps.append(
+                    {
+                        "word": segment["text"],
+                        "start": segment["start"],
+                        "end": segment["end"],
+                    }
+                )
 
         return words_with_timestamps
