@@ -65,6 +65,10 @@ class IntegratedTranscriber:
         language: str = DEFAULT_LANGUAGE,
         audio_threshold: float = AUDIO_EVENT_THRESHOLD,
         batch_size: int = 16,
+        diarize: bool = False,
+        min_speakers: Optional[int] = None,
+        max_speakers: Optional[int] = None,
+        hf_token: Optional[str] = None,
     ) -> Dict:
         """Process audio to get transcription with audio events integrated.
 
@@ -73,6 +77,10 @@ class IntegratedTranscriber:
             language: ISO language code (e.g., "en", "ko")
             audio_threshold: Detection threshold for audio events
             batch_size: Batch size for processing
+            diarize: Whether to perform speaker diarization
+            min_speakers: Minimum number of speakers for diarization
+            max_speakers: Maximum number of speakers for diarization
+            hf_token: HuggingFace token for diarization model (required if diarize=True)
 
         Returns:
             Dictionary containing the complete transcription results
@@ -87,6 +95,10 @@ class IntegratedTranscriber:
             language=language,
             batch_size=batch_size,
             show_progress=True,
+            diarize=diarize,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+            hf_token=hf_token,
         )
 
         # Then run audio event detection with progress indicators
@@ -117,15 +129,17 @@ class IntegratedTranscriber:
 
         # Add words
         for word in word_timestamps:
-            sorted_elements.append(
-                {
-                    "type": "word",
-                    "content": word["word"],
-                    "start": word["start"],
-                    "end": word["end"],
-                    "score": word.get("score", 0.0),
-                }
-            )
+            element = {
+                "type": "word",
+                "content": word["word"],
+                "start": word["start"],
+                "end": word["end"],
+                "score": word.get("score", 0.0),
+            }
+            # Add speaker information if available
+            if "speaker" in word:
+                element["speaker"] = word["speaker"]
+            sorted_elements.append(element)
 
         # Add audio events
         for event in audio_events:
@@ -149,16 +163,20 @@ class IntegratedTranscriber:
 
         for element in sorted_elements:
             if element["type"] == "word":
-                plain_text += element["content"] + " "
-                rich_text.append(
-                    {
-                        "type": "word",
-                        "content": element["content"],
-                        "start": element["start"],
-                        "end": element["end"],
-                        "score": element.get("score", 0.0),
-                    }
-                )
+                word_text = element["content"] + " "
+                plain_text += word_text
+
+                word_element = {
+                    "type": "word",
+                    "content": element["content"],
+                    "start": element["start"],
+                    "end": element["end"],
+                    "score": element.get("score", 0.0),
+                }
+                # Add speaker information if available
+                if "speaker" in element:
+                    word_element["speaker"] = element["speaker"]
+                rich_text.append(word_element)
             else:  # audio_event
                 plain_text += element["content"] + " "
                 rich_text.append(
@@ -200,8 +218,19 @@ class IntegratedTranscriber:
         if format_type == "concise":
             text_parts = []
             current_sentence = []
+            current_speaker = None
 
             for item in rich_text:
+                # Handle speaker changes
+                if item["type"] == "word" and "speaker" in item:
+                    if current_speaker != item["speaker"]:
+                        current_speaker = item["speaker"]
+                        if current_sentence:  # If we have text, add a line break
+                            text_parts.append("".join(current_sentence))
+                            current_sentence = []
+                        current_sentence.append(f"[{current_speaker}]: ")
+
+                # Add content
                 if item["type"] == "word":
                     # Add space before word if needed
                     word = item["content"]
@@ -211,32 +240,58 @@ class IntegratedTranscriber:
                 else:  # audio_event
                     current_sentence.append(f" {item['content']}")
 
-            text = "".join(current_sentence)
-            return text
+            # Add final sentence
+            if current_sentence:
+                text_parts.append("".join(current_sentence))
+
+            return "\n".join(text_parts)
 
         # Default format: with timestamps
         elif format_type == "default":
             formatted_lines = []
+            current_speaker = None
+
             for item in rich_text:
                 start_time = self._format_time(item["start"])
+
+                # Check for speaker change
+                if item["type"] == "word" and "speaker" in item:
+                    if current_speaker != item["speaker"]:
+                        current_speaker = item["speaker"]
+                        formatted_lines.append(f"\n[{start_time}] [{current_speaker}]")
+
                 if item["type"] == "word":
                     formatted_lines.append(f"[{start_time}] {item['content']}")
                 else:  # audio_event
                     formatted_lines.append(f"[{start_time}] {item['content']}")
+
             return "\n".join(formatted_lines)
 
         # Extended format: with confidence scores
         elif format_type == "extended":
             formatted_lines = []
+            current_speaker = None
+
             for item in rich_text:
                 start_time = self._format_time(item["start"])
+
+                # Check for speaker change
+                if item["type"] == "word" and "speaker" in item:
+                    if current_speaker != item["speaker"]:
+                        current_speaker = item["speaker"]
+                        formatted_lines.append(f"\n[{start_time}] [{current_speaker}]")
+
                 if item["type"] == "word":
-                    formatted_lines.append(f"[{start_time}] {item['content']}")
+                    score = item.get("score", 0.0)
+                    formatted_lines.append(
+                        f"[{start_time}] {item['content']} (confidence: {score:.2f})"
+                    )
                 else:  # audio_event
                     confidence = item.get("confidence", 0.0)
                     formatted_lines.append(
                         f"[{start_time}] {item['content']} (confidence: {confidence:.2f})"
                     )
+
             return "\n".join(formatted_lines)
 
         # Default to standard format if invalid format type
