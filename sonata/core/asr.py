@@ -36,6 +36,13 @@ class ASRProcessor:
         self, audio_path: str, batch_size: int = 16, language: str = "en"
     ) -> Dict:
         """Process audio file with WhisperX to get transcription with timestamps."""
+        # Ensure batch_size is an integer
+        if not isinstance(batch_size, int):
+            print(
+                f"Warning: batch_size must be an integer. Got {type(batch_size)}. Using default value 16."
+            )
+            batch_size = 16
+
         if self.model is None or self.current_language != language:
             try:
                 self.load_models(language_code=language)
@@ -50,6 +57,10 @@ class ASRProcessor:
 
         # Transcribe with whisperx
         audio = whisperx.load_audio(audio_path)
+        # Print parameters for debugging
+        print(
+            f"Transcribing with parameters - language: {language}, batch_size: {batch_size}"
+        )
         result = self.model.transcribe(audio, batch_size=batch_size, language=language)
 
         # Align timestamps if alignment model is available
