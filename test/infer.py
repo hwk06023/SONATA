@@ -53,12 +53,6 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=16,
-        help="Batch size for ASR processing (default: 16)",
-    )
-    parser.add_argument(
         "-b",
         "--batch-size",
         type=int,
