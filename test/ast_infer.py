@@ -63,14 +63,14 @@ def convert_to_wav(input_path):
         print(f"Converted {input_path} to WAV format at {output_path}")
         return output_path
     except subprocess.CalledProcessError as e:
-        print(f"Error converting file to WAV: {e}")
+        logging.error(f"Error converting file to WAV: {e}")
         return input_path
 
 
 def main():
     args = parse_args()
     if not os.path.exists(args.input):
-        print(f"Error: Input file '{args.input}' does not exist.")
+        logging.error(f"Error: Input file '{args.input}' does not exist.")
         sys.exit(1)
     if not args.output:
         input_basename = os.path.splitext(os.path.basename(args.input))[0]
