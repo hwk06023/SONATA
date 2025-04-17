@@ -4,6 +4,7 @@ import torch
 import whisperx
 import ssl
 from typing import Dict, List, Union, Tuple, Optional
+from sonata.constants import LanguageCode
 
 
 class ASRProcessor:
@@ -21,7 +22,12 @@ class ASRProcessor:
         self.align_metadata = None
         self.current_language = None
 
-    def load_models(self, language_code: str = "en"):
+    def load_models(self, language_code: str = LanguageCode.ENGLISH.value):
+        """Load WhisperX and alignment models for the specified language.
+
+        Args:
+            language_code: ISO language code (e.g., "en", "ko", "zh")
+        """
         ssl._create_default_https_context = ssl._create_unverified_context
 
         # Load model with explicit language parameter
@@ -50,9 +56,21 @@ class ASRProcessor:
             self.current_language = language_code
 
     def process_audio(
-        self, audio_path: str, batch_size: int = 16, language: str = "en"
+        self,
+        audio_path: str,
+        language: str = LanguageCode.ENGLISH.value,
+        batch_size: int = 16,
     ) -> Dict:
-        """Process audio file with WhisperX to get transcription with timestamps."""
+        """Process audio file with WhisperX to get transcription with timestamps.
+
+        Args:
+            audio_path: Path to the audio file
+            language: ISO language code (e.g., "en", "ko")
+            batch_size: Batch size for processing
+
+        Returns:
+            Dictionary containing transcription results
+        """
         # Ensure batch_size is an integer
         if not isinstance(batch_size, int):
             print(
@@ -60,8 +78,18 @@ class ASRProcessor:
             )
             batch_size = 16
 
-        # Always reload models to ensure language is set correctly
-        self.load_models(language_code=language)
+        # Always check if models need to be loaded or reloaded
+        if self.model is None or self.current_language != language:
+            try:
+                self.load_models(language_code=language)
+            except Exception as e:
+                print(
+                    f"Warning: Could not load alignment model for {language}. Falling back to transcription without alignment."
+                )
+                if self.model is None:
+                    self.model = whisperx.load_model(
+                        self.model_name, self.device, compute_type=self.compute_type
+                    )
 
         # Print parameters for debugging
         print(

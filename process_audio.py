@@ -4,7 +4,7 @@ import sys
 import argparse
 from sonata.utils.audio_converter import convert_to_wav
 from sonata.core.transcriber import IntegratedTranscriber
-from sonata.constants import EMOTIVE_THRESHOLD
+from sonata.constants import EMOTIVE_THRESHOLD, LanguageCode
 
 
 def main():
@@ -13,7 +13,11 @@ def main():
     )
     parser.add_argument("input_path", help="Path to input audio file (any format)")
     parser.add_argument(
-        "--language", "-l", default="ko", help="Language code (default: ko)"
+        "--language",
+        "-l",
+        default=LanguageCode.KOREAN.value,
+        choices=[lang.value for lang in LanguageCode],
+        help=f"Language code (default: {LanguageCode.KOREAN.value})",
     )
     parser.add_argument("--output", "-o", help="Path to output JSON file")
     parser.add_argument(
@@ -37,7 +41,7 @@ def main():
     print(f"Processing {wav_path} with SONATA...")
     transcriber = IntegratedTranscriber()
     result = transcriber.process_audio(
-        wav_path, language=args.language, emotive_threshold=args.threshold
+        audio_path=wav_path, language=args.language, emotive_threshold=args.threshold
     )
 
     # Set default output path if not specified

@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from sonata.models.model_loader import load_audioset
 from scipy.special import softmax
-from sonata.constants import EMOTIVE_THRESHOLD, EMOTIVE_TYPES, EMOTIVE_CLASS_MAPPING
+from sonata.constants import EMOTIVE_THRESHOLD, EmotiveEventType, EMOTIVE_CLASS_MAPPING
 
 # Temporary - Set up debug logging
 logging.basicConfig(
@@ -503,7 +503,12 @@ class AudiosetEmotiveDetector:
 
 
 class EmotiveDetector(AudiosetEmotiveDetector):
-    """EmotiveDetector class using only AudioSet AST model."""
+    """
+    Detector for emotive events in audio using AudioSet-based model.
+
+    This class extends AudiosetEmotiveDetector with additional functionality
+    specific to detecting emotive events like laughs, sighs, etc.
+    """
 
     def __init__(
         self,
@@ -512,12 +517,20 @@ class EmotiveDetector(AudiosetEmotiveDetector):
         device: str = None,
         emotive_types: Optional[List[str]] = None,
     ):
-        model_name = (
-            model_path if model_path else "MIT/ast-finetuned-audioset-10-10-0.4593"
-        )
-        super().__init__(model_dir=model_name, device=device)
+        """
+        Initialize the emotive detector.
 
-        # Use emotive types from constants if not provided
-        self.EMOTIVE_TYPES = (
-            emotive_types if emotive_types is not None else EMOTIVE_TYPES
-        )
+        Args:
+            model_path: Path to a custom model (optional)
+            threshold: Detection confidence threshold
+            device: Compute device (cpu/cuda)
+            emotive_types: List of emotive event types to detect (optional)
+        """
+        super().__init__(model_dir=model_path, device=device)
+        self.threshold = threshold
+
+        # Use the EmotiveEventType enum values for emotive types if not provided
+        if emotive_types is None:
+            self.emotive_types = [event_type.value for event_type in EmotiveEventType]
+        else:
+            self.emotive_types = emotive_types

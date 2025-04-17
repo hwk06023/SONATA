@@ -1,51 +1,90 @@
-name: Copilot Automatic Code Review
+name: Copilot PR Review
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - dev
 
 permissions:
   contents: read
-  issues: write
   pull-requests: write
 
 jobs:
-  copilot-auto-review:
+  copilot-review:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Create .env file with repository config
-        run: |
-          echo "GITHUB_REPOSITORY=${{ github.repository }}" >> .env
-          echo "GITHUB_PR_NUMBER=${{ github.event.pull_request.number }}" >> .env
-
-      - name: Configure automatic code review
-        run: |
-          # Create a .github/copilot-config.json file if it doesn't exist
-          mkdir -p .github
-          cat > .github/copilot-config.json << EOF
-          {
-            "automatically_request_reviews": true,
-            "review_simple_changes": true,
-            "auto_assign_reviewers": true
-          }
-          EOF
-          
-          echo "Created Copilot configuration file"
-          cat .github/copilot-config.json
-
-      - name: Commit configuration file
-        uses: EndBug/add-and-commit@v9
+      - name: Add Copilot as reviewer
+        uses: actions/github-script@v7
         with:
-          add: '.github/copilot-config.json'
-          author_name: 'GitHub Actions'
-          author_email: 'actions@github.com'
-          message: 'Configure Copilot automatic code review'
-          push: true 
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner,
+                repo,
+                pull_number: prNumber,
+                reviewers: ['github-copilot']
+              });
+              console.log(`Successfully requested GitHub Copilot review for PR #${prNumber}`);
+            } catch (error) {
+              console.error(`Error requesting GitHub Copilot review: ${error.message}`);
+              
+              if (error.message.includes('does not have permission') || error.message.includes('Not Found')) {
+                console.log('The "github-copilot" user may not exist as a collaborator in this repository.');
+                try {
+                  await github.rest.pulls.requestReviewers({
+                    owner,
+                    repo,
+                    pull_number: prNumber,
+                    reviewers: ['copilot']
+                  });
+                  console.log(`Tried with "copilot" user instead.`);
+                } catch (secondError) {
+                  console.error(`Second attempt also failed: ${secondError.message}`);
+                }
+              }
+            }
+            
+      - name: Add explanation comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            try {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body: `## GitHub Copilot Review Requested
+                
+                GitHub Copilot has been requested to review this pull request.
+                
+                Copilot will analyze the changes and may provide:
+                - Code quality suggestions
+                - Security recommendations
+                - Performance improvement ideas
+                - Best practice recommendations`
+              });
+            } catch (error) {
+              console.error(`Error posting comment: ${error.message}`);
+            } 
