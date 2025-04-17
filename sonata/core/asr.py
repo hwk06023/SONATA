@@ -3,6 +3,9 @@ import numpy as np
 import torch
 import whisperx
 import ssl
+import io
+import sys
+from contextlib import redirect_stdout
 from typing import Dict, List, Union, Tuple, Optional
 from sonata.constants import LanguageCode
 
@@ -30,22 +33,26 @@ class ASRProcessor:
         """
         ssl._create_default_https_context = ssl._create_unverified_context
 
-        # Load model with explicit language parameter
-        self.model = whisperx.load_model(
-            self.model_name,
-            self.device,
-            compute_type=self.compute_type,
-            language=language_code,  # Pass language parameter directly
-        )
+        # Suppress version warnings by redirecting stdout temporarily
+        with redirect_stdout(io.StringIO()):
+            # Load model with explicit language parameter
+            self.model = whisperx.load_model(
+                self.model_name,
+                self.device,
+                compute_type=self.compute_type,
+                language=language_code,  # Pass language parameter directly
+            )
 
         # Ensure preset_language is set
         if hasattr(self.model, "preset_language"):
             self.model.preset_language = language_code
 
         try:
-            self.align_model, self.align_metadata = whisperx.load_align_model(
-                language_code=language_code, device=self.device
-            )
+            # Suppress version warnings for alignment model loading
+            with redirect_stdout(io.StringIO()):
+                self.align_model, self.align_metadata = whisperx.load_align_model(
+                    language_code=language_code, device=self.device
+                )
             self.current_language = language_code
         except Exception as e:
             print(
@@ -87,9 +94,11 @@ class ASRProcessor:
                     f"Warning: Could not load alignment model for {language}. Falling back to transcription without alignment."
                 )
                 if self.model is None:
-                    self.model = whisperx.load_model(
-                        self.model_name, self.device, compute_type=self.compute_type
-                    )
+                    # Suppress version warnings during model loading
+                    with redirect_stdout(io.StringIO()):
+                        self.model = whisperx.load_model(
+                            self.model_name, self.device, compute_type=self.compute_type
+                        )
 
         # Print parameters for debugging
         print(

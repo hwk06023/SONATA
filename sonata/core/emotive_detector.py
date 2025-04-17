@@ -14,7 +14,7 @@ from sonata.constants import EMOTIVE_THRESHOLD, EmotiveEventType, EMOTIVE_CLASS_
 
 # Temporary - Set up debug logging
 logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.ERROR, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 from dataclasses import dataclass
