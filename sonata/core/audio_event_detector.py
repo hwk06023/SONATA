@@ -16,6 +16,7 @@ from sonata.constants import (
     AUDIO_EVENT_THRESHOLD,
     AudioEventType,
     AUDIOSET_CLASS_MAPPING,
+    AUDIO_EVENT_THRESHOLDS,
 )
 from tqdm import tqdm
 
@@ -582,47 +583,8 @@ class AudioEventDetector(AudiosetClassifier):
                 k: v for k, v in self.event_class_map.items() if v in event_types
             }
 
-        # Class-specific thresholds for better detection of secondary events
-        self.class_thresholds = {
-            # Human vocal sounds - need lower thresholds to detect alongside speech
-            "laughter": 0.1,
-            "baby_laughter": 0.1,
-            "giggle": 0.1,
-            "chuckle": 0.1,
-            "crying": 0.1,
-            "baby_cry": 0.1,
-            "whimper": 0.1,
-            "sigh": 0.15,
-            "breathing": 0.15,
-            "cough": 0.15,
-            "sneeze": 0.15,
-            "sniff": 0.15,
-            "throat_clearing": 0.15,
-            "burp": 0.15,
-            "hiccup": 0.15,
-            "gasp": 0.15,
-            "pant": 0.15,
-            "wheeze": 0.15,
-            # Physical sounds
-            "clapping": 0.2,
-            "finger_snapping": 0.2,
-            "footsteps": 0.2,
-            # Environmental sounds that can be subtler
-            "wind": 0.15,
-            "water": 0.15,
-            "rain": 0.15,
-            # Music detection should be easier
-            "music": 0.25,
-            # Mechanical sounds
-            "keyboard": 0.2,
-            "typing": 0.2,
-            # Prominent sounds should use standard threshold
-            "speech": self.threshold,
-            "male_speech": self.threshold,
-            "female_speech": self.threshold,
-            "explosion": self.threshold,
-            "gunshot": self.threshold,
-        }
+        # Load class-specific thresholds from constants
+        self.class_thresholds = AUDIO_EVENT_THRESHOLDS
 
         # Use windowing for segmented analysis
         self.use_windowing = True
