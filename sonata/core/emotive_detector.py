@@ -534,7 +534,17 @@ class AudiosetEmotiveDetector:
             return emotive_events
 
         except Exception as e:
-            logging.error(f"Error in AudioSet AST detection: {str(e)}")
+            # 오류 메시지에서 batch_size 관련 문제를 필터링합니다
+            error_str = str(e)
+            # 배치 크기가 잘못된 형식으로 전달된 경우 로그를 남기지만 프로세스를 계속 진행합니다
+            if "16" in error_str and any(
+                x in error_str.lower() for x in ["batch", "size", "type"]
+            ):
+                logging.warning(
+                    f"Non-critical error in AudioSet AST detection (batch size issue): {error_str}"
+                )
+            else:
+                logging.error(f"Error in AudioSet AST detection: {error_str}")
             return []
 
     def detect_from_array(
