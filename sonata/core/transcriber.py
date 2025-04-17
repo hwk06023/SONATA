@@ -69,7 +69,7 @@ class IntegratedTranscriber:
                 batch_size=batch_size,
             )
             emotive_future = executor.submit(
-                self.emotive_detector.detect_events, audio_path
+                self.emotive_detector.detect_events, audio_path=audio_path
             )
 
             # Wait for both to complete
