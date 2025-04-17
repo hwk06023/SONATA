@@ -197,6 +197,7 @@ def main():
                 audio_path=segment["path"],
                 language=args.language,
                 emotive_threshold=args.threshold,
+                batch_size=16,
             )
 
             # Adjust timestamps to account for segment start time
@@ -216,6 +217,7 @@ def main():
             audio_path=input_file,
             language=args.language,
             emotive_threshold=args.threshold,
+            batch_size=16,
         )
 
     # Save results

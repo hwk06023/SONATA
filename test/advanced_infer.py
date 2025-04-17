@@ -68,7 +68,9 @@ def process_file(input_file, args, output_dir):
 
     # Process audio
     start_time = time.time()
-    result = transcriber.process_audio(processed_file, language=args.language)
+    result = transcriber.process_audio(
+        processed_file, language=args.language, batch_size=16
+    )
     processing_time = time.time() - start_time
 
     # Save results
