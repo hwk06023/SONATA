@@ -5,7 +5,8 @@ import whisperx
 import ssl
 import io
 import sys
-from contextlib import redirect_stdout
+import logging
+from contextlib import redirect_stdout, redirect_stderr, nullcontext
 from typing import Dict, List, Union, Tuple, Optional
 from sonata.constants import LanguageCode
 
@@ -33,27 +34,49 @@ class ASRProcessor:
         """
         ssl._create_default_https_context = ssl._create_unverified_context
 
-        # Suppress version warnings by redirecting stdout temporarily
-        with redirect_stdout(io.StringIO()):
-            # Load model with explicit language parameter
-            self.model = whisperx.load_model(
-                self.model_name,
-                self.device,
-                compute_type=self.compute_type,
-                language=language_code,  # Pass language parameter directly
-            )
+        # Set up comprehensive warning suppression
+        original_level = logging.getLogger().level
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+
+        try:
+            # Temporarily suppress all logging
+            logging.getLogger().setLevel(logging.ERROR)
+
+            # Redirect both stdout and stderr
+            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                # Load model with explicit language parameter
+                self.model = whisperx.load_model(
+                    self.model_name,
+                    self.device,
+                    compute_type=self.compute_type,
+                    language=language_code,  # Pass language parameter directly
+                )
+        finally:
+            # Restore original logging level
+            logging.getLogger().setLevel(original_level)
 
         # Ensure preset_language is set
         if hasattr(self.model, "preset_language"):
             self.model.preset_language = language_code
 
         try:
-            # Suppress version warnings for alignment model loading
-            with redirect_stdout(io.StringIO()):
-                self.align_model, self.align_metadata = whisperx.load_align_model(
-                    language_code=language_code, device=self.device
-                )
-            self.current_language = language_code
+            # Set up comprehensive warning suppression again for alignment model
+            original_level = logging.getLogger().level
+
+            try:
+                # Temporarily suppress all logging
+                logging.getLogger().setLevel(logging.ERROR)
+
+                # Redirect both stdout and stderr
+                with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+                    self.align_model, self.align_metadata = whisperx.load_align_model(
+                        language_code=language_code, device=self.device
+                    )
+                self.current_language = language_code
+            finally:
+                # Restore original logging level
+                logging.getLogger().setLevel(original_level)
         except Exception as e:
             print(
                 f"Warning: Could not load alignment model for {language_code}. Falling back to transcription without alignment."
@@ -94,11 +117,27 @@ class ASRProcessor:
                     f"Warning: Could not load alignment model for {language}. Falling back to transcription without alignment."
                 )
                 if self.model is None:
-                    # Suppress version warnings during model loading
-                    with redirect_stdout(io.StringIO()):
-                        self.model = whisperx.load_model(
-                            self.model_name, self.device, compute_type=self.compute_type
-                        )
+                    # Set up comprehensive warning suppression
+                    original_level = logging.getLogger().level
+                    stdout_buffer = io.StringIO()
+                    stderr_buffer = io.StringIO()
+
+                    try:
+                        # Temporarily suppress all logging
+                        logging.getLogger().setLevel(logging.ERROR)
+
+                        # Redirect both stdout and stderr
+                        with redirect_stdout(stdout_buffer), redirect_stderr(
+                            stderr_buffer
+                        ):
+                            self.model = whisperx.load_model(
+                                self.model_name,
+                                self.device,
+                                compute_type=self.compute_type,
+                            )
+                    finally:
+                        # Restore original logging level
+                        logging.getLogger().setLevel(original_level)
 
         # Print parameters for debugging
         print(
