@@ -19,6 +19,12 @@ from sonata.constants import (
     FormatType,
 )
 
+# Disable PyTorch Lightning checkpoint upgrade warning
+os.environ["PL_DISABLE_FORK"] = "1"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["PYTHONWARNINGS"] = "ignore::UserWarning,ignore::DeprecationWarning"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="SONATA Inference Tool")

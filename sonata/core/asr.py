@@ -10,6 +10,12 @@ from contextlib import redirect_stdout, redirect_stderr, nullcontext
 from typing import Dict, List, Union, Tuple, Optional
 from sonata.constants import LanguageCode
 
+# Disable PyTorch Lightning checkpoint upgrade warning
+os.environ["PL_DISABLE_FORK"] = "1"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["PYTHONWARNINGS"] = "ignore::UserWarning,ignore::DeprecationWarning"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 
 class ASRProcessor:
     def __init__(
