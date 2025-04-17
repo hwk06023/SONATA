@@ -143,7 +143,9 @@ def main():
     )
 
     # Process audio with our wrapper that ensures batch_size is correctly used
-    result = transcriber.process_audio(audio_path=args.input, language=args.language)
+    result = transcriber.process_audio(
+        audio_path=args.input, language=args.language, batch_size=args.batch_size
+    )
 
     # Save results
     transcriber.save_result(result, args.output)
