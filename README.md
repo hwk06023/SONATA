@@ -23,7 +23,7 @@ SONATA(SOund and Narrative Advanced Transcription Assistant) is advanced ASR sys
 - ⏱️ Rich timestamp information at the word level
 - 🔄 Audio preprocessing capabilities
 
-[📚 See detailed features documentation](docs/FEATURES.md)
+[📚 See detailed features documentation](https://github.com/hwk06023/SONATA/blob/main/docs/FEATURES.md)
 
 ## 🚀 Installation
 
@@ -69,21 +69,21 @@ sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
 sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
 ```
 
-[📚 See full usage documentation](docs/USAGE.md)  
-[⌨️ See complete CLI documentation](docs/CLI.md)  
-[🎤 See offline diarization guide](docs/OFFLINE_DIARIZATION.md)
+[📚 See full usage documentation](https://github.com/hwk06023/SONATA/blob/main/docs/USAGE.md)  
+[⌨️ See complete CLI documentation](https://github.com/hwk06023/SONATA/blob/main/docs/CLI.md)  
+[🎤 See offline diarization guide](https://github.com/hwk06023/SONATA/blob/main/docs/OFFLINE_DIARIZATION.md)
 
 ## 🗣️ Supported Languages
 
 SONATA supports 10 languages including English, Korean, Chinese, Japanese, French, German, Spanish, Italian, Portuguese, and Russian.
 
-[🌐 See languages documentation](docs/LANGUAGES.md)
+[🌐 See languages documentation](https://github.com/hwk06023/SONATA/blob/main/docs/LANGUAGES.md)
 
 ## 🔊 Audio Event Detection
 
 SONATA can detect over 500 different audio events, from laughter and applause to ambient sounds and music. The customizable event detection thresholds allow you to fine-tune sensitivity for specific audio events to match your unique use cases, such as podcast analysis, meeting transcription, or nature recording analysis.
 
-[🎵 See audio events documentation](docs/AUDIO_EVENTS.md)
+[🎵 See audio events documentation](https://github.com/hwk06023/SONATA/blob/main/docs/AUDIO_EVENTS.md)
 
 ## 🚀 Next Steps
 
@@ -96,7 +96,7 @@ SONATA can detect over 500 different audio events, from laughter and applause to
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-[📝 See contribution guidelines](docs/CONTRIBUTING.md)
+[📝 See contribution guidelines](https://github.com/hwk06023/SONATA/blob/main/docs/CONTRIBUTING.md)
 
 ## 📄 License
 

@@ -9,18 +9,11 @@ permalink: /AUDIO_EVENTS
 
 SONATA includes advanced audio event detection capabilities that can identify over 500 different types of sounds in your audio files.
 
-## Supported Audio Events
+## Full List of Supported Audio Events
 
-SONATA can detect a wide range of audio events, including:
+SONATA can detect over 523 different audio event types, grouped into categories including human sounds, animal sounds, music, natural sounds, and more.
 
-- Human sounds (laughter, crying, coughing, etc.)
-- Animal sounds (barks, meows, bird calls, etc.)
-- Musical sounds (instruments, singing, etc.)
-- Environmental sounds (wind, rain, thunder, etc.)
-- Mechanical sounds (engines, vehicles, alarms, etc.)
-- Domestic sounds (doors, typing, microwave, etc.)
-
-For a complete list of detectable audio events, see the [`AudioEventType` enum in constants.py](../sonata/constants.py).
+For a complete list of detectable audio events, see the [`AudioEventType` enum in constants.py`](https://github.com/hwk06023/SONATA/blob/main/sonata/constants.py).
 
 ## Detection Sensitivity
 
@@ -97,4 +90,4 @@ Custom thresholds can be particularly useful in scenarios like:
 - **Nature Recordings**: Customize thresholds for specific bird or animal sounds
 - **Music Analysis**: Fine-tune detection of specific instruments or musical elements
 
-For a complete example of using custom thresholds, see the [custom_thresholds_example.py](../test/custom_thresholds_example.py) script. 
+For a complete example of using custom thresholds, see the [custom_thresholds_example.py](https://github.com/hwk06023/SONATA/blob/main/test/custom_thresholds_example.py) script. 
