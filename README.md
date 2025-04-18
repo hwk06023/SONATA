@@ -1,8 +1,6 @@
 # SONATA 🎵🔊
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![PyPI version](https://badge.fury.io/py/sonata-asr.svg)](https://badge.fury.io/py/sonata-asr)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![GitHub stars](https://img.shields.io/github/stars/hwk06023/SONATA?style=social)](https://github.com/hwk06023/SONATA/stargazers)
 
 <div align="right">
@@ -14,7 +12,7 @@
 
 **SOund and Narrative Advanced Transcription Assistant**
 
-SONATA is an advanced Automatic Speech Recognition (ASR) system that captures the symphony of human expression by recognizing and transcribing both verbal content and emotive sounds.
+SONATA(SOund and Narrative Advanced Transcription Assistant) is advanced ASR system that captures human expressions including emotive sounds and non-verbal cues.
 
 ## ✨ Features
 
@@ -87,15 +85,12 @@ SONATA can detect over 500 different audio events, from laughter and applause to
 
 [🎵 See audio events documentation](docs/AUDIO_EVENTS.md)
 
-## 🛣️ Roadmap
+## 🚀 Next Steps
 
-- 🌐 Enhanced multilingual support
 - 🧠 Advanced ASR model diversity
 - 😢 Improved emotive detection
 - 🔊 Better speaker diarization
 - ⚡ Performance optimization
-
-[📋 See full roadmap](docs/ROADMAP.md)
 
 ## 🤝 Contributing
 

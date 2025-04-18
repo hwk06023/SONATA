@@ -14,20 +14,20 @@
 
 **SOund and Narrative Advanced Transcription Assistant**
 
-SONATAは人間の表現の交響曲を捉え、言語コンテンツと感情的な音の両方を認識して転写する高度な自動音声認識（ASR）システムです。
+SONATAは、感情表現や非言語的キューを含む人間の表現をキャプチャする先進的なASR(Automatic Speech Recognition)システムです。
 
-## ✨ 機能
+## ✨ Features
 
-- 🎙️ WhisperXを使用した高精度な音声テキスト変換
-- 😀 523種類以上の感情音と非言語キューの認識
+- 🎙️ WhisperXを使用した高精度 speech-to-text 変換
+- 😀 523種類以上の emotive sound と non-verbal cue の認識
 - 🌍 10言語対応
-- 👥 複数話者の書き起こしのための話者分離（オンラインとオフラインモード）
-- ⏱️ 単語レベルのタイムスタンプ情報
-- 🔄 オーディオ前処理機能
+- 👥 複数話者の書き起こしのための speaker diarization（オンラインとオフラインモード）
+- ⏱️ 単語レベルの正確な timestamp 情報
+- 🔄 オーディオ preprocessing 機能
 
-[📚 詳細な機能ドキュメントを見る](docs/FEATURES.md)
+[📚 詳細な機能ドキュメントを見る](../docs/FEATURES.md)
 
-## 🚀 インストール
+## 🚀 Installation
 
 PyPIからパッケージをインストール：
 
@@ -43,7 +43,7 @@ cd SONATA
 pip install -e .
 ```
 
-## 📖 クイックスタート
+## 📖 Quick Start
 
 ### 基本的な書き起こし
 
@@ -54,7 +54,7 @@ from sonata.core.transcriber import IntegratedTranscriber
 transcriber = IntegratedTranscriber(asr_model="large-v3", device="cpu")
 
 # 音声ファイルを書き起こし
-result = transcriber.process_audio("path/to/audio.wav", language="en")
+result = transcriber.process_audio("path/to/audio.wav", language="ja")
 print(result["integrated_transcript"]["plain_text"])
 ```
 
@@ -71,45 +71,42 @@ sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
 sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
 ```
 
-[📚 完全な使用方法ドキュメントを見る](docs/USAGE.md)  
-[⌨️ 完全なCLIドキュメントを見る](docs/CLI.md)  
-[🎤 オフライン話者分離ガイドを見る](docs/OFFLINE_DIARIZATION.md)
+[📚 完全な使用方法ドキュメントを見る](../docs/USAGE.md)  
+[⌨️ 完全なCLIドキュメントを見る](../docs/CLI.md)  
+[🎤 オフライン diarization ガイドを見る](../docs/OFFLINE_DIARIZATION.md)
 
-## 🗣️ サポートされている言語
+## 🗣️ Supported Languages
 
 SONATAは英語、韓国語、中国語、日本語、フランス語、ドイツ語、スペイン語、イタリア語、ポルトガル語、ロシア語など10の言語をサポートしています。
 
-[🌐 言語ドキュメントを見る](docs/LANGUAGES.md)
+[🌐 言語ドキュメントを見る](../docs/LANGUAGES.md)
 
-## 🔊 オーディオイベント検出
+## 🔊 Audio Event Detection
 
 SONATAは笑い声、拍手から環境音、音楽まで500以上の異なるオーディオイベントを検出できます。
 
-[🎵 オーディオイベントドキュメントを見る](docs/AUDIO_EVENTS.md)
+[🎵 オーディオイベントドキュメントを見る](../docs/AUDIO_EVENTS.md)
 
-## 🛣️ ロードマップ
+## 🚀 Next Steps
 
-- 🌐 多言語サポートの強化
 - 🧠 高度なASRモデルの多様化
 - 😢 感情検出の改善
-- 🔊 より良い話者分離
+- 🔊 より優れた speaker diarization
 - ⚡ パフォーマンスの最適化
 
-[📋 完全なロードマップを見る](docs/ROADMAP.md)
+## 🤝 Contributing
 
-## 🤝 貢献
+Contributing 大歓迎です！気軽にプルリクエストを送信してください。
 
-貢献は大歓迎です！気軽にプルリクエストを送信してください。
+[📝 貢献ガイドラインを見る](../docs/CONTRIBUTING.md)
 
-[📝 貢献ガイドラインを見る](docs/CONTRIBUTING.md)
-
-## 📄 ライセンス
+## 📄 License
 
 このプロジェクトはGNU一般公衆ライセンスv3.0の下でライセンスされています。
 
-## 🙏 謝辞
+## 🙏 Acknowledgements
 
 - [WhisperX](https://github.com/m-bain/whisperX) - 高速音声認識
 - [AudioSet AST](https://github.com/YuanGongND/ast) - オーディオイベント検出
-- [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - 話者分離
+- [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - speaker diarization
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLPツール 
