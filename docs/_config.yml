@@ -32,6 +32,16 @@ footer_content: "Copyright &copy; 2024 SONATA. Distributed under GPLv3 license."
 # Color scheme
 color_scheme: light
 
+# Markdown settings
+markdown: kramdown
+kramdown:
+  syntax_highlighter_opts:
+    block:
+      line_numbers: false
+
+# Enable proper page permalinks
+permalink: pretty
+
 # Google Analytics
 ga_tracking: 
 ga_tracking_anonymize_ip: true
