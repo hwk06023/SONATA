@@ -7,10 +7,13 @@ on:
       - dev
   workflow_dispatch:
 
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write
+  deployments: write
 
 concurrency:
   group: "pages"
@@ -22,10 +25,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      
+      # This step might fail if GitHub Pages is not already enabled in repository settings
+      # You may need to manually enable GitHub Pages in repository settings first
       - name: Setup Pages
         uses: actions/configure-pages@v4
         with:
           enablement: true
+          
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
