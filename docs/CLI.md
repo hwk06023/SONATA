@@ -129,3 +129,27 @@ Lower threshold values will detect more audio events but may increase false posi
 - For speaker diarization, sign up on [HuggingFace](https://huggingface.co) and accept the user agreement for the pyannote/speaker-diarization models
 - Large audio files are automatically processed in segments regardless of the `--split` option, but with this flag you can customize the segmentation parameters
 - The `--preprocess` option is recommended for noisy or poorly formatted audio files 
+
+# Transcription Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-l`, `--language` | en | Language code (en, ko, zh, ja, fr, de, etc.) |
+| `-m`, `--model` | large-v3 | WhisperX model size |
+| `-d`, `--device` | cpu | Device to run models on (cpu/cuda) |
+| `-e`, `--audio-model` | (None) | Path to custom audio event detection model |
+| `-t`, `--threshold` | 0.5 | Threshold for audio event detection |
+| `--custom-thresholds` | (None) | Path to JSON file with custom audio event thresholds |
+| `--format` | default | Format for text output (concise/default/extended) |
+| `--text-output` | (None) | Path to save formatted transcript text file |
+| `--preprocess` | (False) | Preprocess audio (convert format and trim silence) |
+
+# Advanced Examples
+
+```bash
+# Using custom audio event thresholds
+sonata-asr audio.wav --custom-thresholds thresholds.json
+
+# Combining multiple options
+sonata-asr audio.mp3 --language ko --device cuda --diarize --offline-diarize --custom-thresholds custom_thresholds.json
+``` 

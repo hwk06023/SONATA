@@ -27,6 +27,7 @@ class IntegratedTranscriber:
         compute_type: str = DEFAULT_COMPUTE_TYPE,
         offline_diarization: bool = False,
         offline_config_path: Optional[str] = None,
+        custom_audio_thresholds: Optional[Dict[str, float]] = None,
     ):
         """Initialize the integrated transcriber.
 
@@ -37,6 +38,7 @@ class IntegratedTranscriber:
             compute_type: Compute precision (float32, float16, etc.)
             offline_diarization: Whether to use offline diarization mode
             offline_config_path: Path to offline diarization config file
+            custom_audio_thresholds: Dictionary of custom thresholds for specific audio event types (optional)
         """
         self.device = device
         self.offline_diarization = offline_diarization
@@ -60,6 +62,7 @@ class IntegratedTranscriber:
                     model_path=audio_model_path,
                     device=device,
                     threshold=AUDIO_EVENT_THRESHOLD,
+                    custom_thresholds=custom_audio_thresholds,
                 )
         finally:
             # Restore original logging level

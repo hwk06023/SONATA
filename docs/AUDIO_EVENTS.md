@@ -1,139 +1,93 @@
-# SONATA Audio Event Detection 🔊
+# 🔊 Audio Event Detection
 
-SONATA incorporates the AudioSet AST (Audio Spectrogram Transformer) model to detect a wide range of audio events in your recordings. This document provides details on the audio event detection capabilities.
+SONATA includes advanced audio event detection capabilities that can identify over 500 different types of sounds in your audio files.
 
-## Overview
+## Supported Audio Events
 
-The audio event detection system can identify over 500 different sound categories from the AudioSet ontology. These events are seamlessly integrated into transcripts using tags like `[laughter]` or `[applause]`.
+SONATA can detect a wide range of audio events, including:
 
-## Audio Event Categories
+- Human sounds (laughter, crying, coughing, etc.)
+- Animal sounds (barks, meows, bird calls, etc.)
+- Musical sounds (instruments, singing, etc.)
+- Environmental sounds (wind, rain, thunder, etc.)
+- Mechanical sounds (engines, vehicles, alarms, etc.)
+- Domestic sounds (doors, typing, microwave, etc.)
 
-### 😀 Human Sounds
+For a complete list of detectable audio events, see the [`AudioEventType` enum in constants.py](../sonata/constants.py).
 
-| Category | Description | Tag Example |
-|----------|-------------|-------------|
-| Speech | Various speech types | `[male_speech]`, `[female_speech]`, `[child_speech]` |
-| Conversation | Multiple people speaking | `[conversation]` |
-| Laughter | Different types of laughter | `[laughter]`, `[giggle]`, `[chuckle]` |
-| Crying | Crying and sobbing sounds | `[crying]`, `[baby_cry]`, `[whimper]` |
-| Vocalizations | Various vocal sounds | `[whistling]`, `[sigh]`, `[groan]` |
-| Breathing | Breathing-related sounds | `[breathing]`, `[snoring]`, `[wheeze]` |
-| Coughing | Cough and related sounds | `[cough]`, `[throat_clearing]`, `[sneeze]` |
+## Detection Sensitivity
 
-### 👏 Physical Sounds
+SONATA uses a sophisticated detection system that employs different sensitivity thresholds for different types of audio events. The default threshold for most events is 0.5, but certain subtle events like laughter, sighs, or breathing have lower thresholds to ensure they're detected properly.
 
-| Category | Description | Tag Example |
-|----------|-------------|-------------|
-| Hand Sounds | Sounds made with hands | `[clapping]`, `[finger_snapping]` |
-| Body Sounds | Sounds from the body | `[footsteps]`, `[heartbeat]` |
-| Crowd Sounds | Sounds from groups | `[cheering]`, `[applause]` |
+### Custom Audio Event Thresholds
 
-### 🐕 Animal Sounds
+You can customize the detection sensitivity for specific audio events to better suit your particular use case. This is useful when you need to:
 
-| Category | Description | Tag Example |
-|----------|-------------|-------------|
-| Dogs | Dog-related sounds | `[dog]`, `[bark]` |
-| Cats | Cat-related sounds | `[cat]`, `[meow]` |
-| Birds | Bird-related sounds | `[bird_vocalization]` |
-| Farm Animals | Farm animal sounds | `[horse]`, `[cow]`, `[moo]`, `[sheep]` |
+- Increase sensitivity for certain events you're particularly interested in
+- Decrease sensitivity for events that might be triggering false positives
+- Fine-tune the detection based on your specific audio environment
 
-### 🎵 Music and Instruments
-
-| Category | Description | Tag Example |
-|----------|-------------|-------------|
-| Music | General music detection | `[music]` |
-| String Instruments | String instrument sounds | `[guitar]`, `[violin]` |
-| Percussion | Percussion sounds | `[drum]`, `[drum_kit]` |
-| Wind Instruments | Wind instrument sounds | `[wind_instrument]`, `[flute]` |
-| Bells | Bell sounds | `[bell]` |
-
-### 🌧️ Environmental Sounds
-
-| Category | Description | Tag Example |
-|----------|-------------|-------------|
-| Weather | Weather-related sounds | `[wind]`, `[rain]`, `[thunder]` |
-| Water | Water-related sounds | `[water]`, `[stream]`, `[ocean]`, `[waves]` |
-| Fire | Fire-related sounds | `[fire]` |
-
-### 🚗 Mechanical and Transport
-
-| Category | Description | Tag Example |
-|----------|-------------|-------------|
-| Vehicles | Various vehicle sounds | `[vehicle]`, `[car]`, `[train]`, `[airplane]` |
-| Engines | Engine sounds | `[engine]`, `[motor_vehicle]` |
-| Emergency | Emergency vehicle sounds | `[police_car]`, `[ambulance]`, `[fire_truck]` |
-
-### 🏠 Domestic Sounds
-
-| Category | Description | Tag Example |
-|----------|-------------|-------------|
-| Doors | Door-related sounds | `[door]`, `[doorbell]`, `[knock]`, `[slam]` |
-| Appliances | Appliance sounds | `[microwave]`, `[vacuum]` |
-| Alarms | Various alarm sounds | `[alarm]`, `[telephone]`, `[fire_alarm]` |
-
-### 💥 Miscellaneous
-
-| Category | Description | Tag Example |
-|----------|-------------|-------------|
-| Impacts | Impact sounds | `[explosion]`, `[gunshot]`, `[bang]`, `[smash]`, `[breaking]` |
-| Silence | Detected silence | `[silence]` |
-| Noise | General noise | `[noise]` |
-
-## Configuration
-
-### Threshold Settings
-
-You can adjust the sensitivity of audio event detection using the `audio_threshold` parameter:
+#### Using Custom Thresholds in Python
 
 ```python
-# More sensitive detection (more events but potentially more false positives)
-result = transcriber.process_audio("audio.wav", audio_threshold=0.2)
+from sonata.core.transcriber import IntegratedTranscriber
 
-# Less sensitive detection (fewer events but higher confidence)
-result = transcriber.process_audio("audio.wav", audio_threshold=0.4)
+# Define custom thresholds (values between 0.0 and 1.0)
+custom_thresholds = {
+    "laughter": 0.05,      # More sensitive (lower threshold)
+    "cough": 0.2,          # Less sensitive (higher threshold)
+    "music": 0.7,          # Much less sensitive
+    "dog": 0.3             # Custom threshold for dog sounds
+}
+
+# Initialize transcriber with custom thresholds
+transcriber = IntegratedTranscriber(
+    asr_model="large-v3",
+    device="cpu",
+    custom_audio_thresholds=custom_thresholds
+)
+
+# Process audio with custom thresholds applied
+result = transcriber.process_audio("path/to/audio.wav", language="en")
 ```
 
-The default threshold is 0.3. Lower values will detect more audio events but may include more false positives.
+#### Using Custom Thresholds with CLI
 
-### Event-Specific Thresholds
+Create a JSON file with your custom thresholds:
 
-SONATA uses different thresholds for different event types. Subtle sounds like breathing or sighing have lower thresholds than more distinctive sounds like explosions or alarms.
-
-## Technical Implementation
-
-The audio event detection uses the Audio Spectrogram Transformer (AST) model trained on the AudioSet dataset, which includes 527 audio event classes. SONATA converts these to user-friendly tags and integrates them into the transcript according to their timestamps.
-
-## Accessing Audio Events
-
-You can access detailed information about detected audio events:
-
-```python
-# Get all detected audio events
-audio_events = result["audio_events"]
-
-# Example event data
-# {
-#   "type": "laughter",
-#   "start": 12.5,
-#   "end": 14.2,
-#   "confidence": 0.89
-# }
-
-# Filter for specific event types
-laughter_events = [e for e in audio_events if e["type"] == "laughter"]
-
-# Get events above a certain confidence
-high_confidence_events = [e for e in audio_events if e["confidence"] > 0.8]
+```json
+{
+  "laughter": 0.05,
+  "giggle": 0.05,
+  "cough": 0.2,
+  "sneeze": 0.2,
+  "music": 0.7
+}
 ```
 
-## Output Example
+Then use the `--custom-thresholds` parameter:
 
-Here's an example of audio events integrated into transcript output:
+```bash
+sonata-asr path/to/audio.wav --custom-thresholds path/to/thresholds.json
+```
+
+## Example
+
+Here's a sample of how audio events appear in the transcript:
 
 ```
-[00:05] [SPEAKER_1]: I think we should discuss the project timeline.
-[00:08] [laughter]
-[00:10] [SPEAKER_2]: That's funny because we just had that meeting yesterday.
-[00:15] [door]
-[00:17] [SPEAKER_3]: Sorry I'm late everyone.
-``` 
+[00:05.234] The presenter walked onto the stage [applause]
+[00:10.567] Thank you everyone for coming today [laughter]
+[00:15.123] Let me share some exciting news about our latest product [music]
+```
+
+## Advanced Use Cases
+
+Custom thresholds can be particularly useful in scenarios like:
+
+- **Podcast Analysis**: Increase sensitivity for laughter to capture audience reactions
+- **Meeting Transcription**: Reduce sensitivity for keyboard/typing sounds that might be prevalent
+- **Nature Recordings**: Customize thresholds for specific bird or animal sounds
+- **Music Analysis**: Fine-tune detection of specific instruments or musical elements
+
+For a complete example of using custom thresholds, see the [custom_thresholds_example.py](../test/custom_thresholds_example.py) script. 

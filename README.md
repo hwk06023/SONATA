@@ -81,7 +81,7 @@ SONATA supports 10 languages including English, Korean, Chinese, Japanese, Frenc
 
 ## 🔊 Audio Event Detection
 
-SONATA can detect over 500 different audio events, from laughter and applause to ambient sounds and music.
+SONATA can detect over 500 different audio events, from laughter and applause to ambient sounds and music. The customizable event detection thresholds allow you to fine-tune sensitivity for specific audio events to match your unique use cases, such as podcast analysis, meeting transcription, or nature recording analysis.
 
 [🎵 See audio events documentation](docs/AUDIO_EVENTS.md)
 

@@ -540,6 +540,7 @@ class AudioEventDetector(AudiosetClassifier):
         threshold: float = AUDIO_EVENT_THRESHOLD,
         device: str = None,
         event_types: Optional[List[str]] = None,
+        custom_thresholds: Optional[Dict[str, float]] = None,
     ):
         """Initialize the audio event detector.
 
@@ -548,6 +549,7 @@ class AudioEventDetector(AudiosetClassifier):
             threshold: Detection threshold (0.0-1.0)
             device: Computing device (cuda/cpu)
             event_types: List of event types to detect (defaults to all)
+            custom_thresholds: Dictionary mapping event types to custom threshold values (optional)
         """
         # Default to CPU if no device specified
         if device is None:
@@ -584,7 +586,15 @@ class AudioEventDetector(AudiosetClassifier):
             }
 
         # Load class-specific thresholds from constants
-        self.class_thresholds = AUDIO_EVENT_THRESHOLDS
+        self.class_thresholds = dict(AUDIO_EVENT_THRESHOLDS)
+
+        # Apply custom thresholds if provided
+        if custom_thresholds:
+            # Update default thresholds with custom values
+            self.class_thresholds.update(custom_thresholds)
+            logging.info(
+                f"Applied custom thresholds for {len(custom_thresholds)} event types"
+            )
 
         # Use windowing for segmented analysis
         self.use_windowing = True

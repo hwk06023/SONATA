@@ -449,6 +449,17 @@ class ASRProcessor:
             # Check for word-level information
             if "words" in segment:
                 for word_data in segment["words"]:
+                    # Check if required keys exist
+                    if (
+                        "word" not in word_data
+                        or "start" not in word_data
+                        or "end" not in word_data
+                    ):
+                        print(
+                            f"Warning: Word data does not contain required keys. Skipping word: {word_data}"
+                        )
+                        continue
+
                     word_with_time = {
                         "word": word_data["word"],
                         "start": word_data["start"],
