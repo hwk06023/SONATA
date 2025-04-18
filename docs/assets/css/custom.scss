@@ -1,0 +1,76 @@
+@import "./color_schemes/light";
+
+// Custom styles
+
+.language-selector {
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+  padding: 0.8rem;
+  background-color: #f5f6fa;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.language-selector a.disabled {
+  color: #aaa;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.mt-5 {
+  margin-top: 3rem !important;
+}
+
+// Mermaid diagrams
+.mermaid {
+  margin-bottom: 2rem;
+  text-align: center;
+  
+  svg {
+    max-width: 100%;
+  }
+}
+
+// Code blocks
+pre.highlight {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+// Card component
+.card {
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid #eaecef;
+  border-radius: 6px;
+  transition: all 0.2s ease-in-out;
+  
+  &:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  }
+  
+  h3 {
+    margin-top: 0;
+  }
+}
+
+// Responsive adjustments
+@media (max-width: 800px) {
+  .btn {
+    display: block;
+    margin-bottom: 0.5rem;
+    width: 100%;
+  }
+}
+
+// Print styles
+@media print {
+  .side-bar {
+    display: none;
+  }
+  .main {
+    max-width: 100%;
+    margin-left: 0;
+  }
+} 
