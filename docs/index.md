@@ -24,6 +24,28 @@ Language:
 
 ---
 
+## System Architecture
+{: .mt-5 }
+
+The following diagram illustrates the SONATA system architecture:
+
+```mermaid
+graph TD
+    A[Audio Input] --> B[WhisperX]
+    A --> C[AudioSet AST]
+    B --> D[Speech Transcription]
+    C --> E[Audio Event Detection]
+    D --> F[Integrated Transcriber]
+    E --> F
+    F --> G[Rich Transcript with<br/>Emotive Sounds]
+    
+    subgraph "Speaker Diarization"
+    H[PyAnnote Audio] --> I[Speaker Labels]
+    end
+    
+    I --> F
+```
+
 ## Features
 
 - 🎙️ High-accuracy speech-to-text transcription using WhisperX
@@ -65,6 +87,28 @@ sonata-asr path/to/audio.wav
 
 # With speaker diarization
 sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
+```
+
+## Sample Output
+
+```json
+{
+  "integrated_transcript": {
+    "plain_text": "Hello everyone [laughter] I'm excited to show you SONATA today.",
+    "rich_text": [
+      {"type": "word", "content": "Hello", "start": 0.5, "end": 0.7},
+      {"type": "word", "content": "everyone", "start": 0.8, "end": 1.2},
+      {"type": "audio_event", "event_type": "laughter", "start": 1.3, "end": 2.1, "confidence": 0.92},
+      {"type": "word", "content": "I'm", "start": 2.3, "end": 2.4},
+      {"type": "word", "content": "excited", "start": 2.5, "end": 2.9},
+      {"type": "word", "content": "to", "start": 3.0, "end": 3.1},
+      {"type": "word", "content": "show", "start": 3.2, "end": 3.4},
+      {"type": "word", "content": "you", "start": 3.5, "end": 3.6},
+      {"type": "word", "content": "SONATA", "start": 3.7, "end": 4.0},
+      {"type": "word", "content": "today", "start": 4.1, "end": 4.3}
+    ]
+  }
+}
 ```
 
 ## Documentation

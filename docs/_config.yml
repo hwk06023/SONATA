@@ -4,6 +4,11 @@ description: "SOund and Narrative Advanced Transcription Assistant: Advanced sys
 logo: "/assets/images/sonata-logo.png"
 favicon_ico: "/assets/images/favicon.ico"
 
+# Site settings
+lang: en-US
+baseurl: "/SONATA" # the subpath of your site
+url: "https://hwk06023.github.io" # the base hostname & protocol
+
 # Enable search
 search_enabled: true
 search:
@@ -41,6 +46,25 @@ kramdown:
 
 # Enable proper page permalinks
 permalink: pretty
+
+# Trigger update
+update_trigger: true
+
+# SEO Settings
+twitter:
+  username: hwk06023
+  card: summary
+social:
+  name: SONATA
+  links:
+    - https://github.com/hwk06023/SONATA
+
+# Enable mermaid diagrams
+mermaid:
+  # Version of mermaid library
+  version: "9.1.7"
+  # Set to true to initialize mermaid on every page load
+  initialize: true
 
 # Google Analytics
 ga_tracking: 
