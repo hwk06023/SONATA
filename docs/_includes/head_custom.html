@@ -1,9 +1,12 @@
 <!-- Custom head content -->
 
 <!-- Favicon -->
-<link rel="apple-touch-icon" sizes="180x180" href="{{ '/assets/images/apple-touch-icon.png' | relative_url }}">
-<link rel="icon" type="image/png" sizes="32x32" href="{{ '/assets/images/favicon-32x32.png' | relative_url }}">
-<link rel="icon" type="image/png" sizes="16x16" href="{{ '/assets/images/favicon-16x16.png' | relative_url }}">
+{% if site.favicon_ico %}
+<link rel="icon" href="{{ site.favicon_ico | relative_url }}" sizes="any">
+{% endif %}
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/images/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/images/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/assets/images/favicon-16x16.png">
 
 <!-- Custom CSS -->
 <link rel="stylesheet" href="{{ '/assets/css/custom.scss' | relative_url }}">
@@ -16,34 +19,40 @@
 <!-- Mermaid diagrams support -->
 {% if site.mermaid.version %}
 <script src="https://cdn.jsdelivr.net/npm/mermaid@{{ site.mermaid.version }}/dist/mermaid.min.js"></script>
-<script>
-  document.addEventListener('DOMContentLoaded', function() {
-    {% if site.mermaid.initialize %}
-      mermaid.initialize({
-        startOnLoad: true,
-        theme: 'default',
-        flowchart: { useMaxWidth: true, htmlLabels: true },
-        securityLevel: 'loose'
-      });
-    {% endif %}
-  });
-</script>
 {% endif %}
 
 <!-- Google Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- Font Awesome for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+<!-- Prism.js for better syntax highlighting -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+
+<!-- Lunr.js for advanced search -->
+<script src="https://cdn.jsdelivr.net/npm/lunr@2.3.9/lunr.min.js"></script>
+
+<!-- Custom JS for search functionality -->
+<script src="{{ '/assets/js/search.js' | relative_url }}" defer></script>
 
 <!-- Meta tags for social sharing -->
-<meta property="og:type" content="website">
-<meta property="og:title" content="{% if page.title %}{{ page.title }} - {{ site.title }}{% else %}{{ site.title }}{% endif %}">
+<meta property="og:title" content="{% if page.title %}{{ page.title }}{% else %}{{ site.title }}{% endif %}">
 <meta property="og:description" content="{% if page.description %}{{ page.description }}{% else %}{{ site.description }}{% endif %}">
 <meta property="og:url" content="{{ page.url | absolute_url }}">
-<meta property="og:image" content="{{ '/assets/images/sonata-social-preview.png' | absolute_url }}">
+<meta property="og:type" content="website">
+{% if site.og_image %}
+<meta property="og:image" content="{{ site.og_image | absolute_url }}">
+{% endif %}
 
 <!-- Twitter card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{% if page.title %}{{ page.title }} - {{ site.title }}{% else %}{{ site.title }}{% endif %}">
 <meta name="twitter:description" content="{% if page.description %}{{ page.description }}{% else %}{{ site.description }}{% endif %}">
-<meta name="twitter:image" content="{{ '/assets/images/sonata-social-preview.png' | absolute_url }}"> 
+<meta name="twitter:image" content="{{ '/assets/images/sonata-social-preview.png' | absolute_url }}">
+
+<!-- Custom JavaScript for UI enhancements -->
+<script src="{{ '/assets/js/custom.js' | relative_url }}"></script> 
