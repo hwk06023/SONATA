@@ -69,8 +69,8 @@ sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
 
 ## Documentation
 
-- [Features](./FEATURES.html)
-- [Usage Guide](./USAGE.html)
-- [CLI Reference](./CLI.html)
-- [Audio Event Detection](./AUDIO_EVENTS.html)
-- [Offline Diarization](./OFFLINE_DIARIZATION.html) 
+- [Features](https://github.com/hwk06023/SONATA/blob/main/docs/FEATURES.md)
+- [Usage Guide](https://github.com/hwk06023/SONATA/blob/main/docs/USAGE.md)
+- [CLI Reference](https://github.com/hwk06023/SONATA/blob/main/docs/CLI.md)
+- [Audio Event Detection](https://github.com/hwk06023/SONATA/blob/main/docs/AUDIO_EVENTS.md)
+- [Offline Diarization](https://github.com/hwk06023/SONATA/blob/main/docs/OFFLINE_DIARIZATION.md) 

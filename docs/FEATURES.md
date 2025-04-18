@@ -19,27 +19,11 @@ SONATA uses WhisperX, an enhanced version of Whisper that provides:
 - Automatic language detection capabilities
 - Model optimization for various hardware (CPU, CUDA, MPS)
 
-## 😀 Audio Event Detection
+## Advanced Audio Event Detection
 
-SONATA can detect 523+ distinct audio events using the AudioSet AST (Audio Spectrogram Transformer) model, including:
+SONATA identifies non-speech sounds - from laughter and crying to ambient noises like traffic or music. Our system can detect over 523 different audio events with precise confidence scoring.
 
-### Human Sounds
-- Laughter, crying, sighing, whispering, screaming, shouting
-- Conversation, narration, male/female/child speech
-- Breathing, coughing, sneezing, sniffing, throat clearing
-
-### Physical Sounds
-- Clapping, finger snapping, footsteps, heartbeat
-- Hands, applause, cheering
-
-### Animal Sounds
-- Dog barking, cat meowing, bird calls
-- Various other animal vocalizations
-
-### Musical and Environmental Sounds
-- Musical instruments (piano, guitar, drum, violin)
-- Natural sounds (wind, rain, thunder, water, fire)
-- Mechanical sounds (engines, vehicles, alarms)
+[🔊 See complete list of detectable audio events](https://github.com/hwk06023/SONATA/blob/main/docs/AUDIO_EVENTS.md)
 
 ## 🌍 Multi-Language Support
 
