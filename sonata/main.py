@@ -57,6 +57,11 @@ def parse_args():
         help=f"Threshold for audio event detection (default: {AUDIO_EVENT_THRESHOLD})",
     )
     parser.add_argument(
+        "--custom-thresholds",
+        type=str,
+        help="Path to JSON file with custom audio event thresholds",
+    )
+    parser.add_argument(
         "--format",
         type=str,
         choices=[format_type.value for format_type in FormatType],
@@ -263,6 +268,23 @@ def main():
         input_file = trim_silence(temp_wav)
         print(f"Preprocessed audio saved to {input_file}")
 
+    # Load custom thresholds if specified
+    custom_thresholds = None
+    if args.custom_thresholds:
+        if not os.path.exists(args.custom_thresholds):
+            print(
+                f"Error: Custom thresholds file '{args.custom_thresholds}' does not exist."
+            )
+            sys.exit(1)
+
+        try:
+            with open(args.custom_thresholds, "r") as f:
+                custom_thresholds = json.load(f)
+            print(f"Loaded custom thresholds for {len(custom_thresholds)} event types")
+        except Exception as e:
+            print(f"Error loading custom thresholds: {str(e)}")
+            sys.exit(1)
+
     # Initialize the transcriber
     print(f"Initializing transcriber with {args.model} model on {args.device}...")
     transcriber = IntegratedTranscriber(
@@ -271,6 +293,7 @@ def main():
         device=args.device,
         offline_diarization=args.offline_diarize,
         offline_config_path=args.offline_config if args.offline_diarize else None,
+        custom_audio_thresholds=custom_thresholds,
     )
 
     # Process audio
@@ -347,7 +370,7 @@ def main():
     if args.text_output or text_output:
         print(f"Text transcript saved to {args.text_output or text_output}")
 
-    return result
+    return None
 
 
 def merge_segment_results(segment_results):
