@@ -1,3 +1,10 @@
+---
+layout: default
+title: Usage Guide
+nav_order: 3
+permalink: /USAGE
+---
+
 # SONATA Usage Guide 📝
 
 This document provides detailed examples for using SONATA in different scenarios.

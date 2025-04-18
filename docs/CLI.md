@@ -1,3 +1,10 @@
+---
+layout: default
+title: CLI Reference
+nav_order: 4
+permalink: /CLI
+---
+
 # SONATA Command Line Interface ⌨️
 
 SONATA provides a powerful command-line interface for quick and efficient audio transcription.

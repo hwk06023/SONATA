@@ -1,3 +1,10 @@
+---
+layout: default
+title: Features
+nav_order: 2
+permalink: /FEATURES
+---
+
 # SONATA Features 🎵🔊
 
 SONATA offers a comprehensive suite of audio transcription and analysis features. This document provides details on each major feature.

@@ -1,3 +1,10 @@
+---
+layout: default
+title: Audio Event Detection
+nav_order: 5
+permalink: /AUDIO_EVENTS
+---
+
 # 🔊 Audio Event Detection
 
 SONATA includes advanced audio event detection capabilities that can identify over 500 different types of sounds in your audio files.

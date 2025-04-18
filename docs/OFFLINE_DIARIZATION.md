@@ -1,3 +1,10 @@
+---
+layout: default
+title: Offline Diarization
+nav_order: 6
+permalink: /OFFLINE_DIARIZATION
+---
+
 # Offline Diarization Guide 🎙️
 
 SONATA provides an offline mode for speaker diarization that allows you to use this feature without requiring a HuggingFace token for each run.

@@ -1,0 +1,27 @@
+@import "{{ site.theme }}";
+
+// Custom styles for language selector
+.language-selector {
+  text-align: right;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+}
+
+.language-selector a.disabled {
+  color: #aaa;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+// Custom styles for the site
+.site-footer {
+  padding-top: 2rem;
+  margin-top: 2rem;
+  border-top: 1px solid $border-color;
+  @include fs-3;
+}
+
+// Code blocks
+.highlight {
+  margin-bottom: 1rem;
+} 
