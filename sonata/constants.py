@@ -126,7 +126,7 @@ class AudioEventType(str, Enum):
 
 
 # Threshold values
-AUDIO_EVENT_THRESHOLD = 0.3  # Default threshold for detecting audio events
+AUDIO_EVENT_THRESHOLD = 0.5  # Default threshold for detecting audio events
 
 # Event-specific thresholds for audio detection
 AUDIO_EVENT_THRESHOLDS = {
@@ -143,25 +143,12 @@ AUDIO_EVENT_THRESHOLDS = {
     "cough": 0.15,
     "sneeze": 0.15,
     "sniff": 0.15,
-    "throat_clearing": 0.15,
     "burp": 0.15,
     "hiccup": 0.15,
-    "gasp": 0.15,
-    "pant": 0.15,
-    "wheeze": 0.15,
-    # Physical sounds
-    "clapping": 0.2,
-    "finger_snapping": 0.2,
-    "footsteps": 0.2,
-    # Environmental sounds that can be subtler
-    "wind": 0.15,
-    "water": 0.15,
-    "rain": 0.15,
-    # Music detection should be easier
-    "music": 0.25,
-    # Mechanical sounds
-    "keyboard": 0.2,
-    "typing": 0.2,
+    "throat_clearing": 0.2,
+    "gasp": 0.3,
+    "pant": 0.3,
+    "wheeze": 0.3,
     # Prominent sounds should use standard threshold (these will use the default AUDIO_EVENT_THRESHOLD)
 }
 
