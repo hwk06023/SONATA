@@ -4,13 +4,13 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "sonata-asr"
-version = "0.0.7"
+version = "0.0.8"
 description = "SONATA: SOund and Narrative Advanced Transcription Assistant"
 authors = ["hwk06023 <hwk06023@github.com>"]
 readme = "README.md"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/hwk06023/SONATA"
-keywords = ["audio", "transcription", "speech", "emotion", "ASR", "whisper"]
+keywords = ["audio", "transcription", "speech", "emotion", "ASR", "whisper", "audio-detection", "sound-events", "speaker-diarization", "audio-analysis", "non-verbal-cues", "emotive-sounds", "multilingual", "speech-recognition", "speech-to-text", "audio-classification", "audio-events", "audio-processing", "voice-analysis", "language-detection"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",

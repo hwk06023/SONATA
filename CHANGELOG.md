@@ -5,6 +5,18 @@ All notable changes to SONATA will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.8] - 2024-05-30
+
+### Added
+- Custom audio event thresholds: Ability to fine-tune detection sensitivity for specific audio events
+- Improved validation for word data in ASR processor
+- Better handling of boundary cases in audio event detection
+
+### Changed
+- Updated default audio event thresholds for improved detection accuracy
+- Optimized audio event detection for various use cases
+- Enhanced documentation with custom threshold examples and usage
+
 ## [0.0.7] - 2024-04-17
 
 ### Added
@@ -49,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Emotive event detection
 - Integrated transcription with timestamps
 
+[0.0.8]: https://github.com/hwk06023/SONATA/compare/v0.0.7...v0.0.8
 [0.0.7]: https://github.com/hwk06023/SONATA/compare/v0.0.6...v0.0.7
 [0.0.6]: https://github.com/hwk06023/SONATA/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/hwk06023/SONATA/compare/v0.0.4...v0.0.5
