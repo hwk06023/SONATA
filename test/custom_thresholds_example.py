@@ -16,7 +16,7 @@ from typing import Dict, List
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sonata.core.audio_event_detector import AudioEventDetector
-from sonata.core.transcript import AudioEvent
+from sonata.core.transcriber import AudioEvent
 from sonata.constants import AudioEventType, AUDIO_EVENT_THRESHOLDS
 
 
@@ -55,24 +55,18 @@ def main():
 
     print(f"Processing audio file: {audio_file}")
 
-    # First, detect events with default thresholds
     print("\nRunning detection with default thresholds...")
     detector = AudioEventDetector()
     default_events = detector.detect_events(audio_file)
     print_events(default_events, "Events with Default Thresholds")
 
-    # Define custom thresholds for specific event types
-    # This increases or decreases detection sensitivity for specific events
     custom_thresholds: Dict[str, float] = {
-        # Increase detection sensitivity for laughter (lower threshold)
-        "laughter": 0.05,  # Default is 0.1
-        "giggle": 0.05,  # Default is 0.1
-        # Decrease sensitivity for background sounds (higher threshold)
-        "music": 0.7,  # Default would use general threshold of 0.5
+        "laughter": 0.05,
+        "giggle": 0.05,
+        "music": 0.7,
         "noise": 0.7,
-        # Custom threshold for specific events
-        "cough": 0.2,  # Default is 0.15
-        "sneeze": 0.2,  # Default is 0.15
+        "cough": 0.2,
+        "sneeze": 0.2,
     }
 
     print("\nRunning detection with custom thresholds...")

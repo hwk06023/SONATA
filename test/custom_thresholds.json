@@ -1,15 +1,9 @@
 {
-  "laughter": 0.05,
-  "giggle": 0.05,
-  "chuckle": 0.07,
-  "sigh": 0.1,
-  "cough": 0.2,
-  "sneeze": 0.2,
-  "music": 0.7,
-  "baby_cry": 0.08,
-  "dog": 0.3,
-  "cat": 0.3,
-  "door": 0.4,
-  "keyboard": 0.4,
-  "applause": 0.2
-} 
+  "music": 1.0,
+  "musical_instrument": 1.0,
+  "speech": 1.0,
+  "male_speech": 1.0,
+  "female_speech": 1.0,
+  "child_speech": 1.0,
+  "conversation": 1.0
+}
