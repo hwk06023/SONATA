@@ -1,613 +1,613 @@
 # AudioSet Classes
-# Format: Class Name (ClassID)
+# Format: Class Name
 # Total classes: 609
 
-A capella (/m/0z9c)
-Accelerating, revving, vroom (/m/07q2z82)
-Accordion (/m/0mkg)
-Acoustic guitar (/m/042v_gx)
-Afrobeat (/m/0145m)
-Air brake (/m/0gvgw0)
-Air conditioning (/m/025wky1)
-Air horn, truck horn (/m/05x_td)
-Aircraft (/m/0k5j)
-Aircraft engine (/m/014yck)
-Alarm (/m/07pp_mv)
-Alarm clock (/m/046dlr)
-Alto saxophone (/m/02pprs)
-Ambient music (/m/0fd3y)
-Ambulance (siren) (/m/012n7d)
-Angry music (/t/dd00036)
-Animal (/m/0jbk)
-Applause (/m/028ght)
-Arrow (/m/0dl83)
-Artillery fire (/m/0_1c)
-Babbling (/m/0261r1)
-Baby cry, infant cry (/t/dd00002)
-Baby laughter (/t/dd00001)
-Background music (/m/025td0t)
-Background noise (/m/093_4n)
-Bagpipes (/m/0192l)
-Bang (/m/07pws3f)
-Banjo (/m/018j2)
-Bark (/m/05tny_)
-Basketball bounce (/m/018w8)
-Bass (frequency range) (/m/017gp)
-Bass (instrument role) (/m/01vj9c)
-Bass drum (/m/0bm02)
-Bass guitar (/m/018vs)
-Bassline (/m/021wwz)
-Bassoon (/m/01c3q)
-Bathtub (filling or washing) (/m/03dnzn)
-Battle cry (/m/04gy_2)
-Bay (/m/07srf8z)
-Beat (/m/022c7z)
-Beatboxing (/m/02cz_7)
-Bee, wasp, etc. (/m/01h3n)
-Beep, bleep (/m/02fs_r)
-Bell (/m/0395lw)
-Bellow (/m/07q4ntr)
-Belly laugh (/m/07sq110)
-Bicycle (/m/0199g)
-Bicycle bell (/m/0gy1t2s)
-Bird (/m/015p6)
-Bird flight, flapping wings (/m/05_wcq)
-Bird vocalization, bird call, bird song (/m/020bb7)
-Birthday music (/t/dd00029)
-Biting (/m/07pdhp0)
-Blare (/m/07r_r9m)
-Bleat (/m/07q0h5t)
-Blender (/m/02pjr4)
-Bluegrass (/m/0gg8l)
-Blues (/m/0155w)
-Boat, Water vehicle (/m/019jd)
-Boiling (/m/0dv3j)
-Boing (/t/dd00121)
-Booing (/m/04v5dt)
-Boom (/m/07qqyl4)
-Bouncing (/m/07pqn27)
-Bow-wow (/m/07rc7d9)
-Bowed string instrument (/m/0l14_3)
-Brass instrument (/m/01kcd)
-Breaking (/m/07pc8lb)
-Breathing (/m/0lyf6)
-Bugle (/m/0y64j)
-Burping, eructation (/m/03q5_w)
-Burst, pop (/m/07qsvvw)
-Bus (/m/01bjv)
-Busy signal (/m/01z47d)
-Buzz (/m/07pjwq1)
-Buzzer (/m/030rvx)
-Cacophony (/m/07szfh9)
-Camera (/m/0dv5r)
-Canidae, dogs, wolves (/m/01z5f)
-Cap gun (/m/073cg4)
-Car (/m/0k4j)
-Car alarm (/m/02mfyn)
-Car passing by (/t/dd00134)
-Carnatic music (/m/015vgc)
-Cash register (/m/024dl)
-Cat (/m/01yrx)
-Cat communication (/m/0f25s6)
-Caterwaul (/m/07r81j2)
-Cattle, bovinae (/m/01xq0k1)
-Caw (/m/07r5c2p)
-Cello (/m/01xqw)
-Cellphone buzz, vibrating alert (/m/01sb50)
-Chainsaw (/m/01j4z9)
-Change ringing (campanology) (/m/0150b9)
-Chant (/m/02bk07)
-Chatter (/m/07rkbfh)
-Cheering (/m/053hz1)
-Chewing, mastication (/m/03cczk)
-Chicken, rooster (/m/09b5t)
-Child singing (/t/dd00005)
-Child speech, kid speaking (/m/0ytgt)
-Children playing (/t/dd00013)
-Children shouting (/t/dd00135)
-Chime (/m/0f8s22)
-Chink, clink (/m/07q7njn)
-Chipmunk (/m/02021)
-Chirp tone (/m/0hdsk)
-Chirp, tweet (/m/07pggtn)
-Choir (/m/0l14jd)
-Chop (/m/07pczhz)
-Chopping (food) (/m/07pn_8q)
-Chord (/m/01gp74)
-Chorus effect (/m/07m2kt)
-Christian music (/m/02mscn)
-Christmas music (/m/0140xf)
-Chuckle, chortle (/m/07rgt08)
-Church bell (/m/03w41f)
-Civil defense siren (/m/0dgbq)
-Clang (/m/07rv4dm)
-Clapping (/m/0l15bq)
-Clarinet (/m/01wy6)
-Classical music (/m/0ggq0m)
-Clatter (/m/07qmpdm)
-Clavinet (/m/025cbm)
-Clickety-clack (/m/07rwm0c)
-Clicking (/m/07qc9xj)
-Clip-clop (/m/07rv9rh)
-Clock (/m/01x3z)
-Cluck (/m/07st89h)
-Clunk (/t/dd00108)
-Coin (dropping) (/m/0242l)
-Compact disc (/m/01www)
-Computer keyboard (/m/01m2v)
-Conversation (/m/01h8n0)
-Coo (/m/07r_25d)
-Cornet (/m/020w2)
-Cough (/m/01b_21)
-Country (/m/01lyv)
-Cowbell (/m/0239kh)
-Crack (/m/07qs1cx)
-Crackle (/m/07pzfmf)
-Crash cymbal (/m/0bm0k)
-Creak (/m/07qh7jl)
-Cricket (/m/09xqv)
-Croak (/m/07st88b)
-Crow (/m/04s8yn)
-Crowd (/m/03qtwd)
-Crowing, cock-a-doodle-doo (/m/07qn5dc)
-Crumpling, crinkling (/t/dd00112)
-Crunch (/m/07s12q4)
-Crushing (/m/07plct2)
-Crying, sobbing (/m/0463cq4)
-Cumbia (/m/02ccj9)
-Cupboard open or close (/m/0642b4)
-Cutlery, silverware (/m/023pjk)
-Cymbal (/m/01qbl)
-Dance music (/m/0ggx5q)
-Dental drill, dentist's drill (/m/08j51y)
-Dial tone (/m/015jpf)
-Didgeridoo (/m/02bxd)
-Ding (/m/07phxs1)
-Ding-dong (/m/07r67yg)
-Disco (/m/026z9)
-Dishes, pots, and pans (/m/04brg2)
-Distortion (/m/0g12c5)
-Dog (/m/0bt9lr)
-Domestic animals, pets (/m/068hy)
-Domestic sounds, home sounds (/t/dd00071)
-Donkey, ass (/m/0ffhf)
-Door (/m/02dgv)
-Doorbell (/m/03wwcy)
-Double bass (/m/02fsn)
-Drawer open or close (/m/0fqfqc)
-Drill (/m/01d380)
-Drip (/m/07r5v4s)
-Drone (/m/03w6d1)
-Drone music (/m/052smk)
-Drum (/m/026t6)
-Drum and bass (/m/0283d)
-Drum beat (/m/05xp3j)
-Drum kit (/m/02hnl)
-Drum machine (/m/0cfdd)
-Drum roll (/m/02k_mr)
-Dub (/m/0190y4)
-Dubstep (/m/07s72n)
-Duck (/m/09ddx)
-Duck call (hunting tool) (/m/04179zz)
-Echo (/m/01jnbd)
-Effects unit (/m/02rr_)
-Electric guitar (/m/02sgy)
-Electric piano (/m/01s0ps)
-Electric shaver, electric razor (/m/02g901)
-Electric toothbrush (/m/04fgwm)
-Electro (/m/029h7y)
-Electronic dance music (/m/08cyft)
-Electronic music (/m/02lkt)
-Electronic organ (/m/03xq_f)
-Electronic tuner (/m/0b_fwt)
-Electronica (/m/0m0jc)
-Emergency vehicle (/m/03j1ly)
-Engine (/m/02mk9)
-Engine knocking (/m/01h82_)
-Engine starting (/t/dd00130)
-Environmental noise (/m/06_y0by)
-Eruption (/m/07pxg6y)
-Exciting music (/t/dd00035)
-Explosion (/m/014zdl)
-Fart (/m/02_nn)
-Female singing (/t/dd00004)
-Female speech, woman speaking (/m/02zsn)
-Field recording (/m/07hvw1)
-Filing (rasp) (/m/02p01q)
-Fill (with liquid) (/m/07p7b8y)
-Finger snapping (/m/025_jnm)
-Fire (/m/02_41)
-Fire alarm (/m/0c3f7m)
-Fire engine, fire truck (siren) (/m/012ndj)
-Firecracker (/g/122z_qxw)
-Fireworks (/m/0g6b5)
-Fixed-wing aircraft, airplane (/m/0cmf2)
-Fizz (/t/dd00118)
-Flamenco (/m/0326g)
-Flap (/m/07pyf11)
-Flute (/m/0l14j_)
-Fly, housefly (/m/0h2mp)
-Foghorn (/m/04fq5q)
-Folk music (/m/02w4v)
-Fowl (/m/025rv6n)
-French horn (/m/0319l)
-Frog (/m/09ld4)
-Frying (food) (/m/0dxrf)
-Funk (/m/02x8m)
-Funk carioca (/m/05q7ms)
-Funny music (/t/dd00032)
-Fusillade (/m/02z32qm)
-Gargling (/m/0939n_)
-Gasp (/m/07s0dtb)
-Gears (/m/0l7xg)
-Giggle (/m/07r660_)
-Glass (/m/039jq)
-Glockenspiel (/m/0dwtp)
-Goat (/m/03fwl)
-Gobble (/m/07svc2k)
-Gong (/m/0mbct)
-Goose (/m/0dbvp)
-Gospel music (/m/016cjb)
-Gramophone record (/m/0174nj)
-Grime music (/m/04j_h4)
-Grind (/m/07pt6mm)
-Groan (/m/07s2xch)
-Growling (/m/0ghcn6)
-Grunge (/m/0dls3)
-Grunt (/m/07r4k75)
-Guitar (/m/0342h)
-Guitar amplifier (/m/01vfsf)
-Gull, seagull (/m/01dwxx)
-Gunshot, gunfire (/m/032s66)
-Gurgling (/m/07swgks)
-Gush (/t/dd00088)
-Hair dryer (/m/03wvsk)
-Hammer (/m/03l9g)
-Hammond organ (/m/03gvt)
-Hands (/m/0k65p)
-Happy music (/t/dd00031)
-Harmonic (/m/0b9m1)
-Harmonica (/m/03qjg)
-Harmony (/m/0b128)
-Harp (/m/03m5k)
-Harpsichord (/m/03q5t)
-Headphones (/m/01b7fy)
-Heart murmur (/m/01jg1z)
-Heart sounds, heartbeat (/m/01jg02)
-Heavy engine (low frequency) (/t/dd00067)
-Heavy metal (/m/03lty)
-Helicopter (/m/09ct_)
-Hi-hat (/m/03qtq)
-Hiccup (/m/02p3nc)
-Hip hop music (/m/0glt670)
-Hiss (/m/07rjwbb)
-Honk (/m/07qwf61)
-Hoot (/m/07r_80w)
-Horse (/m/03k3r)
-House music (/m/03mb9)
-Howl (/m/07qf0zm)
-Howl (wind) (/m/07q8f3b)
-Hubbub, speech noise, speech babble (/m/07qfr4h)
-Hum (/m/07rcgpl)
-Humming (/m/02fxyj)
-Ice cream truck, ice cream van (/m/03cl9h)
-Idling (/m/07pb8fc)
-Independent music (/m/05rwpb)
-Infrasound (/m/01fhw5)
-Insect (/m/03vt0)
-Inside, large room or hall (/t/dd00126)
-Inside, public space (/t/dd00127)
-Inside, small room (/t/dd00125)
-Jackhammer (/m/03p19w)
-Jazz (/m/03_d0)
-Jet engine (/m/04229)
-Jingle (music) (/m/03r5q_)
-Jingle bell (/m/027m70_)
-Jingle, tinkle (/m/07qfgpx)
-Kettle whistle (/g/11b630rrvh)
-Keyboard (musical) (/m/05148p4)
-Keys jangling (/m/03v3yw)
-Knock (/m/07r4wb8)
-Kuduro (/m/080nby)
-Kwaito (/m/022dgg)
-Laughter (/m/01j3sz)
-Lawn mower (/m/01yg9g)
-Light engine (high frequency) (/t/dd00065)
-Liquid (/m/04k94)
-Livestock, farm animals, working animals (/m/0ch8v)
-Loop (/m/0kc2j)
-Loudspeaker (/m/0cfpc)
-Lullaby (/m/07pkxdp)
-MP3 (/m/04zc0)
-Machine gun (/m/04zjc)
-Mains hum (/m/06xkwv)
-Male singing (/t/dd00003)
-Male speech, man speaking (/m/05zppz)
-Mallet percussion (/m/0j45pbj)
-Mandolin (/m/04rzd)
-Mantra (/m/01c194)
-Maraca (/m/0xzly)
-Marimba, xylophone (/m/0dwsp)
-Mechanical fan (/m/02x984l)
-Mechanisms (/t/dd00077)
-Medium engine (mid frequency) (/t/dd00066)
-Mellotron (/m/0gkd1)
-Melody (/m/09dsr)
-Meow (/m/07qrkrw)
-Microphone (/m/0hg7b)
-Microwave oven (/m/0fx9l)
-Middle Eastern music (/m/06j64v)
-Moo (/m/07rpkh9)
-Mosquito (/m/09f96)
-Motor vehicle (road) (/m/012f08)
-Motorboat, speedboat (/m/02rlv9)
-Motorcycle (/m/04_sv)
-Mouse (/m/04rmv)
-Music (/m/04rlf)
-Music for children (/m/05fw6t)
-Music of Africa (/m/0164x2)
-Music of Asia (/m/028sqc)
-Music of Bollywood (/m/0dq0md)
-Music of Latin America (/m/0g293)
-Musical ensemble (/m/05229)
-Musical instrument (/m/04szw)
-Musical note (/m/05jcn)
-Narration, monologue (/m/02qldy)
-Natural sounds (/m/059j3w)
-Neigh, whinny (/m/07q5rw0)
-New-age music (/m/02v2lh)
-Nicker (/t/dd00140)
-Noise (/m/096m7z)
-Noise music (/m/0m0fw)
-Non-motorized land vehicle (/t/dd00061)
-Oboe (/m/05kms)
-Ocean (/m/05kq4)
-Oink (/t/dd00018)
-Oldschool jungle (/m/01f9gb)
-Opera (/m/05lls)
-Orchestra (/m/05pd6)
-Organ (/m/013y1f)
-Otoacoustic emission (/m/04xp5v)
-Outside, rural or natural (/t/dd00129)
-Outside, urban or manmade (/t/dd00128)
-Owl (/m/09d5_)
-Packing tape, duct tape (/m/05mxj0q)
-Pant (/m/07pyy8b)
-Patter (/m/07r4gkf)
-Percussion (/m/0l14md)
-Piano (/m/05r5c)
-Pig (/m/068zj)
-Pigeon, dove (/m/0h0rv)
-Ping (/m/07qwdck)
-Pink noise (/m/0cj0r)
-Pizzicato (/m/0d8_n)
-Plop (/m/07qyrcz)
-Plucked string instrument (/m/0fx80y)
-Police car (siren) (/m/04qvtq)
-Pop music (/m/064t9)
-Pour (/m/07prgkl)
-Power tool (/m/0_ksk)
-Power windows, electric windows (/m/04gxbd)
-Printer (/m/01m4t)
-Progressive rock (/m/0dl5d)
-Propeller, airscrew (/m/02l6bg)
-Psychedelic rock (/m/05w3f)
-Puff (/m/07q34h3)
-Pulleys (/m/05zc1)
-Pulse (/m/07pt_g0)
-Pump (liquid) (/m/07ptzwd)
-Punk rock (/m/05r6t)
-Purr (/m/02yds9)
-Quack (/m/07qdb04)
-Race car, auto racing (/m/0ltv)
-Radio (/m/06bz3)
-Rail transport (/m/06d_3)
-Railroad car, train wagon (/m/01g50p)
-Rain (/m/06mb1)
-Rain on surface (/t/dd00038)
-Raindrop (/m/07r10fb)
-Rapping (/m/06bxc)
-Ratchet, pawl (/m/02bm9n)
-Rattle (/m/07qn4z3)
-Rattle (instrument) (/m/05r5wn)
-Recording (/m/025l19)
-Reggae (/m/06cqb)
-Reverberation (/m/01b9nn)
-Reversing beeps (/m/02rhddq)
-Rhodes piano (/m/0bxl5)
-Rhythm and blues (/m/06j6l)
-Rimshot (/m/03t3fj)
-Ringing (of resonator) (/m/05szwhw)
-Ringtone (/m/01hnzm)
-Roar (/m/04cvmfc)
-Roaring cats (lions, tigers) (/m/0cdnk)
-Rock and roll (/m/07sbbz2)
-Rock music (/m/06by7)
-Rodents, rats, mice (/m/06hps)
-Roll (/m/07s8j8t)
-Rowboat, canoe, kayak (/m/056ks2)
-Rub (/m/07pdjhy)
-Rumble (/m/07phhsh)
-Run (/m/06h7j)
-Rustle (/m/07qwyj0)
-Rustling leaves (/m/09t49)
-Sad music (/t/dd00033)
-Sailboat, sailing ship (/m/0hsrw)
-Salsa music (/m/0ln16)
-Sampler (/m/01v1d8)
-Sanding (/m/023vsd)
-Sawing (/m/01b82r)
-Saxophone (/m/06ncr)
-Scary music (/t/dd00037)
-Scissors (/m/01lsmm)
-Scrape (/m/07qv4k0)
-Scratch (/m/07qb_dv)
-Scratching (performance technique) (/m/01hgjl)
-Screaming (/m/03qc9zr)
-Screech (/m/07q8k13)
-Sewing machine (/m/0llzx)
-Shatter (/m/07rn7sz)
-Sheep (/m/07bgp)
-Ship (/m/06q74)
-Shofar (/m/0l14l2)
-Shout (/m/07p6fty)
-Shuffle (/m/07qv_x_)
-Shuffling cards (/m/05rj2)
-Sidetone (/m/08p9q4)
-Sigh (/m/07plz5l)
-Silence (/m/028v0c)
-Sine wave (/m/01v_m0)
-Singing (/m/015lz1)
-Singing bowl (/m/0l14t7)
-Single-lens reflex camera (/m/07bjf)
-Sink (filling or washing) (/m/0130jx)
-Siren (/m/03kmc9)
-Sitar (/m/0jtg0)
-Sizzle (/m/07p9k1k)
-Ska (/m/06rqw)
-Skateboard (/m/06_fw)
-Skidding (/m/07rknqz)
-Slam (/m/07rjzl8)
-Slap, smack (/m/07ryjzk)
-Sliding door (/m/02y_763)
-Slosh (/m/07p6mqd)
-Smash, crash (/m/07pjjrj)
-Smoke detector, smoke alarm (/m/01y3hg)
-Snake (/m/078jl)
-Snap (/m/07pc8l3)
-Snare drum (/m/06rvn)
-Sneeze (/m/01hsr_)
-Snicker (/m/07s04w4)
-Sniff (/m/07ppn3j)
-Snoring (/m/01d3sd)
-Snort (/m/07q0yl5)
-Snort (horse) (/t/dd00139)
-Soca music (/m/0kpck)
-Sonar (/m/0790c)
-Song (/m/074ft)
-Sonic boom (/m/0193bn)
-Soprano saxophone (/m/03t22m)
-Soul music (/m/0gywn)
-Sound effect (/m/0c1dj)
-Sounds of things (/t/dd00041)
-Soundtrack music (/m/0l14gg)
-Speech (/m/09x0r)
-Speech synthesizer (/m/0brhx)
-Splash, splatter (/m/07rrlb6)
-Splinter (/m/07pl1bw)
-Spray (/m/07qlf79)
-Squawk (/m/07sx8x_)
-Squeak (/m/07q6cd_)
-Squeal (/m/07s02z0)
-Squish (/m/07qlwh6)
-Static (/m/07rgkc5)
-Steam (/m/06wzb)
-Steam whistle (/m/06hck5)
-Steel guitar, slide guitar (/m/06w87)
-Steelpan (/m/0l156b)
-Stir (/m/07ptfmf)
-Stomach rumble (/m/01g90h)
-Stream (/m/0j6m2)
-String section (/m/02qmj0d)
-Strum (/m/07s0s5r)
-Subway, metro, underground (/m/0195fx)
-Swing music (/m/015y_n)
-Synthesizer (/m/0l14qv)
-Synthetic singing (/t/dd00006)
-Tabla (/m/01p970)
-Tambourine (/m/07brj)
-Tap (/m/07qcpgn)
-Tape hiss (/m/09d1b1)
-Tapping (guitar technique) (/m/01glhc)
-Tearing (/m/07qcx4z)
-Techno (/m/07gxw)
-Telephone (/m/07cx4)
-Telephone bell ringing (/m/07pp8cl)
-Telephone dialing, DTMF (/m/02c8p)
-Television (/m/07c52)
-Tender music (/t/dd00034)
-Theme music (/m/02cjck)
-Theremin (/m/07kc_)
-Throat clearing (/m/0dl9sf8)
-Throbbing (/m/07p_0gm)
-Thump, thud (/m/07qnq_y)
-Thunder (/m/0ngt1)
-Thunderstorm (/m/0jb2l)
-Thunk (/m/07rrh0c)
-Tick (/m/07qjznt)
-Tick-tock (/m/07qjznl)
-Timpani (/m/011k_j)
-Tinnitus, ringing in the ears (/m/0pv6y)
-Tire squeal (/m/0h9mv)
-Toilet flush (/m/01jt3m)
-Tools (/m/07k1x)
-Toot (/m/07qv_d5)
-Toothbrush (/m/012xff)
-Traditional music (/m/02p0sh1)
-Traffic noise, roadway noise (/m/0btp2)
-Train (/m/07jdr)
-Train horn (/m/0284vy3)
-Train wheels squealing (/t/dd00048)
-Train whistle (/m/04zmvq)
-Trance music (/m/07lnk)
-Trap music (/m/0n8zsc8)
-Trickle, dribble (/m/07pqc89)
-Trombone (/m/07c6l)
-Truck (/m/07r04)
-Trumpet (/m/07gql)
-Tubular bells (/m/016622)
-Tuning fork (/m/07n_g)
-Turkey (/m/01rd7k)
-Twang (/m/07rpk1c)
-Typewriter (/m/0c2wf)
-Typing (/m/0316dw)
-UK garage (/m/0bmfpc)
-Ukulele (/m/07xzm)
-Vacuum cleaner (/m/0d31p)
-Vehicle (/m/07yv9)
-Vehicle horn, car horn, honking (/m/0912c9)
-Velcro, hook and loop fastener (/m/0zmy2j9)
-Vibraphone (/m/0dwt5)
-Vibration (/m/01jwx6)
-Video game music (/m/01z7dr)
-Violin, fiddle (/m/07y_7)
-Vocal music (/m/0y4f8)
-Wail, moan (/m/07qw_06)
-Walk, footsteps (/m/07pbtc8)
-Water (/m/0838f)
-Water tap, faucet (/m/02jz0l)
-Waterfall (/m/0j2kx)
-Waves, surf (/m/034srq)
-Wedding music (/m/04wptg)
-Whack, thwack (/m/07rdhzs)
-Whale vocalization (/m/032n05)
-Wheeze (/m/07mzm6)
-Whimper (/m/07qz6j3)
-Whimper (dog) (/t/dd00136)
-Whip (/m/07rbp7_)
-Whir (/m/07s34ls)
-Whispering (/m/02rtxlg)
-Whistle (/m/0l156k)
-Whistling (/m/01w250)
-White noise (/m/0chx_)
-Whoop (/m/07rwj3x)
-Whoosh, swoosh, swish (/m/07rqsjt)
-Wild animals (/m/01280g)
-Wildfire (/m/0fjy1)
-Wind (/m/03m9d0z)
-Wind chime (/m/026fgl)
-Wind instrument, woodwind instrument (/m/085jw)
-Wind noise (microphone) (/t/dd00092)
-Wobble (/m/07pk7mg)
-Wolf-whistling (/m/079vc8)
-Wood (/m/083vt)
-Wood block (/m/01sm1g)
-Writing (/m/081rb)
-Yak (/m/01hhp3)
-Yawn (/m/01j423)
-Yell (/m/07sr1lc)
-Yip (/m/07r_k2n)
-Yodeling (/m/01swy6)
-Zing (/m/07p78v5)
-Zipper (clothing) (/m/01s0vc)
-Zither (/m/01bns_)
+A capella
+Accelerating, revving, vroom
+Accordion
+Acoustic guitar
+Afrobeat
+Air brake
+Air conditioning
+Air horn, truck horn
+Aircraft
+Aircraft engine
+Alarm
+Alarm clock
+Alto saxophone
+Ambient music
+Ambulance (siren)
+Angry music
+Animal
+Applause
+Arrow
+Artillery fire
+Babbling
+Baby cry, infant cry
+Baby laughter
+Background music
+Background noise
+Bagpipes
+Bang
+Banjo
+Bark
+Basketball bounce
+Bass (frequency range)
+Bass (instrument role)
+Bass drum
+Bass guitar
+Bassline
+Bassoon
+Bathtub (filling or washing)
+Battle cry
+Bay
+Beat
+Beatboxing
+Bee, wasp, etc.
+Beep, bleep
+Bell
+Bellow
+Belly laugh
+Bicycle
+Bicycle bell
+Bird
+Bird flight, flapping wings
+Bird vocalization, bird call, bird song
+Birthday music
+Biting
+Blare
+Bleat
+Blender
+Bluegrass
+Blues
+Boat, Water vehicle
+Boiling
+Boing
+Booing
+Boom
+Bouncing
+Bow-wow
+Bowed string instrument
+Brass instrument
+Breaking
+Breathing
+Bugle
+Burping, eructation
+Burst, pop
+Bus
+Busy signal
+Buzz
+Buzzer
+Cacophony
+Camera
+Canidae, dogs, wolves
+Cap gun
+Car
+Car alarm
+Car passing by
+Carnatic music
+Cash register
+Cat
+Cat communication
+Caterwaul
+Cattle, bovinae
+Caw
+Cello
+Cellphone buzz, vibrating alert
+Chainsaw
+Change ringing (campanology)
+Chant
+Chatter
+Cheering
+Chewing, mastication
+Chicken, rooster
+Child singing
+Child speech, kid speaking
+Children playing
+Children shouting
+Chime
+Chink, clink
+Chipmunk
+Chirp tone
+Chirp, tweet
+Choir
+Chop
+Chopping (food)
+Chord
+Chorus effect
+Christian music
+Christmas music
+Chuckle, chortle
+Church bell
+Civil defense siren
+Clang
+Clapping
+Clarinet
+Classical music
+Clatter
+Clavinet
+Clickety-clack
+Clicking
+Clip-clop
+Clock
+Cluck
+Clunk
+Coin (dropping)
+Compact disc
+Computer keyboard
+Conversation
+Coo
+Cornet
+Cough
+Country
+Cowbell
+Crack
+Crackle
+Crash cymbal
+Creak
+Cricket
+Croak
+Crow
+Crowd
+Crowing, cock-a-doodle-doo
+Crumpling, crinkling
+Crunch
+Crushing
+Crying, sobbing
+Cumbia
+Cupboard open or close
+Cutlery, silverware
+Cymbal
+Dance music
+Dental drill, dentist's drill
+Dial tone
+Didgeridoo
+Ding
+Ding-dong
+Disco
+Dishes, pots, and pans
+Distortion
+Dog
+Domestic animals, pets
+Domestic sounds, home sounds
+Donkey, ass
+Door
+Doorbell
+Double bass
+Drawer open or close
+Drill
+Drip
+Drone
+Drone music
+Drum
+Drum and bass
+Drum beat
+Drum kit
+Drum machine
+Drum roll
+Dub
+Dubstep
+Duck
+Duck call (hunting tool)
+Echo
+Effects unit
+Electric guitar
+Electric piano
+Electric shaver, electric razor
+Electric toothbrush
+Electro
+Electronic dance music
+Electronic music
+Electronic organ
+Electronic tuner
+Electronica
+Emergency vehicle
+Engine
+Engine knocking
+Engine starting
+Environmental noise
+Eruption
+Exciting music
+Explosion
+Fart
+Female singing
+Female speech, woman speaking
+Field recording
+Filing (rasp)
+Fill (with liquid)
+Finger snapping
+Fire
+Fire alarm
+Fire engine, fire truck (siren)
+Firecracker
+Fireworks
+Fixed-wing aircraft, airplane
+Fizz
+Flamenco
+Flap
+Flute
+Fly, housefly
+Foghorn
+Folk music
+Fowl
+French horn
+Frog
+Frying (food)
+Funk
+Funk carioca
+Funny music
+Fusillade
+Gargling
+Gasp
+Gears
+Giggle
+Glass
+Glockenspiel
+Goat
+Gobble
+Gong
+Goose
+Gospel music
+Gramophone record
+Grime music
+Grind
+Groan
+Growling
+Grunge
+Grunt
+Guitar
+Guitar amplifier
+Gull, seagull
+Gunshot, gunfire
+Gurgling
+Gush
+Hair dryer
+Hammer
+Hammond organ
+Hands
+Happy music
+Harmonic
+Harmonica
+Harmony
+Harp
+Harpsichord
+Headphones
+Heart murmur
+Heart sounds, heartbeat
+Heavy engine (low frequency)
+Heavy metal
+Helicopter
+Hi-hat
+Hiccup
+Hip hop music
+Hiss
+Honk
+Hoot
+Horse
+House music
+Howl
+Howl (wind)
+Hubbub, speech noise, speech babble
+Hum
+Humming
+Ice cream truck, ice cream van
+Idling
+Independent music
+Infrasound
+Insect
+Inside, large room or hall
+Inside, public space
+Inside, small room
+Jackhammer
+Jazz
+Jet engine
+Jingle (music)
+Jingle bell
+Jingle, tinkle
+Kettle whistle
+Keyboard (musical)
+Keys jangling
+Knock
+Kuduro
+Kwaito
+Laughter
+Lawn mower
+Light engine (high frequency)
+Liquid
+Livestock, farm animals, working animals
+Loop
+Loudspeaker
+Lullaby
+MP3
+Machine gun
+Mains hum
+Male singing
+Male speech, man speaking
+Mallet percussion
+Mandolin
+Mantra
+Maraca
+Marimba, xylophone
+Mechanical fan
+Mechanisms
+Medium engine (mid frequency)
+Mellotron
+Melody
+Meow
+Microphone
+Microwave oven
+Middle Eastern music
+Moo
+Mosquito
+Motor vehicle (road)
+Motorboat, speedboat
+Motorcycle
+Mouse
+Music
+Music for children
+Music of Africa
+Music of Asia
+Music of Bollywood
+Music of Latin America
+Musical ensemble
+Musical instrument
+Musical note
+Narration, monologue
+Natural sounds
+Neigh, whinny
+New-age music
+Nicker
+Noise
+Noise music
+Non-motorized land vehicle
+Oboe
+Ocean
+Oink
+Oldschool jungle
+Opera
+Orchestra
+Organ
+Otoacoustic emission
+Outside, rural or natural
+Outside, urban or manmade
+Owl
+Packing tape, duct tape
+Pant
+Patter
+Percussion
+Piano
+Pig
+Pigeon, dove
+Ping
+Pink noise
+Pizzicato
+Plop
+Plucked string instrument
+Police car (siren)
+Pop music
+Pour
+Power tool
+Power windows, electric windows
+Printer
+Progressive rock
+Propeller, airscrew
+Psychedelic rock
+Puff
+Pulleys
+Pulse
+Pump (liquid)
+Punk rock
+Purr
+Quack
+Race car, auto racing
+Radio
+Rail transport
+Railroad car, train wagon
+Rain
+Rain on surface
+Raindrop
+Rapping
+Ratchet, pawl
+Rattle
+Rattle (instrument)
+Recording
+Reggae
+Reverberation
+Reversing beeps
+Rhodes piano
+Rhythm and blues
+Rimshot
+Ringing (of resonator)
+Ringtone
+Roar
+Roaring cats (lions, tigers)
+Rock and roll
+Rock music
+Rodents, rats, mice
+Roll
+Rowboat, canoe, kayak
+Rub
+Rumble
+Run
+Rustle
+Rustling leaves
+Sad music
+Sailboat, sailing ship
+Salsa music
+Sampler
+Sanding
+Sawing
+Saxophone
+Scary music
+Scissors
+Scrape
+Scratch
+Scratching (performance technique)
+Screaming
+Screech
+Sewing machine
+Shatter
+Sheep
+Ship
+Shofar
+Shout
+Shuffle
+Shuffling cards
+Sidetone
+Sigh
+Silence
+Sine wave
+Singing
+Singing bowl
+Single-lens reflex camera
+Sink (filling or washing)
+Siren
+Sitar
+Sizzle
+Ska
+Skateboard
+Skidding
+Slam
+Slap, smack
+Sliding door
+Slosh
+Smash, crash
+Smoke detector, smoke alarm
+Snake
+Snap
+Snare drum
+Sneeze
+Snicker
+Sniff
+Snoring
+Snort
+Snort (horse)
+Soca music
+Sonar
+Song
+Sonic boom
+Soprano saxophone
+Soul music
+Sound effect
+Sounds of things
+Soundtrack music
+Speech
+Speech synthesizer
+Splash, splatter
+Splinter
+Spray
+Squawk
+Squeak
+Squeal
+Squish
+Static
+Steam
+Steam whistle
+Steel guitar, slide guitar
+Steelpan
+Stir
+Stomach rumble
+Stream
+String section
+Strum
+Subway, metro, underground
+Swing music
+Synthesizer
+Synthetic singing
+Tabla
+Tambourine
+Tap
+Tape hiss
+Tapping (guitar technique)
+Tearing
+Techno
+Telephone
+Telephone bell ringing
+Telephone dialing, DTMF
+Television
+Tender music
+Theme music
+Theremin
+Throat clearing
+Throbbing
+Thump, thud
+Thunder
+Thunderstorm
+Thunk
+Tick
+Tick-tock
+Timpani
+Tinnitus, ringing in the ears
+Tire squeal
+Toilet flush
+Tools
+Toot
+Toothbrush
+Traditional music
+Traffic noise, roadway noise
+Train
+Train horn
+Train wheels squealing
+Train whistle
+Trance music
+Trap music
+Trickle, dribble
+Trombone
+Truck
+Trumpet
+Tubular bells
+Tuning fork
+Turkey
+Twang
+Typewriter
+Typing
+UK garage
+Ukulele
+Vacuum cleaner
+Vehicle
+Vehicle horn, car horn, honking
+Velcro, hook and loop fastener
+Vibraphone
+Vibration
+Video game music
+Violin, fiddle
+Vocal music
+Wail, moan
+Walk, footsteps
+Water
+Water tap, faucet
+Waterfall
+Waves, surf
+Wedding music
+Whack, thwack
+Whale vocalization
+Wheeze
+Whimper
+Whimper (dog)
+Whip
+Whir
+Whispering
+Whistle
+Whistling
+White noise
+Whoop
+Whoosh, swoosh, swish
+Wild animals
+Wildfire
+Wind
+Wind chime
+Wind instrument, woodwind instrument
+Wind noise (microphone)
+Wobble
+Wolf-whistling
+Wood
+Wood block
+Writing
+Yak
+Yawn
+Yell
+Yip
+Yodeling
+Zing
+Zipper (clothing)
+Zither
