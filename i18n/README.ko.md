@@ -71,6 +71,34 @@ sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
 sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
 ```
 
+> **참고:** 온라인 모드 사용 시 [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) 모델에 대한 액세스 권한이 필요합니다. 모델 페이지를 방문하여 사용 약관에 동의하고 액세스 권한을 얻으세요.
+
+#### 주요 CLI 옵션:
+
+```
+일반:
+  -o, --output FILE           지정된 JSON 파일에 전사 결과 저장
+  -l, --language LANG         언어 코드 (en, ko, zh, ja, fr, de, es, it, pt, ru)
+  -m, --model NAME            WhisperX 모델 크기 (tiny, small, medium, large-v3 등)
+  -d, --device DEVICE         모델 실행 장치 (cpu, cuda)
+  --text-output FILE          지정된 텍스트 파일에 형식화된 전사 결과 저장
+  --format TYPE               출력 형식: concise, default, extended
+  --preprocess                오디오 전처리 (포맷 변환 및 무음 제거)
+
+다이어리제이션:
+  --diarize                   화자 다이어리제이션 활성화
+  --hf-token TOKEN            HuggingFace 토큰 (온라인 다이어리제이션용)
+  --min-speakers NUM          최소 화자 수 설정
+  --max-speakers NUM          최대 화자 수 설정
+  --offline-diarize           오프라인 다이어리제이션 사용 (설정 후 토큰 불필요)
+  --offline-config PATH       오프라인 다이어리제이션 설정 파일 경로
+  --setup-offline             오프라인 다이어리제이션 모델 다운로드 및 설정
+
+오디오 이벤트:
+  --threshold VALUE           오디오 이벤트 감지 임계값 (0.0-1.0)
+  --custom-thresholds FILE    사용자 정의 오디오 이벤트 임계값이 포함된 JSON 파일 경로
+```
+
 [📚 전체 사용법 문서 보기](../docs/USAGE.md)  
 [⌨️ 전체 CLI 문서 보기](../docs/CLI.md)  
 [🎤 오프라인 다이어리제이션 가이드 보기](../docs/OFFLINE_DIARIZATION.md)
@@ -108,5 +136,7 @@ Contribution은 언제나 환영합니다! 풀 리퀘스트를 자유롭게 제�
 
 - [WhisperX](https://github.com/m-bain/whisperX) - 빠른 음성 인식
 - [AudioSet AST](https://github.com/YuanGongND/ast) - 오디오 이벤트 감지
+  - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - 오디오 이벤트 분류를 위한 사전 훈련된 모델
 - [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - speaker diarization
+  - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) - 화자 다이어리제이션 파이프라인
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP 도구 
