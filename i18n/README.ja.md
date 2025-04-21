@@ -71,7 +71,7 @@ sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
 sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
 ```
 
-> **注意:** オンラインモードを使用する場合、[pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) モデルのアクセス権限が必要です。モデルページを訪問し、利用規約に同意してアクセス権を取得してください。
+> **注意:** オンライン話者分離を使用する場合、[pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) と [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) の両方のモデルのアクセス権限が必要です。両方のモデルページを訪問し、それぞれの利用規約に同意してアクセス権を取得してください。
 
 #### 主なCLIオプション:
 
