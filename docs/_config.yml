@@ -9,6 +9,13 @@ lang: en-US
 baseurl: "/SONATA" # the subpath of your site
 url: "https://hwk06023.github.io" # the base hostname & protocol
 
+# Theme settings
+color_scheme: "dark" # or "light"
+enable_copy_code_button: true
+heading_anchors: true
+back_to_top: true
+back_to_top_text: "Back to top"
+
 # Enable search
 search_enabled: true
 search:
@@ -34,8 +41,20 @@ nav_sort: case_sensitive
 # Footer content
 footer_content: "Copyright &copy; 2024 SONATA. Distributed under GPLv3 license."
 
-# Color scheme
-color_scheme: light
+# Callouts (alerts)
+callouts:
+  note:
+    title: Note
+    color: blue
+  warning:
+    title: Warning
+    color: yellow
+  danger:
+    title: Danger
+    color: red
+  success:
+    title: Success
+    color: green
 
 # Markdown settings
 markdown: kramdown
@@ -47,8 +66,20 @@ kramdown:
 # Enable proper page permalinks
 permalink: pretty
 
-# Trigger update
-update_trigger: true
+# Custom header and footer
+header_pages:
+  - index.md
+  - FEATURES.md
+  - USAGE.md
+  - CLI.md
+  - AUDIO_EVENTS.md
+  - OFFLINE_DIARIZATION.md
+
+# Lunr search settings
+lunr_search:
+  excludes: ['feed.xml', 'atom.xml', 'sitemap.xml', 'robots.txt', '404.html']
+  min_length: 3
+  stopwords: 'stopwords.txt'
 
 # SEO Settings
 twitter:
@@ -70,10 +101,17 @@ mermaid:
 ga_tracking: 
 ga_tracking_anonymize_ip: true
 
+# External scripts to include
+external_scripts:
+  - href: "https://cdn.jsdelivr.net/npm/lunr@2.3.9/lunr.min.js"
+    async: false
+    defer: false
+
 # Exclude from processing
 exclude:
   - Gemfile
   - Gemfile.lock
   - node_modules/
   - vendor/
-  - .jekyll-cache/ 
+  - .jekyll-cache/
+  - assets/js/build-search-data.js 

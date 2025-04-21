@@ -1,0 +1,58 @@
+<header class="site-header">
+  <div class="site-header__wrap">
+    <div class="site-header__menu">
+      <div class="site-header__mobile-menu">
+        <button id="menu-button" aria-label="Toggle Menu" class="menu-button">
+          <span class="menu-icon"></span>
+        </button>
+      </div>
+      
+      <a class="site-title" href="{{ '/' | relative_url }}">
+        {% if site.logo %}
+          <img src="{{ site.logo | relative_url }}" alt="{{ site.title }}" class="site-logo">
+        {% else %}
+          {{ site.title }}
+        {% endif %}
+      </a>
+    </div>
+    
+    <div class="site-header__search">
+      <div class="search-container js-search">
+        <input type="text" id="search-input-header" 
+               class="search-input" 
+               placeholder="Search documentation (Press '/' to focus)"
+               autocomplete="off">
+        <div class="search-icon">
+          <i class="fas fa-search"></i>
+        </div>
+        <div id="search-results-container" class="search-results-dropdown"></div>
+      </div>
+    </div>
+    
+    <nav class="site-nav">
+      <ul class="nav-list">
+        {% assign pages_list = site.html_pages | sort:"nav_order" %}
+        {% for node in pages_list %}
+          {% unless node.nav_exclude %}
+            {% if node.parent == nil and node.title %}
+              <li class="nav-list-item{% if page.url == node.url %} active{% endif %}">
+                <a href="{{ node.url | relative_url }}" class="nav-list-link">{{ node.title }}</a>
+              </li>
+            {% endif %}
+          {% endunless %}
+        {% endfor %}
+        
+        {% if site.aux_links %}
+          {% for link in site.aux_links %}
+            <li class="nav-list-item">
+              <a href="{{ link[1] }}" class="nav-list-link external-link" {% if site.aux_links_new_tab %}target="_blank"{% endif %}>
+                {{ link[0] }}
+                <i class="fas fa-external-link-alt"></i>
+              </a>
+            </li>
+          {% endfor %}
+        {% endif %}
+      </ul>
+    </nav>
+  </div>
+</header> 
