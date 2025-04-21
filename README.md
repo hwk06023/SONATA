@@ -69,7 +69,7 @@ sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
 sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
 ```
 
-> **Note:** For online mode, you need to have access permissions to the [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) model. Please visit the model page and accept the terms of use to gain access.
+> **Note:** For online speaker diarization, you need to have access permissions to both [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) and [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) models. Please visit both model pages and accept the terms of use to gain access. This is required for all languages.
 
 #### Common CLI Options:
 
