@@ -32,7 +32,6 @@ packages = [
     { include = "sonata" },
     { include = "sonata/core" },
     { include = "sonata/libs" },
-    { include = "sonata/libs/laughter_detection" },
     { include = "sonata/models" },
     { include = "sonata/utils" }
 ]
