@@ -237,11 +237,39 @@ class ASRProcessor:
             # Perform diarization
             if hasattr(self.diarize_model, "__call__"):
                 # Direct Pipeline (offline mode)
-                diarize_segments = self.diarize_model(
-                    audio_path,  # Pipeline expects path, not audio data
-                    min_speakers=min_speakers,
-                    max_speakers=max_speakers,
-                )
+                if show_progress:
+                    print(
+                        f"[ASR] Extracting speaker embeddings with ResNet...",
+                        flush=True,
+                    )
+                    # The PyAnnote pipeline has internal steps including ResNet embedding extraction
+                    # We'll wrap this call with tqdm to show progress during the operation
+                    from tqdm import tqdm
+
+                    with tqdm(total=100, desc="Speaker embedding", unit="%") as pbar:
+                        # Create a custom hook to update progress bar based on pipeline callbacks
+                        # This is an approximation since we don't have direct access to internal steps
+                        def update_progress(progress):
+                            pbar.update(1)
+
+                        # Execute the diarization with progress tracking
+                        diarize_segments = self.diarize_model(
+                            audio_path,  # Pipeline expects path, not audio data
+                            min_speakers=min_speakers,
+                            max_speakers=max_speakers,
+                            progress_hook=update_progress
+                            if "progress_hook"
+                            in self.diarize_model.__code__.co_varnames
+                            else None,
+                        )
+                        pbar.update(100 - pbar.n)  # Ensure we reach 100%
+                else:
+                    diarize_segments = self.diarize_model(
+                        audio_path,  # Pipeline expects path, not audio data
+                        min_speakers=min_speakers,
+                        max_speakers=max_speakers,
+                    )
+
                 # Convert output format to match whisperx format
                 result = []
                 for segment, track, label in diarize_segments.itertracks(
@@ -257,11 +285,41 @@ class ASRProcessor:
                 return result
             else:
                 # WhisperX DiarizationPipeline
-                return self.diarize_model(
-                    audio,
-                    min_speakers=min_speakers,
-                    max_speakers=max_speakers,
-                )
+                if show_progress:
+                    print(
+                        f"[ASR] Extracting speaker embeddings with ResNet...",
+                        flush=True,
+                    )
+                    from tqdm import tqdm
+
+                    with tqdm(total=100, desc="Speaker embedding", unit="%") as pbar:
+                        # Create a hook to update progress
+                        def update_progress(progress):
+                            pbar.update(1)
+
+                        # Try to call with progress hook if supported
+                        try:
+                            result = self.diarize_model(
+                                audio,
+                                min_speakers=min_speakers,
+                                max_speakers=max_speakers,
+                                progress_callback=update_progress,
+                            )
+                        except TypeError:
+                            # If progress_callback not supported, run normally and update at end
+                            result = self.diarize_model(
+                                audio,
+                                min_speakers=min_speakers,
+                                max_speakers=max_speakers,
+                            )
+                            pbar.update(100)  # Complete the progress bar
+                        return result
+                else:
+                    return self.diarize_model(
+                        audio,
+                        min_speakers=min_speakers,
+                        max_speakers=max_speakers,
+                    )
         except Exception as e:
             print(f"Warning: Diarization failed. Error: {str(e)}")
             return []

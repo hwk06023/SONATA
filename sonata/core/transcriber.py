@@ -140,16 +140,49 @@ class IntegratedTranscriber:
                         show_progress=True,
                     )
 
-                    # Assign speakers to words
-                    for word in word_timestamps:
-                        # Find matching segment
-                        for segment in diarize_segments:
-                            if (
-                                word["start"] >= segment["start"]
-                                and word["end"] <= segment["end"]
-                            ):
-                                word["speaker"] = segment["speaker"]
-                                break
+                    # Assign speakers to words - optimize the nested loop
+                    if word_timestamps and diarize_segments:
+                        # Sort segments by start time for faster lookup
+                        sorted_segments = sorted(
+                            diarize_segments, key=lambda x: x["start"]
+                        )
+
+                        # Create a more efficient mapping structure
+                        # For each time point, we want to quickly find which speaker segment it belongs to
+                        segment_map = []
+                        for segment in sorted_segments:
+                            segment_map.append(
+                                (segment["start"], segment["end"], segment["speaker"])
+                            )
+
+                        # Process words in a single loop with binary search for segment lookup
+                        from bisect import bisect_left
+
+                        # Extract start times for binary search
+                        segment_starts = [seg[0] for seg in segment_map]
+
+                        for word in word_timestamps:
+                            word_start = word["start"]
+                            word_end = word["end"]
+
+                            # Find the potential segment using binary search - O(log n)
+                            idx = bisect_left(segment_starts, word_start) - 1
+                            if idx < 0:
+                                idx = 0
+
+                            # Check if word falls within this segment
+                            while idx < len(segment_map):
+                                seg_start, seg_end, speaker = segment_map[idx]
+
+                                # If word is within segment bounds
+                                if word_start >= seg_start and word_end <= seg_end:
+                                    word["speaker"] = speaker
+                                    break
+                                # If we've gone past where the word could possibly be
+                                elif seg_start > word_end:
+                                    break
+
+                                idx += 1
 
                     print(
                         f"Speaker diarization complete with {len(set(s['speaker'] for s in diarize_segments))} speakers detected",
