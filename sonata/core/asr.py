@@ -243,26 +243,53 @@ class ASRProcessor:
                         flush=True,
                     )
                     # The PyAnnote pipeline has internal steps including ResNet embedding extraction
-                    # We'll wrap this call with tqdm to show progress during the operation
                     from tqdm import tqdm
+                    import time
 
+                    # Create progress bar for ResNet embedding
                     with tqdm(total=100, desc="Speaker embedding", unit="%") as pbar:
-                        # Create a custom hook to update progress bar based on pipeline callbacks
-                        # This is an approximation since we don't have direct access to internal steps
-                        def update_progress(progress):
-                            pbar.update(1)
+                        # Start in a separate thread to show progress while model runs
+                        start_time = time.time()
 
-                        # Execute the diarization with progress tracking
-                        diarize_segments = self.diarize_model(
-                            audio_path,  # Pipeline expects path, not audio data
-                            min_speakers=min_speakers,
-                            max_speakers=max_speakers,
-                            progress_hook=update_progress
-                            if "progress_hook"
-                            in self.diarize_model.__code__.co_varnames
-                            else None,
-                        )
-                        pbar.update(100 - pbar.n)  # Ensure we reach 100%
+                        # Execute diarization
+                        last_update = 0
+                        diarize_segments = None
+
+                        # Run in the main thread but update progress bar periodically
+                        import threading
+
+                        def update_progress():
+                            nonlocal last_update
+                            # Update progress bar incrementally until we reach ~90%
+                            # The final 10% will be filled when the process completes
+                            while last_update < 90 and diarize_segments is None:
+                                elapsed = time.time() - start_time
+                                # Update more frequently at the beginning, then slow down
+                                if elapsed > 0.5:
+                                    increment = max(1, min(5, int(elapsed / 2)))
+                                    if last_update + increment <= 90:
+                                        pbar.update(increment)
+                                        last_update += increment
+                                time.sleep(0.5)
+
+                        # Start progress updater thread
+                        progress_thread = threading.Thread(target=update_progress)
+                        progress_thread.daemon = True
+                        progress_thread.start()
+
+                        try:
+                            # Run actual diarization
+                            diarize_segments = self.diarize_model(
+                                audio_path,  # Pipeline expects path, not audio data
+                                min_speakers=min_speakers,
+                                max_speakers=max_speakers,
+                            )
+                            # Complete the progress bar
+                            pbar.update(100 - last_update)
+                        except Exception as e:
+                            # Complete the progress bar even if there's an error
+                            pbar.update(100 - last_update)
+                            raise e
                 else:
                     diarize_segments = self.diarize_model(
                         audio_path,  # Pipeline expects path, not audio data
@@ -291,29 +318,53 @@ class ASRProcessor:
                         flush=True,
                     )
                     from tqdm import tqdm
+                    import time
 
+                    # Create progress bar for ResNet embedding
                     with tqdm(total=100, desc="Speaker embedding", unit="%") as pbar:
-                        # Create a hook to update progress
-                        def update_progress(progress):
-                            pbar.update(1)
+                        # Start in a separate thread to show progress while model runs
+                        start_time = time.time()
 
-                        # Try to call with progress hook if supported
+                        # Execute diarization
+                        last_update = 0
+                        result = None
+
+                        # Run in the main thread but update progress bar periodically
+                        import threading
+
+                        def update_progress():
+                            nonlocal last_update
+                            # Update progress bar incrementally until we reach ~90%
+                            # The final 10% will be filled when the process completes
+                            while last_update < 90 and result is None:
+                                elapsed = time.time() - start_time
+                                # Update more frequently at the beginning, then slow down
+                                if elapsed > 0.5:
+                                    increment = max(1, min(5, int(elapsed / 2)))
+                                    if last_update + increment <= 90:
+                                        pbar.update(increment)
+                                        last_update += increment
+                                time.sleep(0.5)
+
+                        # Start progress updater thread
+                        progress_thread = threading.Thread(target=update_progress)
+                        progress_thread.daemon = True
+                        progress_thread.start()
+
                         try:
-                            result = self.diarize_model(
-                                audio,
-                                min_speakers=min_speakers,
-                                max_speakers=max_speakers,
-                                progress_callback=update_progress,
-                            )
-                        except TypeError:
-                            # If progress_callback not supported, run normally and update at end
+                            # Run actual diarization
                             result = self.diarize_model(
                                 audio,
                                 min_speakers=min_speakers,
                                 max_speakers=max_speakers,
                             )
-                            pbar.update(100)  # Complete the progress bar
-                        return result
+                            # Complete the progress bar
+                            pbar.update(100 - last_update)
+                            return result
+                        except Exception as e:
+                            # Complete the progress bar even if there's an error
+                            pbar.update(100 - last_update)
+                            raise e
                 else:
                     return self.diarize_model(
                         audio,
