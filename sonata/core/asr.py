@@ -237,11 +237,80 @@ class ASRProcessor:
             # Perform diarization
             if hasattr(self.diarize_model, "__call__"):
                 # Direct Pipeline (offline mode)
-                diarize_segments = self.diarize_model(
-                    audio_path,  # Pipeline expects path, not audio data
-                    min_speakers=min_speakers,
-                    max_speakers=max_speakers,
-                )
+                if show_progress:
+                    print(
+                        f"[ASR] Extracting speaker embeddings with ResNet...",
+                        flush=True,
+                    )
+                    # The PyAnnote pipeline has internal steps including ResNet embedding extraction
+                    from tqdm import tqdm
+                    import time
+                    import warnings
+
+                    # Create progress bar for ResNet embedding
+                    with tqdm(total=100, desc="Speaker embedding", unit="%") as pbar:
+                        # Start in a separate thread to show progress while model runs
+                        start_time = time.time()
+
+                        # Execute diarization
+                        last_update = 0
+                        diarize_segments = None
+
+                        # Run in the main thread but update progress bar periodically
+                        import threading
+
+                        def update_progress():
+                            nonlocal last_update
+                            # Update progress bar incrementally until we reach ~90%
+                            # The final 10% will be filled when the process completes
+                            while last_update < 90 and diarize_segments is None:
+                                elapsed = time.time() - start_time
+                                # Update more frequently at the beginning, then slow down
+                                if elapsed > 0.5:
+                                    increment = max(1, min(5, int(elapsed / 2)))
+                                    if last_update + increment <= 90:
+                                        pbar.update(increment)
+                                        last_update += increment
+                                time.sleep(0.5)
+
+                        # Start progress updater thread
+                        progress_thread = threading.Thread(target=update_progress)
+                        progress_thread.daemon = True
+                        progress_thread.start()
+
+                        try:
+                            # Run actual diarization - suppress warnings that cause the process to die
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings(
+                                    "ignore", message=".*degrees of freedom is <= 0.*"
+                                )
+                                warnings.filterwarnings("ignore", category=UserWarning)
+                                diarize_segments = self.diarize_model(
+                                    audio_path,  # Pipeline expects path, not audio data
+                                    min_speakers=min_speakers,
+                                    max_speakers=max_speakers,
+                                )
+                            # Complete the progress bar
+                            pbar.update(100 - last_update)
+                        except Exception as e:
+                            # Complete the progress bar even if there's an error
+                            pbar.update(100 - last_update)
+                            raise e
+                else:
+                    # Suppress warnings in non-progress mode too
+                    import warnings
+
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings(
+                            "ignore", message=".*degrees of freedom is <= 0.*"
+                        )
+                        warnings.filterwarnings("ignore", category=UserWarning)
+                        diarize_segments = self.diarize_model(
+                            audio_path,  # Pipeline expects path, not audio data
+                            min_speakers=min_speakers,
+                            max_speakers=max_speakers,
+                        )
+
                 # Convert output format to match whisperx format
                 result = []
                 for segment, track, label in diarize_segments.itertracks(
@@ -257,11 +326,79 @@ class ASRProcessor:
                 return result
             else:
                 # WhisperX DiarizationPipeline
-                return self.diarize_model(
-                    audio,
-                    min_speakers=min_speakers,
-                    max_speakers=max_speakers,
-                )
+                if show_progress:
+                    print(
+                        f"[ASR] Extracting speaker embeddings with ResNet...",
+                        flush=True,
+                    )
+                    from tqdm import tqdm
+                    import time
+                    import warnings
+
+                    # Create progress bar for ResNet embedding
+                    with tqdm(total=100, desc="Speaker embedding", unit="%") as pbar:
+                        # Start in a separate thread to show progress while model runs
+                        start_time = time.time()
+
+                        # Execute diarization
+                        last_update = 0
+                        result = None
+
+                        # Run in the main thread but update progress bar periodically
+                        import threading
+
+                        def update_progress():
+                            nonlocal last_update
+                            # Update progress bar incrementally until we reach ~90%
+                            # The final 10% will be filled when the process completes
+                            while last_update < 90 and result is None:
+                                elapsed = time.time() - start_time
+                                # Update more frequently at the beginning, then slow down
+                                if elapsed > 0.5:
+                                    increment = max(1, min(5, int(elapsed / 2)))
+                                    if last_update + increment <= 90:
+                                        pbar.update(increment)
+                                        last_update += increment
+                                time.sleep(0.5)
+
+                        # Start progress updater thread
+                        progress_thread = threading.Thread(target=update_progress)
+                        progress_thread.daemon = True
+                        progress_thread.start()
+
+                        try:
+                            # Run actual diarization - suppress warnings that cause the process to die
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings(
+                                    "ignore", message=".*degrees of freedom is <= 0.*"
+                                )
+                                warnings.filterwarnings("ignore", category=UserWarning)
+                                result = self.diarize_model(
+                                    audio,
+                                    min_speakers=min_speakers,
+                                    max_speakers=max_speakers,
+                                )
+                            # Complete the progress bar
+                            pbar.update(100 - last_update)
+                            return result
+                        except Exception as e:
+                            # Complete the progress bar even if there's an error
+                            pbar.update(100 - last_update)
+                            raise e
+                else:
+                    # Suppress warnings in non-progress mode too
+                    import warnings
+
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings(
+                            "ignore", message=".*degrees of freedom is <= 0.*"
+                        )
+                        warnings.filterwarnings("ignore", category=UserWarning)
+                        return self.diarize_model(
+                            audio,
+                            min_speakers=min_speakers,
+                            max_speakers=max_speakers,
+                        )
         except Exception as e:
             print(f"Warning: Diarization failed. Error: {str(e)}")
             return []
