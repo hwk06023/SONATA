@@ -253,24 +253,24 @@ class ASRProcessor:
                         start_time = time.time()
 
                         # Execute diarization
-                        last_update = 0
+                        progress_percent = 0
                         diarize_segments = None
 
                         # Run in the main thread but update progress bar periodically
                         import threading
 
                         def update_progress():
-                            nonlocal last_update
+                            nonlocal progress_percent
                             # Update progress bar incrementally until we reach ~90%
                             # The final 10% will be filled when the process completes
-                            while last_update < 90 and diarize_segments is None:
+                            while progress_percent < 90 and diarize_segments is None:
                                 elapsed = time.time() - start_time
                                 # Update more frequently at the beginning, then slow down
                                 if elapsed > 0.5:
                                     increment = max(1, min(5, int(elapsed / 2)))
-                                    if last_update + increment <= 90:
+                                    if progress_percent + increment <= 90:
                                         pbar.update(increment)
-                                        last_update += increment
+                                        progress_percent += increment
                                 time.sleep(0.5)
 
                         # Start progress updater thread
@@ -291,10 +291,10 @@ class ASRProcessor:
                                     max_speakers=max_speakers,
                                 )
                             # Complete the progress bar
-                            pbar.update(100 - last_update)
+                            pbar.update(100 - progress_percent)
                         except Exception as e:
                             # Complete the progress bar even if there's an error
-                            pbar.update(100 - last_update)
+                            pbar.update(100 - progress_percent)
                             raise e
                 else:
                     # Suppress warnings in non-progress mode too
@@ -341,24 +341,24 @@ class ASRProcessor:
                         start_time = time.time()
 
                         # Execute diarization
-                        last_update = 0
+                        progress_percent = 0
                         result = None
 
                         # Run in the main thread but update progress bar periodically
                         import threading
 
                         def update_progress():
-                            nonlocal last_update
+                            nonlocal progress_percent
                             # Update progress bar incrementally until we reach ~90%
                             # The final 10% will be filled when the process completes
-                            while last_update < 90 and result is None:
+                            while progress_percent < 90 and result is None:
                                 elapsed = time.time() - start_time
                                 # Update more frequently at the beginning, then slow down
                                 if elapsed > 0.5:
                                     increment = max(1, min(5, int(elapsed / 2)))
-                                    if last_update + increment <= 90:
+                                    if progress_percent + increment <= 90:
                                         pbar.update(increment)
-                                        last_update += increment
+                                        progress_percent += increment
                                 time.sleep(0.5)
 
                         # Start progress updater thread
@@ -379,11 +379,11 @@ class ASRProcessor:
                                     max_speakers=max_speakers,
                                 )
                             # Complete the progress bar
-                            pbar.update(100 - last_update)
+                            pbar.update(100 - progress_percent)
                             return result
                         except Exception as e:
                             # Complete the progress bar even if there's an error
-                            pbar.update(100 - last_update)
+                            pbar.update(100 - progress_percent)
                             raise e
                 else:
                     # Suppress warnings in non-progress mode too
