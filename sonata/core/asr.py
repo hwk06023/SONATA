@@ -245,6 +245,7 @@ class ASRProcessor:
                     # The PyAnnote pipeline has internal steps including ResNet embedding extraction
                     from tqdm import tqdm
                     import time
+                    import warnings
 
                     # Create progress bar for ResNet embedding
                     with tqdm(total=100, desc="Speaker embedding", unit="%") as pbar:
@@ -278,12 +279,17 @@ class ASRProcessor:
                         progress_thread.start()
 
                         try:
-                            # Run actual diarization
-                            diarize_segments = self.diarize_model(
-                                audio_path,  # Pipeline expects path, not audio data
-                                min_speakers=min_speakers,
-                                max_speakers=max_speakers,
-                            )
+                            # Run actual diarization - suppress warnings that cause the process to die
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings(
+                                    "ignore", message=".*degrees of freedom is <= 0.*"
+                                )
+                                warnings.filterwarnings("ignore", category=UserWarning)
+                                diarize_segments = self.diarize_model(
+                                    audio_path,  # Pipeline expects path, not audio data
+                                    min_speakers=min_speakers,
+                                    max_speakers=max_speakers,
+                                )
                             # Complete the progress bar
                             pbar.update(100 - last_update)
                         except Exception as e:
@@ -291,11 +297,19 @@ class ASRProcessor:
                             pbar.update(100 - last_update)
                             raise e
                 else:
-                    diarize_segments = self.diarize_model(
-                        audio_path,  # Pipeline expects path, not audio data
-                        min_speakers=min_speakers,
-                        max_speakers=max_speakers,
-                    )
+                    # Suppress warnings in non-progress mode too
+                    import warnings
+
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings(
+                            "ignore", message=".*degrees of freedom is <= 0.*"
+                        )
+                        warnings.filterwarnings("ignore", category=UserWarning)
+                        diarize_segments = self.diarize_model(
+                            audio_path,  # Pipeline expects path, not audio data
+                            min_speakers=min_speakers,
+                            max_speakers=max_speakers,
+                        )
 
                 # Convert output format to match whisperx format
                 result = []
@@ -319,6 +333,7 @@ class ASRProcessor:
                     )
                     from tqdm import tqdm
                     import time
+                    import warnings
 
                     # Create progress bar for ResNet embedding
                     with tqdm(total=100, desc="Speaker embedding", unit="%") as pbar:
@@ -352,12 +367,17 @@ class ASRProcessor:
                         progress_thread.start()
 
                         try:
-                            # Run actual diarization
-                            result = self.diarize_model(
-                                audio,
-                                min_speakers=min_speakers,
-                                max_speakers=max_speakers,
-                            )
+                            # Run actual diarization - suppress warnings that cause the process to die
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings(
+                                    "ignore", message=".*degrees of freedom is <= 0.*"
+                                )
+                                warnings.filterwarnings("ignore", category=UserWarning)
+                                result = self.diarize_model(
+                                    audio,
+                                    min_speakers=min_speakers,
+                                    max_speakers=max_speakers,
+                                )
                             # Complete the progress bar
                             pbar.update(100 - last_update)
                             return result
@@ -366,11 +386,19 @@ class ASRProcessor:
                             pbar.update(100 - last_update)
                             raise e
                 else:
-                    return self.diarize_model(
-                        audio,
-                        min_speakers=min_speakers,
-                        max_speakers=max_speakers,
-                    )
+                    # Suppress warnings in non-progress mode too
+                    import warnings
+
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings(
+                            "ignore", message=".*degrees of freedom is <= 0.*"
+                        )
+                        warnings.filterwarnings("ignore", category=UserWarning)
+                        return self.diarize_model(
+                            audio,
+                            min_speakers=min_speakers,
+                            max_speakers=max_speakers,
+                        )
         except Exception as e:
             print(f"Warning: Diarization failed. Error: {str(e)}")
             return []
