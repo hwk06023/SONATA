@@ -320,7 +320,7 @@ class ASRProcessor:
                         {
                             "start": segment.start,
                             "end": segment.end,
-                            "speaker": f"SPEAKER_{label}",
+                            "speaker": label,
                         }
                     )
                 return result

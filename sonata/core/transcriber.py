@@ -148,48 +148,80 @@ class IntegratedTranscriber:
                         )
 
                         # Create a more efficient mapping structure
-                        # For each time point, we want to quickly find which speaker segment it belongs to
                         speaker_segments = []
                         for segment in sorted_segments:
                             speaker_segments.append(
                                 (segment["start"], segment["end"], segment["speaker"])
                             )
 
-                        # Process words in a single loop with binary search for segment lookup
-                        from bisect import bisect_left
-
-                        # Extract start times for binary search
-                        segment_start_times = [seg[0] for seg in speaker_segments]
-
+                        # Process each word individually and find closest speaker segment
                         for word in word_timestamps:
                             word_start = word["start"]
                             word_end = word["end"]
 
-                            # Find the potential segment using binary search - O(log n)
-                            segment_index = (
-                                bisect_left(segment_start_times, word_start) - 1
-                            )
-                            if segment_index < 0:
-                                segment_index = 0
+                            # First check if word falls exactly within a segment
+                            exact_match = False
 
-                            # Check if word falls within this segment
-                            while segment_index < len(speaker_segments):
-                                segment_start, segment_end, speaker = speaker_segments[
-                                    segment_index
-                                ]
-
-                                # If word is within segment bounds
+                            for segment_start, segment_end, speaker in speaker_segments:
+                                # If word is fully contained in segment
                                 if (
                                     word_start >= segment_start
                                     and word_end <= segment_end
                                 ):
                                     word["speaker"] = speaker
-                                    break
-                                # If we've gone past where the word could possibly be
-                                elif segment_start > word_end:
+                                    exact_match = True
                                     break
 
-                                segment_index += 1
+                            # If no exact match, find closest segment based on time proximity
+                            if not exact_match:
+                                best_speaker = None
+                                min_distance = float("inf")
+
+                                for (
+                                    segment_start,
+                                    segment_end,
+                                    speaker,
+                                ) in speaker_segments:
+                                    # Calculate midpoint of word
+                                    word_mid = (word_start + word_end) / 2
+
+                                    # Calculate distance from word midpoint to segment
+                                    if word_mid < segment_start:
+                                        # Word is before segment
+                                        distance = segment_start - word_mid
+                                    elif word_mid > segment_end:
+                                        # Word is after segment
+                                        distance = word_mid - segment_end
+                                    else:
+                                        # Word midpoint is inside segment (partial overlap)
+                                        distance = 0
+
+                                    # Calculate overlap if any
+                                    overlap_start = max(word_start, segment_start)
+                                    overlap_end = min(word_end, segment_end)
+
+                                    if overlap_end > overlap_start:
+                                        # If there's any overlap, prioritize it by setting very small distance
+                                        # This handles cases where word crosses segment boundaries
+                                        distance = -1 * (overlap_end - overlap_start)
+
+                                    if distance < min_distance:
+                                        min_distance = distance
+                                        best_speaker = speaker
+
+                                # Assign the closest speaker
+                                if best_speaker is not None:
+                                    word["speaker"] = best_speaker
+                                elif speaker_segments:
+                                    # Edge case: word is before all segments or after all segments
+                                    if word_end < speaker_segments[0][0]:
+                                        word["speaker"] = speaker_segments[0][
+                                            2
+                                        ]  # First speaker
+                                    else:
+                                        word["speaker"] = speaker_segments[-1][
+                                            2
+                                        ]  # Last speaker
 
                     print(
                         f"Speaker diarization complete with {len(set(s['speaker'] for s in diarize_segments))} speakers detected",
