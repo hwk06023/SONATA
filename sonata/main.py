@@ -115,6 +115,11 @@ def parse_args():
         "--max-speakers", type=int, help="Maximum number of speakers for diarization"
     )
     parser.add_argument(
+        "--num-speakers",
+        type=int,
+        help="Number of speakers if known (disables min/max speakers)",
+    )
+    parser.add_argument(
         "--hf-token",
         type=str,
         help="HuggingFace token for accessing diarization models (required for online diarization)",
@@ -318,6 +323,7 @@ def main():
                 language=args.language,
                 audio_threshold=args.threshold,
                 diarize=args.diarize,
+                num_speakers=args.num_speakers,
                 min_speakers=args.min_speakers,
                 max_speakers=args.max_speakers,
                 hf_token=args.hf_token,
@@ -342,6 +348,7 @@ def main():
             language=args.language,
             audio_threshold=args.threshold,
             diarize=args.diarize,
+            num_speakers=args.num_speakers,
             min_speakers=args.min_speakers,
             max_speakers=args.max_speakers,
             hf_token=args.hf_token,

@@ -208,6 +208,7 @@ class ASRProcessor:
     def diarize_audio(
         self,
         audio_path: str,
+        num_speakers: Optional[int] = None,
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
         show_progress: bool = True,
@@ -216,6 +217,7 @@ class ASRProcessor:
 
         Args:
             audio_path: Path to the audio file
+            num_speakers: Fixed number of speakers (takes precedence over min/max)
             min_speakers: Minimum number of speakers
             max_speakers: Maximum number of speakers
             show_progress: Whether to show progress indicators
@@ -285,10 +287,24 @@ class ASRProcessor:
                                     "ignore", message=".*degrees of freedom is <= 0.*"
                                 )
                                 warnings.filterwarnings("ignore", category=UserWarning)
+
+                                # Prepare diarization parameters
+                                diarization_params = {}
+                                if num_speakers is not None:
+                                    diarization_params["num_speakers"] = num_speakers
+                                else:
+                                    if min_speakers is not None:
+                                        diarization_params[
+                                            "min_speakers"
+                                        ] = min_speakers
+                                    if max_speakers is not None:
+                                        diarization_params[
+                                            "max_speakers"
+                                        ] = max_speakers
+
                                 diarize_segments = self.diarize_model(
                                     audio_path,  # Pipeline expects path, not audio data
-                                    min_speakers=min_speakers,
-                                    max_speakers=max_speakers,
+                                    **diarization_params,  # Pass conditional parameters
                                 )
                             # Complete the progress bar
                             pbar.update(100 - progress_percent)
@@ -305,10 +321,21 @@ class ASRProcessor:
                             "ignore", message=".*degrees of freedom is <= 0.*"
                         )
                         warnings.filterwarnings("ignore", category=UserWarning)
+                        warnings.filterwarnings("ignore", category=UserWarning)
+
+                        # Prepare diarization parameters
+                        diarization_params = {}
+                        if num_speakers is not None:
+                            diarization_params["num_speakers"] = num_speakers
+                        else:
+                            if min_speakers is not None:
+                                diarization_params["min_speakers"] = min_speakers
+                            if max_speakers is not None:
+                                diarization_params["max_speakers"] = max_speakers
+
                         diarize_segments = self.diarize_model(
                             audio_path,  # Pipeline expects path, not audio data
-                            min_speakers=min_speakers,
-                            max_speakers=max_speakers,
+                            **diarization_params,  # Pass conditional parameters
                         )
 
                 # Convert output format to match whisperx format
@@ -373,10 +400,24 @@ class ASRProcessor:
                                     "ignore", message=".*degrees of freedom is <= 0.*"
                                 )
                                 warnings.filterwarnings("ignore", category=UserWarning)
+
+                                # Prepare diarization parameters
+                                diarization_params = {}
+                                if num_speakers is not None:
+                                    diarization_params["num_speakers"] = num_speakers
+                                else:
+                                    if min_speakers is not None:
+                                        diarization_params[
+                                            "min_speakers"
+                                        ] = min_speakers
+                                    if max_speakers is not None:
+                                        diarization_params[
+                                            "max_speakers"
+                                        ] = max_speakers
+
                                 result = self.diarize_model(
                                     audio,
-                                    min_speakers=min_speakers,
-                                    max_speakers=max_speakers,
+                                    **diarization_params,  # Pass conditional parameters
                                 )
                             # Complete the progress bar
                             pbar.update(100 - progress_percent)
@@ -394,10 +435,19 @@ class ASRProcessor:
                             "ignore", message=".*degrees of freedom is <= 0.*"
                         )
                         warnings.filterwarnings("ignore", category=UserWarning)
+
+                        # Prepare diarization parameters
+                        diarization_params = {}
+                        if num_speakers is not None:
+                            diarization_params["num_speakers"] = num_speakers
+                        else:
+                            if min_speakers is not None:
+                                diarization_params["min_speakers"] = min_speakers
+                            if max_speakers is not None:
+                                diarization_params["max_speakers"] = max_speakers
+
                         return self.diarize_model(
-                            audio,
-                            min_speakers=min_speakers,
-                            max_speakers=max_speakers,
+                            audio, **diarization_params  # Pass conditional parameters
                         )
         except Exception as e:
             print(f"Warning: Diarization failed. Error: {str(e)}")
@@ -410,6 +460,7 @@ class ASRProcessor:
         batch_size: int = 16,
         show_progress: bool = True,
         diarize: bool = False,
+        num_speakers: Optional[int] = None,
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
         hf_token: Optional[str] = None,
@@ -422,6 +473,7 @@ class ASRProcessor:
             batch_size: Batch size for processing
             show_progress: Whether to show progress indicators
             diarize: Whether to perform speaker diarization
+            num_speakers: Fixed number of speakers (takes precedence over min/max)
             min_speakers: Minimum number of speakers for diarization
             max_speakers: Maximum number of speakers for diarization
             hf_token: HuggingFace token for diarization model (required if diarize=True)
@@ -542,6 +594,7 @@ class ASRProcessor:
                     # Perform diarization
                     diarize_segments = self.diarize_audio(
                         audio_path=audio_path,
+                        num_speakers=num_speakers,
                         min_speakers=min_speakers,
                         max_speakers=max_speakers,
                         show_progress=show_progress,

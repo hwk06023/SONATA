@@ -75,6 +75,7 @@ class IntegratedTranscriber:
         audio_threshold: float = AUDIO_EVENT_THRESHOLD,
         batch_size: int = 16,
         diarize: bool = False,
+        num_speakers: Optional[int] = None,
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
         hf_token: Optional[str] = None,
@@ -87,6 +88,7 @@ class IntegratedTranscriber:
             audio_threshold: Detection threshold for audio events
             batch_size: Batch size for processing
             diarize: Whether to perform speaker diarization
+            num_speakers: Number of speakers for diarization
             min_speakers: Minimum number of speakers for diarization
             max_speakers: Maximum number of speakers for diarization
             hf_token: HuggingFace token for diarization model (may not be required if using offline mode)
@@ -135,6 +137,7 @@ class IntegratedTranscriber:
                     # Run diarization
                     diarize_segments = self.asr.diarize_audio(
                         audio_path=audio_path,
+                        num_speakers=num_speakers,
                         min_speakers=min_speakers,
                         max_speakers=max_speakers,
                         show_progress=True,
