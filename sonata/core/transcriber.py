@@ -16,6 +16,7 @@ from sonata.constants import (
     DEFAULT_COMPUTE_TYPE,
     LanguageCode,
 )
+import whisperx
 
 
 class IntegratedTranscriber:
@@ -143,88 +144,13 @@ class IntegratedTranscriber:
                         show_progress=True,
                     )
 
-                    # Assign speakers to words - optimize the nested loop
-                    if word_timestamps and diarize_segments:
-                        # Sort segments by start time for faster lookup
-                        sorted_segments = sorted(
-                            diarize_segments, key=lambda x: x["start"]
-                        )
+                    # Use whisperX's native assign_word_speakers function
+                    asr_result = whisperx.assign_word_speakers(
+                        diarize_segments, asr_result
+                    )
 
-                        # Create a more efficient mapping structure
-                        speaker_segments = []
-                        for segment in sorted_segments:
-                            speaker_segments.append(
-                                (segment["start"], segment["end"], segment["speaker"])
-                            )
-
-                        # Process each word individually and find closest speaker segment
-                        for word in word_timestamps:
-                            word_start = word["start"]
-                            word_end = word["end"]
-
-                            # First check if word falls exactly within a segment
-                            exact_match = False
-
-                            for segment_start, segment_end, speaker in speaker_segments:
-                                # If word is fully contained in segment
-                                if (
-                                    word_start >= segment_start
-                                    and word_end <= segment_end
-                                ):
-                                    word["speaker"] = speaker
-                                    exact_match = True
-                                    break
-
-                            # If no exact match, find closest segment based on time proximity
-                            if not exact_match:
-                                best_speaker = None
-                                min_distance = float("inf")
-
-                                for (
-                                    segment_start,
-                                    segment_end,
-                                    speaker,
-                                ) in speaker_segments:
-                                    # Calculate midpoint of word
-                                    word_mid = (word_start + word_end) / 2
-
-                                    # Calculate distance from word midpoint to segment
-                                    if word_mid < segment_start:
-                                        # Word is before segment
-                                        distance = segment_start - word_mid
-                                    elif word_mid > segment_end:
-                                        # Word is after segment
-                                        distance = word_mid - segment_end
-                                    else:
-                                        # Word midpoint is inside segment (partial overlap)
-                                        distance = 0
-
-                                    # Calculate overlap if any
-                                    overlap_start = max(word_start, segment_start)
-                                    overlap_end = min(word_end, segment_end)
-
-                                    if overlap_end > overlap_start:
-                                        # If there's any overlap, prioritize it by setting very small distance
-                                        # This handles cases where word crosses segment boundaries
-                                        distance = -1 * (overlap_end - overlap_start)
-
-                                    if distance < min_distance:
-                                        min_distance = distance
-                                        best_speaker = speaker
-
-                                # Assign the closest speaker
-                                if best_speaker is not None:
-                                    word["speaker"] = best_speaker
-                                elif speaker_segments:
-                                    # Edge case: word is before all segments or after all segments
-                                    if word_end < speaker_segments[0][0]:
-                                        word["speaker"] = speaker_segments[0][
-                                            2
-                                        ]  # First speaker
-                                    else:
-                                        word["speaker"] = speaker_segments[-1][
-                                            2
-                                        ]  # Last speaker
+                    # Update word_timestamps with speaker information from the updated ASR result
+                    word_timestamps = self.asr.get_word_timestamps(asr_result)
 
                     print(
                         f"Speaker diarization complete with {len(set(s['speaker'] for s in diarize_segments))} speakers detected",

@@ -915,39 +915,36 @@ class AudioEventDetector(AudiosetClassifier):
             # Sort by confidence (highest first)
             type_events.sort(key=lambda e: e.confidence, reverse=True)
 
-            # For speech-like events, keep the highest confidence one
-            if event_type in ["speech", "male_speech", "female_speech"]:
-                final_events.append(type_events[0])
-            else:
-                # For other events, take non-overlapping ones or higher confidence ones
-                events_to_keep = []
-                for event in type_events:
-                    # Check if this event overlaps with any already kept event
-                    overlaps = False
-                    for kept_event in events_to_keep:
-                        # Check for significant overlap
+            # Apply same overlap detection to all event types (including speech)
+            # For other events, take non-overlapping ones or higher confidence ones
+            events_to_keep = []
+            for event in type_events:
+                # Check if this event overlaps with any already kept event
+                overlaps = False
+                for kept_event in events_to_keep:
+                    # Check for significant overlap
+                    if (
+                        event.start_time < kept_event.end_time
+                        and event.end_time > kept_event.start_time
+                    ):
+                        # If they overlap significantly, keep the higher confidence one
+                        overlap_duration = min(
+                            event.end_time, kept_event.end_time
+                        ) - max(event.start_time, kept_event.start_time)
+                        event_duration = event.end_time - event.start_time
+
+                        # If overlap is significant and current event is lower confidence
                         if (
-                            event.start_time < kept_event.end_time
-                            and event.end_time > kept_event.start_time
+                            overlap_duration / event_duration > 0.5
+                            and event.confidence <= kept_event.confidence
                         ):
-                            # If they overlap significantly, keep the higher confidence one
-                            overlap_duration = min(
-                                event.end_time, kept_event.end_time
-                            ) - max(event.start_time, kept_event.start_time)
-                            event_duration = event.end_time - event.start_time
+                            overlaps = True
+                            break
 
-                            # If overlap is significant and current event is lower confidence
-                            if (
-                                overlap_duration / event_duration > 0.5
-                                and event.confidence <= kept_event.confidence
-                            ):
-                                overlaps = True
-                                break
+                if not overlaps:
+                    events_to_keep.append(event)
 
-                    if not overlaps:
-                        events_to_keep.append(event)
-
-                final_events.extend(events_to_keep)
+            final_events.extend(events_to_keep)
 
         return final_events
 
