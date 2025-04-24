@@ -10,7 +10,7 @@ authors = ["hwk06023 <hwk06023@github.com>"]
 readme = "README.md"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/hwk06023/SONATA"
-keywords = ["audio", "transcription", "speech", "emotion", "ASR", "whisper", "audio-detection", "sound-events", "speaker-diarization", "audio-analysis", "non-verbal-cues", "emotive-sounds", "multilingual", "speech-recognition", "speech-to-text", "audio-classification", "audio-events", "audio-processing", "voice-analysis", "language-detection"]
+keywords = ["sonata", "sonata-asr", "audio", "transcription", "speech", "emotion", "ASR", "whisper", "audio-detection", "sound-events", "speaker-diarization", "audio-analysis", "non-verbal-cues", "emotive-sounds", "multilingual", "speech-recognition", "speech-to-text", "audio-classification", "audio-events", "audio-processing", "voice-analysis", "language-detection", "whisperx", "automatic-speech-recognition", "voice-transcription", "speaker-recognition", "multimodal", "audio-segmentation", "audio-preprocessing", "word-timestamps", "emotion-detection", "audio-classification", "noise-detection", "multi-speaker", "subtitle-generation", "annotated-transcripts", "human-expression", "context-aware", "real-time-transcription", "offline-diarization", "audio-event-detection", "multi-language", "multilingual"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
