@@ -44,6 +44,7 @@ class IntegratedTranscriber:
         self.device = device
         self.offline_diarization = offline_diarization
         self.offline_config_path = offline_config_path
+        self.logger = logging.getLogger(__name__)
 
         # Set up comprehensive warning suppression
         original_level = logging.getLogger().level
@@ -101,7 +102,7 @@ class IntegratedTranscriber:
         self.audio_detector.threshold = audio_threshold
 
         # Run ASR first
-        print("Running speech recognition...", flush=True)
+        self.logger.info("Running speech recognition...")
         asr_result = self.asr.process_audio(
             audio_path=audio_path,
             language=language,
@@ -111,7 +112,7 @@ class IntegratedTranscriber:
         )
 
         # Then run audio event detection with progress indicators
-        print("\nRunning audio event detection...", flush=True)
+        self.logger.info("\nRunning audio event detection...")
         audio_events = self.audio_detector.detect_events(
             audio=audio_path,
             show_progress=True,
@@ -122,7 +123,7 @@ class IntegratedTranscriber:
 
         # Handle diarization if requested
         if diarize:
-            print("\nRunning speaker diarization...", flush=True)
+            self.logger.info("\nRunning speaker diarization...")
 
             # Load diarization model if needed
             if self.asr.diarize_model is None:
@@ -148,22 +149,28 @@ class IntegratedTranscriber:
                     try:
                         # Log the structure of a few segments to debug issues
                         if diarize_segments and len(diarize_segments) > 0:
-                            print(f"Speaker segment sample: {diarize_segments[0]}")
-                            print(f"Total speaker segments: {len(diarize_segments)}")
-                            print(
+                            self.logger.debug(
+                                f"Speaker segment sample: {diarize_segments[0]}"
+                            )
+                            self.logger.debug(
+                                f"Total speaker segments: {len(diarize_segments)}"
+                            )
+                            self.logger.debug(
                                 f"Speaker labels: {set(s.get('speaker', 'unknown') for s in diarize_segments)}"
                             )
 
                         # Debug ASR structure
-                        print(f"ASR result keys: {asr_result.keys()}")
+                        self.logger.debug(f"ASR result keys: {asr_result.keys()}")
                         if "segments" in asr_result:
-                            print(f"ASR segments count: {len(asr_result['segments'])}")
+                            self.logger.debug(
+                                f"ASR segments count: {len(asr_result['segments'])}"
+                            )
                             if len(asr_result["segments"]) > 0:
-                                print(
+                                self.logger.debug(
                                     f"First ASR segment keys: {asr_result['segments'][0].keys()}"
                                 )
                                 if "words" in asr_result["segments"][0]:
-                                    print(
+                                    self.logger.debug(
                                         f"First word sample: {asr_result['segments'][0]['words'][0] if asr_result['segments'][0]['words'] else 'No words'}"
                                     )
 
@@ -174,10 +181,14 @@ class IntegratedTranscriber:
                                 seg["speaker"], (int, float)
                             ):
                                 has_numeric_speakers = True
-                                print(f"Found numeric speaker ID: {seg['speaker']}")
+                                self.logger.debug(
+                                    f"Found numeric speaker ID: {seg['speaker']}"
+                                )
 
                         if has_numeric_speakers:
-                            print("Converting numeric speaker IDs to strings...")
+                            self.logger.debug(
+                                "Converting numeric speaker IDs to strings..."
+                            )
                             for seg in diarize_segments:
                                 if "speaker" in seg and isinstance(
                                     seg["speaker"], (int, float)
@@ -189,7 +200,9 @@ class IntegratedTranscriber:
                         # Ensure all segments have string 'speaker' keys
                         for i, seg in enumerate(diarize_segments):
                             if "speaker" not in seg:
-                                print(f"Adding missing speaker label to segment {i}")
+                                self.logger.debug(
+                                    f"Adding missing speaker label to segment {i}"
+                                )
                                 seg["speaker"] = f"SPEAKER_UNKNOWN"
 
                         # Now execute the actual assign_word_speakers
@@ -200,20 +213,26 @@ class IntegratedTranscriber:
                         # Update word_timestamps with speaker information from the updated ASR result
                         word_timestamps = self.asr.get_word_timestamps(asr_result)
                     except Exception as e:
-                        print(f"Error assigning speakers to words: {str(e)}")
-                        print(f"Diarize segments type: {type(diarize_segments)}")
+                        self.logger.error(
+                            f"Error assigning speakers to words: {str(e)}"
+                        )
+                        self.logger.error(
+                            f"Diarize segments type: {type(diarize_segments)}"
+                        )
                         if isinstance(diarize_segments, list) and diarize_segments:
-                            print(f"First segment: {diarize_segments[0]}")
+                            self.logger.error(f"First segment: {diarize_segments[0]}")
                         raise e  # Re-raise to be caught by the outer try/except
 
-                    print(
+                    self.logger.info(
                         f"Speaker diarization complete with {len(set(s['speaker'] for s in diarize_segments))} speakers detected",
                         flush=True,
                     )
                 except Exception as e:
-                    print(f"Warning: Speaker diarization failed. Error: {str(e)}")
+                    self.logger.warning(
+                        f"Warning: Speaker diarization failed. Error: {str(e)}"
+                    )
             else:
-                print(
+                self.logger.warning(
                     f"Warning: Speaker diarization was requested but the model couldn't be loaded."
                 )
 
@@ -417,7 +436,7 @@ class IntegratedTranscriber:
         This implementation ensures all speaker labels are treated correctly.
         """
         if len(diarize_segments) == 0:
-            print("Warning: No diarization segments provided.")
+            self.logger.warning("Warning: No diarization segments provided.")
             return result
 
         # Create mapping of speaker segments for quick lookup
@@ -425,7 +444,7 @@ class IntegratedTranscriber:
         speaker_segments = []
         for segment in diarize_segments:
             if not all(k in segment for k in ["start", "end", "speaker"]):
-                print(f"Warning: Invalid diarization segment: {segment}")
+                self.logger.warning(f"Warning: Invalid diarization segment: {segment}")
                 continue
 
             # Ensure speaker is a string
@@ -440,7 +459,7 @@ class IntegratedTranscriber:
 
         # Check if result has the expected structure
         if "segments" not in result:
-            print("Warning: Result does not have 'segments' key")
+            self.logger.warning("Warning: Result does not have 'segments' key")
             return result
 
         # For each segment in the result

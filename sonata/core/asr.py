@@ -40,6 +40,13 @@ class ASRProcessor:
         device: str = "cpu",
         compute_type: str = "float32",
     ):
+        """Initialize the ASR processor with default model parameters.
+
+        Args:
+            model_name: The Whisper model to use
+            device: The device to use for inference ('cpu' or 'cuda')
+            compute_type: The compute type for the model
+        """
         self.model_name = model_name
         self.device = device
         self.compute_type = compute_type
@@ -48,6 +55,7 @@ class ASRProcessor:
         self.align_metadata = None
         self.current_language = None
         self.diarize_model = None
+        self.logger = logging.getLogger(__name__)
 
     def load_models(self, language_code: str = LanguageCode.ENGLISH.value):
         """Load WhisperX and alignment models for the specified language.
@@ -621,9 +629,13 @@ class ASRProcessor:
 
                     # Debug information
                     if show_progress and diarize_segments and len(diarize_segments) > 0:
-                        print(f"Speaker segment sample: {diarize_segments[0]}")
-                        print(f"Total speaker segments: {len(diarize_segments)}")
-                        print(
+                        self.logger.debug(
+                            f"Speaker segment sample: {diarize_segments[0]}"
+                        )
+                        self.logger.debug(
+                            f"Total speaker segments: {len(diarize_segments)}"
+                        )
+                        self.logger.debug(
                             f"Speaker labels: {set(s.get('speaker', 'unknown') for s in diarize_segments)}"
                         )
 
@@ -638,7 +650,9 @@ class ASRProcessor:
                     for i, seg in enumerate(diarize_segments):
                         if "speaker" not in seg:
                             if show_progress:
-                                print(f"Adding missing speaker label to segment {i}")
+                                self.logger.debug(
+                                    f"Adding missing speaker label to segment {i}"
+                                )
                             seg["speaker"] = f"SPEAKER_UNKNOWN"
 
                     # Use our custom implementation instead of direct whisperx call
@@ -661,7 +675,7 @@ class ASRProcessor:
 
         # First, check if the result has the expected structure
         if "segments" not in result:
-            print(
+            self.logger.debug(
                 f"Warning: WhisperX result does not contain 'segments'. Keys: {list(result.keys())}"
             )
             # Create a minimal output with the whole text if available
@@ -686,7 +700,7 @@ class ASRProcessor:
                         or "start" not in word_data
                         or "end" not in word_data
                     ):
-                        print(
+                        self.logger.debug(
                             f"Warning: Word data does not contain required keys. Skipping word: {word_data}"
                         )
                         continue
@@ -719,7 +733,7 @@ class ASRProcessor:
         This implementation ensures all speaker labels are treated correctly.
         """
         if len(diarize_segments) == 0:
-            print("Warning: No diarization segments provided.")
+            self.logger.debug("Warning: No diarization segments provided.")
             return result
 
         # Create mapping of speaker segments for quick lookup
@@ -727,7 +741,7 @@ class ASRProcessor:
         speaker_segments = []
         for segment in diarize_segments:
             if not all(k in segment for k in ["start", "end", "speaker"]):
-                print(f"Warning: Invalid diarization segment: {segment}")
+                self.logger.debug(f"Warning: Invalid diarization segment: {segment}")
                 continue
 
             # Ensure speaker is a string
@@ -742,7 +756,7 @@ class ASRProcessor:
 
         # Check if result has the expected structure
         if "segments" not in result:
-            print("Warning: Result does not have 'segments' key")
+            self.logger.debug("Warning: Result does not have 'segments' key")
             return result
 
         # For each segment in the result
