@@ -22,6 +22,13 @@ SONATA(SOund and Narrative Advanced Transcription Assistant) is advanced ASR sys
 - 👥 Speaker diarization for multi-speaker transcription (online and offline modes)
 - ⏱️ Rich timestamp information at the word level
 - 🔄 Audio preprocessing capabilities
+- Advanced speaker diarization (who is speaking when)
+- Manual editing of speaker diarization results
+- Audio event detection (laughter, applause, etc.)
+- Timestamps for every word and audio event
+- Output in multiple formats (JSON, plain text, SRT)
+- Support for multiple languages
+- Batch processing of audio files
 
 [📚 See detailed features documentation](https://github.com/hwk06023/SONATA/blob/main/docs/FEATURES.md)
 
@@ -138,3 +145,12 @@ This project is licensed under the GNU General Public License v3.0.
 - [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - Speaker diarization
   - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) - Speaker diarization pipeline
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP tools
+
+## Documentation
+
+- [Getting Started Guide](docs/getting_started.md)
+- [Speaker Diarization](docs/speaker_diarization.md)
+- [Speaker Diarization Editing](docs/speaker_editing.md)
+- [Audio Event Detection](docs/audio_events.md)
+- [API Reference](docs/api_reference.md)
+- [Output Formats](docs/output_formats.md)
