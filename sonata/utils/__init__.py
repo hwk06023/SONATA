@@ -1,1 +1,1 @@
- 
+from sonata.utils.transcript_editor import TranscriptEditor
