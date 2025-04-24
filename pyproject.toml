@@ -4,13 +4,13 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "sonata-asr"
-version = "0.0.8"
+version = "0.0.9"
 description = "SONATA: SOund and Narrative Advanced Transcription Assistant"
 authors = ["hwk06023 <hwk06023@github.com>"]
 readme = "README.md"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/hwk06023/SONATA"
-keywords = ["audio", "transcription", "speech", "emotion", "ASR", "whisper", "audio-detection", "sound-events", "speaker-diarization", "audio-analysis", "non-verbal-cues", "emotive-sounds", "multilingual", "speech-recognition", "speech-to-text", "audio-classification", "audio-events", "audio-processing", "voice-analysis", "language-detection"]
+keywords = ["sonata", "sonata-asr", "audio", "transcription", "speech", "emotion", "ASR", "whisper", "audio-detection", "sound-events", "speaker-diarization", "audio-analysis", "non-verbal-cues", "emotive-sounds", "multilingual", "speech-recognition", "speech-to-text", "audio-classification", "audio-events", "audio-processing", "voice-analysis", "language-detection", "whisperx", "automatic-speech-recognition", "voice-transcription", "speaker-recognition", "multimodal", "audio-segmentation", "audio-preprocessing", "word-timestamps", "emotion-detection", "audio-classification", "noise-detection", "multi-speaker", "subtitle-generation", "annotated-transcripts", "human-expression", "context-aware", "real-time-transcription", "offline-diarization", "audio-event-detection", "multi-language", "multilingual"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
@@ -32,7 +32,6 @@ packages = [
     { include = "sonata" },
     { include = "sonata/core" },
     { include = "sonata/libs" },
-    { include = "sonata/libs/laughter_detection" },
     { include = "sonata/models" },
     { include = "sonata/utils" }
 ]

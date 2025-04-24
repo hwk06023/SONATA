@@ -4,6 +4,7 @@ import sys
 import argparse
 import tempfile
 import subprocess
+import logging
 from sonata.core.transcriber import IntegratedTranscriber
 
 

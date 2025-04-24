@@ -40,7 +40,7 @@ This will transcribe the audio file using default settings and save the results 
 
 | Option | Description |
 |--------|-------------|
-| `-l, --language LANG` | Language code for transcription: en, ko, zh, ja, fr, de, es, it, pt, ru (default: en) |
+| `-l, --language LANG` | Language code for transcription: en (English), ko (Korean), zh (Chinese), ja (Japanese), fr (French), de (German), es (Spanish), it (Italian), pt (Portuguese), ru (Russian), and other languages supported by WhisperX (default: en) |
 
 ### Preprocessing Options
 
@@ -59,6 +59,11 @@ This will transcribe the audio file using default settings and save the results 
 | `--hf-token TOKEN` | HuggingFace token for diarization models (required for diarization) |
 | `--min-speakers N` | Minimum number of speakers for diarization |
 | `--max-speakers N` | Maximum number of speakers for diarization |
+| `--offline-diarize` | Use offline diarization (no token needed after setup) |
+| `--offline-config PATH` | Path to offline diarization config file |
+| `--setup-offline` | Download and setup offline diarization models |
+
+> **Important**: Speaker diarization requires access permissions to both `pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0` models on HuggingFace. You must accept the terms of use for both models before using this feature.
 
 ### Output Format Options
 
@@ -159,4 +164,6 @@ sonata-asr audio.wav --custom-thresholds thresholds.json
 
 # Combining multiple options
 sonata-asr audio.mp3 --language ko --device cuda --diarize --offline-diarize --custom-thresholds custom_thresholds.json
-``` 
+```
+
+> **Note**: Speaker diarization works with all supported languages. The language option affects only the transcription part, not the speaker identification. 

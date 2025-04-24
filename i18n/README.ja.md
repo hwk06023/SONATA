@@ -71,6 +71,34 @@ sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
 sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
 ```
 
+> **注意:** オンライン話者分離を使用する場合、[pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) と [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) の両方のモデルのアクセス権限が必要です。両方のモデルページを訪問し、それぞれの利用規約に同意してアクセス権を取得してください。
+
+#### 主なCLIオプション:
+
+```
+一般:
+  -o, --output FILE           指定したJSONファイルに書き起こし結果を保存
+  -l, --language LANG         言語コード (en, ko, zh, ja, fr, de, es, it, pt, ru)
+  -m, --model NAME            WhisperXモデルサイズ (tiny, small, medium, large-v3 など)
+  -d, --device DEVICE         モデル実行デバイス (cpu, cuda)
+  --text-output FILE          整形された書き起こしをテキストファイルに保存
+  --format TYPE               出力形式: concise, default, extended
+  --preprocess                オーディオの前処理（形式変換と無音トリミング）
+
+話者分離:
+  --diarize                   話者分離を有効化
+  --hf-token TOKEN            HuggingFaceトークン（オンライン話者分離用）
+  --min-speakers NUM          最小話者数を設定
+  --max-speakers NUM          最大話者数を設定
+  --offline-diarize           オフライン話者分離を使用（設定後はトークン不要）
+  --offline-config PATH       オフライン話者分離設定ファイルのパス
+  --setup-offline             オフライン話者分離モデルのダウンロードとセットアップ
+
+音声イベント:
+  --threshold VALUE           音声イベント検出の閾値 (0.0-1.0)
+  --custom-thresholds FILE    カスタム音声イベント閾値を含むJSONファイルのパス
+```
+
 [📚 完全な使用方法ドキュメントを見る](../docs/USAGE.md)  
 [⌨️ 完全なCLIドキュメントを見る](../docs/CLI.md)  
 [🎤 オフライン diarization ガイドを見る](../docs/OFFLINE_DIARIZATION.md)
@@ -108,5 +136,7 @@ Contributing 大歓迎です！気軽にプルリクエストを送信してく�
 
 - [WhisperX](https://github.com/m-bain/whisperX) - 高速音声認識
 - [AudioSet AST](https://github.com/YuanGongND/ast) - オーディオイベント検出
+  - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - オーディオイベント分類のための事前学習モデル
 - [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - speaker diarization
+  - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) - 話者ダイアリゼーションパイプライン
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLPツール 

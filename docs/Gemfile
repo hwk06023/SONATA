@@ -13,4 +13,5 @@ group :jekyll_plugins do
   gem "jekyll-include-cache"
   gem "jekyll-remote-theme"
   gem "jekyll-github-metadata"
+  gem "jekyll-lunr-js-search"
 end 

@@ -69,6 +69,34 @@ sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
 sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
 ```
 
+> **Note:** For online speaker diarization, you need to have access permissions to both [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) and [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) models. Please visit both model pages and accept the terms of use to gain access. This is required for all languages.
+
+#### Common CLI Options:
+
+```
+General:
+  -o, --output FILE           Save transcript to specified JSON file
+  -l, --language LANG         Language code (en, ko, zh, ja, fr, de, es, it, pt, ru)
+  -m, --model NAME            WhisperX model size (tiny, small, medium, large-v3, etc.)
+  -d, --device DEVICE         Device to run models on (cpu, cuda)
+  --text-output FILE          Save formatted transcript to specified text file
+  --format TYPE               Output format: concise, default, or extended
+  --preprocess                Preprocess audio (convert format and trim silence)
+
+Diarization:
+  --diarize                   Enable speaker diarization
+  --hf-token TOKEN            HuggingFace token (for online diarization)
+  --min-speakers NUM          Set minimum number of speakers
+  --max-speakers NUM          Set maximum number of speakers
+  --offline-diarize           Use offline diarization (no token needed after setup)
+  --offline-config PATH       Path to offline diarization config
+  --setup-offline             Download and set up offline diarization models
+
+Audio Events:
+  --threshold VALUE           Threshold for audio event detection (0.0-1.0)
+  --custom-thresholds FILE    Path to JSON file with custom audio event thresholds
+```
+
 [📚 See full usage documentation](https://github.com/hwk06023/SONATA/blob/main/docs/USAGE.md)  
 [⌨️ See complete CLI documentation](https://github.com/hwk06023/SONATA/blob/main/docs/CLI.md)  
 [🎤 See offline diarization guide](https://github.com/hwk06023/SONATA/blob/main/docs/OFFLINE_DIARIZATION.md)
@@ -106,5 +134,7 @@ This project is licensed under the GNU General Public License v3.0.
 
 - [WhisperX](https://github.com/m-bain/whisperX) - Fast speech recognition
 - [AudioSet AST](https://github.com/YuanGongND/ast) - Audio event detection
+  - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - Pretrained model for audio event classification
 - [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - Speaker diarization
+  - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) - Speaker diarization pipeline
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP tools

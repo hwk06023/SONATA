@@ -16,6 +16,7 @@ from sonata.constants import (
     DEFAULT_COMPUTE_TYPE,
     LanguageCode,
 )
+import whisperx
 
 
 class IntegratedTranscriber:
@@ -43,6 +44,7 @@ class IntegratedTranscriber:
         self.device = device
         self.offline_diarization = offline_diarization
         self.offline_config_path = offline_config_path
+        self.logger = logging.getLogger(__name__)
 
         # Set up comprehensive warning suppression
         original_level = logging.getLogger().level
@@ -75,6 +77,7 @@ class IntegratedTranscriber:
         audio_threshold: float = AUDIO_EVENT_THRESHOLD,
         batch_size: int = 16,
         diarize: bool = False,
+        num_speakers: Optional[int] = None,
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
         hf_token: Optional[str] = None,
@@ -87,6 +90,7 @@ class IntegratedTranscriber:
             audio_threshold: Detection threshold for audio events
             batch_size: Batch size for processing
             diarize: Whether to perform speaker diarization
+            num_speakers: Number of speakers for diarization
             min_speakers: Minimum number of speakers for diarization
             max_speakers: Maximum number of speakers for diarization
             hf_token: HuggingFace token for diarization model (may not be required if using offline mode)
@@ -98,7 +102,7 @@ class IntegratedTranscriber:
         self.audio_detector.threshold = audio_threshold
 
         # Run ASR first
-        print("Running speech recognition...", flush=True)
+        self.logger.info("Running speech recognition...")
         asr_result = self.asr.process_audio(
             audio_path=audio_path,
             language=language,
@@ -108,7 +112,7 @@ class IntegratedTranscriber:
         )
 
         # Then run audio event detection with progress indicators
-        print("\nRunning audio event detection...", flush=True)
+        self.logger.info("\nRunning audio event detection...")
         audio_events = self.audio_detector.detect_events(
             audio=audio_path,
             show_progress=True,
@@ -119,7 +123,7 @@ class IntegratedTranscriber:
 
         # Handle diarization if requested
         if diarize:
-            print("\nRunning speaker diarization...", flush=True)
+            self.logger.info("\nRunning speaker diarization...")
 
             # Load diarization model if needed
             if self.asr.diarize_model is None:
@@ -135,30 +139,100 @@ class IntegratedTranscriber:
                     # Run diarization
                     diarize_segments = self.asr.diarize_audio(
                         audio_path=audio_path,
+                        num_speakers=num_speakers,
                         min_speakers=min_speakers,
                         max_speakers=max_speakers,
                         show_progress=True,
                     )
 
-                    # Assign speakers to words
-                    for word in word_timestamps:
-                        # Find matching segment
-                        for segment in diarize_segments:
-                            if (
-                                word["start"] >= segment["start"]
-                                and word["end"] <= segment["end"]
-                            ):
-                                word["speaker"] = segment["speaker"]
-                                break
+                    # Use whisperX's native assign_word_speakers function
+                    try:
+                        # Log the structure of a few segments to debug issues
+                        if diarize_segments and len(diarize_segments) > 0:
+                            self.logger.debug(
+                                f"Speaker segment sample: {diarize_segments[0]}"
+                            )
+                            self.logger.debug(
+                                f"Total speaker segments: {len(diarize_segments)}"
+                            )
+                            self.logger.debug(
+                                f"Speaker labels: {set(s.get('speaker', 'unknown') for s in diarize_segments)}"
+                            )
 
-                    print(
+                        # Debug ASR structure
+                        self.logger.debug(f"ASR result keys: {asr_result.keys()}")
+                        if "segments" in asr_result:
+                            self.logger.debug(
+                                f"ASR segments count: {len(asr_result['segments'])}"
+                            )
+                            if len(asr_result["segments"]) > 0:
+                                self.logger.debug(
+                                    f"First ASR segment keys: {asr_result['segments'][0].keys()}"
+                                )
+                                if "words" in asr_result["segments"][0]:
+                                    self.logger.debug(
+                                        f"First word sample: {asr_result['segments'][0]['words'][0] if asr_result['segments'][0]['words'] else 'No words'}"
+                                    )
+
+                        # Check if any segments contain numeric speaker IDs (problematic)
+                        has_numeric_speakers = False
+                        for seg in diarize_segments:
+                            if "speaker" in seg and isinstance(
+                                seg["speaker"], (int, float)
+                            ):
+                                has_numeric_speakers = True
+                                self.logger.debug(
+                                    f"Found numeric speaker ID: {seg['speaker']}"
+                                )
+
+                        if has_numeric_speakers:
+                            self.logger.debug(
+                                "Converting numeric speaker IDs to strings..."
+                            )
+                            for seg in diarize_segments:
+                                if "speaker" in seg and isinstance(
+                                    seg["speaker"], (int, float)
+                                ):
+                                    seg[
+                                        "speaker"
+                                    ] = f"SPEAKER_{str(seg['speaker']).zfill(2)}"
+
+                        # Ensure all segments have string 'speaker' keys
+                        for i, seg in enumerate(diarize_segments):
+                            if "speaker" not in seg:
+                                self.logger.debug(
+                                    f"Adding missing speaker label to segment {i}"
+                                )
+                                seg["speaker"] = f"SPEAKER_UNKNOWN"
+
+                        # Now execute the actual assign_word_speakers
+                        asr_result = self._custom_assign_word_speakers(
+                            diarize_segments, asr_result
+                        )
+
+                        # Update word_timestamps with speaker information from the updated ASR result
+                        word_timestamps = self.asr.get_word_timestamps(asr_result)
+                    except Exception as e:
+                        self.logger.error(
+                            f"Error assigning speakers to words: {str(e)}"
+                        )
+                        self.logger.error(
+                            f"Diarize segments type: {type(diarize_segments)}"
+                        )
+                        if isinstance(diarize_segments, list) and diarize_segments:
+                            self.logger.error(f"First segment: {diarize_segments[0]}")
+                        raise e  # Re-raise to be caught by the outer try/except
+
+                    self.logger.info(
                         f"Speaker diarization complete with {len(set(s['speaker'] for s in diarize_segments))} speakers detected",
                         flush=True,
                     )
                 except Exception as e:
-                    print(f"Warning: Speaker diarization failed. Error: {str(e)}")
+                    self.logger.warning(
+                        f"Warning: Speaker diarization failed. Error: {str(e)}"
+                    )
             else:
-                print(
+                self.logger.warning(
                     f"Warning: Speaker diarization was requested but the model couldn't be loaded."
                 )
 
@@ -355,3 +429,92 @@ class IntegratedTranscriber:
         minutes = int(seconds // 60)
         seconds_remainder = seconds % 60
         return f"{minutes:02d}:{seconds_remainder:06.3f}"
+
+    def _custom_assign_word_speakers(self, diarize_segments, result):
+        """Custom implementation of whisperX's assign_word_speakers function to avoid index errors.
+
+        This implementation ensures all speaker labels are treated correctly.
+        """
+        if len(diarize_segments) == 0:
+            self.logger.warning("Warning: No diarization segments provided.")
+            return result
+
+        # Create mapping of speaker segments for quick lookup
+        # Each segment is [start_time, end_time, speaker_id]
+        speaker_segments = []
+        for segment in diarize_segments:
+            if not all(k in segment for k in ["start", "end", "speaker"]):
+                self.logger.warning(f"Warning: Invalid diarization segment: {segment}")
+                continue
+
+            # Ensure speaker is a string
+            speaker = segment["speaker"]
+            if not isinstance(speaker, str):
+                speaker = f"SPEAKER_{str(speaker).zfill(2)}"
+
+            speaker_segments.append((segment["start"], segment["end"], speaker))
+
+        # Sort by start time
+        speaker_segments.sort(key=lambda x: x[0])
+
+        # Check if result has the expected structure
+        if "segments" not in result:
+            self.logger.warning("Warning: Result does not have 'segments' key")
+            return result
+
+        # For each segment in the result
+        for segment_idx, segment in enumerate(result["segments"]):
+            # Skip segments without words
+            if "words" not in segment:
+                continue
+
+            # For each word in the segment
+            for word_idx, word in enumerate(segment["words"]):
+                # Skip words without timestamps
+                if "start" not in word or "end" not in word:
+                    continue
+
+                word_start = word["start"]
+                word_end = word["end"]
+
+                # Find the speaker who was talking during this word
+                # Strategy: find the speaker segment with the most overlap
+                best_speaker = None
+                max_overlap = 0
+
+                for start, end, speaker in speaker_segments:
+                    # Check for overlap
+                    overlap_start = max(start, word_start)
+                    overlap_end = min(end, word_end)
+                    overlap = max(0, overlap_end - overlap_start)
+
+                    if overlap > max_overlap:
+                        max_overlap = overlap
+                        best_speaker = speaker
+
+                # Assign the speaker to the word
+                if best_speaker is not None:
+                    result["segments"][segment_idx]["words"][word_idx][
+                        "speaker"
+                    ] = best_speaker
+
+        # Now assign speaker to each segment based on majority of words
+        for segment_idx, segment in enumerate(result["segments"]):
+            if "words" not in segment or not segment["words"]:
+                continue
+
+            # Count speakers in words
+            speaker_counts = {}
+            for word in segment["words"]:
+                if "speaker" in word:
+                    speaker = word["speaker"]
+                    if speaker not in speaker_counts:
+                        speaker_counts[speaker] = 0
+                    speaker_counts[speaker] += 1
+
+            # Assign the majority speaker to the segment
+            if speaker_counts:
+                majority_speaker = max(speaker_counts.items(), key=lambda x: x[1])[0]
+                result["segments"][segment_idx]["speaker"] = majority_speaker
+
+        return result

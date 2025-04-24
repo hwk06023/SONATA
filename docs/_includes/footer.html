@@ -1,0 +1,72 @@
+<footer class="site-footer">
+  <div class="site-footer__wrap">
+    <div class="site-footer__content">
+      <div class="footer-col">
+        <a href="{{ '/' | relative_url }}" class="footer-logo">
+          {% if site.logo %}
+            <img src="{{ site.logo | relative_url }}" alt="{{ site.title }}" class="footer-logo-img">
+          {% else %}
+            {{ site.title }}
+          {% endif %}
+        </a>
+        <div class="site-description">
+          {{ site.description }}
+        </div>
+      </div>
+      
+      <div class="footer-col">
+        <h3 class="footer-heading">Documentation</h3>
+        <ul class="footer-links">
+          {% assign pages_list = site.html_pages | sort:"nav_order" %}
+          {% for node in pages_list %}
+            {% unless node.nav_exclude %}
+              {% if node.parent == nil and node.title and forloop.index <= 5 %}
+                <li>
+                  <a href="{{ node.url | relative_url }}" class="footer-link">{{ node.title }}</a>
+                </li>
+              {% endif %}
+            {% endunless %}
+          {% endfor %}
+        </ul>
+      </div>
+      
+      <div class="footer-col">
+        <h3 class="footer-heading">Links</h3>
+        <ul class="footer-links">
+          {% if site.aux_links %}
+            {% for link in site.aux_links %}
+              <li>
+                <a href="{{ link[1] }}" class="footer-link" {% if site.aux_links_new_tab %}target="_blank"{% endif %}>
+                  {{ link[0] }}
+                </a>
+              </li>
+            {% endfor %}
+          {% endif %}
+          <li>
+            <a href="{{ '/search' | relative_url }}" class="footer-link">Search</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+    
+    <div class="site-footer__bottom">
+      <div class="copyright">
+        {{ site.footer_content }}
+      </div>
+      <div class="footer-meta">
+        <a href="#top" class="back-to-top">{{ site.back_to_top_text }}</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Back to top functionality
+  document.querySelector('.back-to-top').addEventListener('click', function(e) {
+    e.preventDefault();
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  });
+</script> 

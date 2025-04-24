@@ -85,6 +85,7 @@ print(formatted_transcript)
 1. **Setup Fails**:
    - Ensure your HuggingFace token has the appropriate permissions
    - Verify you've accepted the user agreements for both models on HuggingFace
+   - You must accept the terms of use for [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) and [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) models before downloading
 
 2. **Model Not Found**:
    - Check that the paths in the `--offline-config` are correct
@@ -92,6 +93,11 @@ print(formatted_transcript)
 
 3. **Permission Errors**:
    - Ensure your user has read/write access to `~/.sonata/models/`
+
+4. **'NoneType' object has no attribute 'eval' Error**:
+   - This typically means the diarization model failed to load properly
+   - For online mode: make sure you've accepted the terms of use on the Hugging Face model page and your token has proper permissions
+   - For offline mode: verify the model files were correctly downloaded and the config file paths are correct
 
 ### Manual Setup Alternative
 

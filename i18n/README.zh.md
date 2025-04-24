@@ -71,6 +71,34 @@ sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
 sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
 ```
 
+> **注意:** 在线说话人分离需要获得 [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) 和 [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) 两个模型的访问权限。请访问这两个模型页面并接受各自的使用条款以获取访问权限。
+
+#### 常用 CLI 选项:
+
+```
+一般选项:
+  -o, --output FILE           将转录结果保存到指定的 JSON 文件
+  -l, --language LANG         语言代码 (en, ko, zh, ja, fr, de, es, it, pt, ru)
+  -m, --model NAME            WhisperX 模型大小 (tiny, small, medium, large-v3 等)
+  -d, --device DEVICE         运行模型的设备 (cpu, cuda)
+  --text-output FILE          将格式化的转录结果保存到指定的文本文件
+  --format TYPE               输出格式: concise, default, extended
+  --preprocess                音频预处理 (格式转换和静音剪裁)
+
+说话人分离:
+  --diarize                   启用说话人分离
+  --hf-token TOKEN            HuggingFace 令牌 (用于在线说话人分离)
+  --min-speakers NUM          设置最小说话人数量
+  --max-speakers NUM          设置最大说话人数量
+  --offline-diarize           使用离线说话人分离 (设置后无需令牌)
+  --offline-config PATH       离线说话人分离配置文件路径
+  --setup-offline             下载并设置离线说话人分离模型
+
+音频事件:
+  --threshold VALUE           音频事件检测阈值 (0.0-1.0)
+  --custom-thresholds FILE    自定义音频事件阈值的 JSON 文件路径
+```
+
 [📚 查看完整使用文档](../docs/USAGE.md)  
 [⌨️ 查看完整命令行文档](../docs/CLI.md)  
 [🎤 查看离线说话人分离指南](../docs/OFFLINE_DIARIZATION.md)
@@ -108,5 +136,7 @@ Contributing 欢迎！请随时提交拉取请求。
 
 - [WhisperX](https://github.com/m-bain/whisperX) - 快速语音识别
 - [AudioSet AST](https://github.com/YuanGongND/ast) - 音频事件检测
+  - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - 用于音频事件分类的预训练模型
 - [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - speaker diarization
+  - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) - 说话人分离流水线
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP 工具 
