@@ -40,6 +40,13 @@ class ASRProcessor:
         device: str = "cpu",
         compute_type: str = "float32",
     ):
+        """Initialize the ASR processor with default model parameters.
+
+        Args:
+            model_name: The Whisper model to use
+            device: The device to use for inference ('cpu' or 'cuda')
+            compute_type: The compute type for the model
+        """
         self.model_name = model_name
         self.device = device
         self.compute_type = compute_type
@@ -48,6 +55,7 @@ class ASRProcessor:
         self.align_metadata = None
         self.current_language = None
         self.diarize_model = None
+        self.logger = logging.getLogger(__name__)
 
     def load_models(self, language_code: str = LanguageCode.ENGLISH.value):
         """Load WhisperX and alignment models for the specified language.
@@ -343,11 +351,19 @@ class ASRProcessor:
                 for segment, track, label in diarize_segments.itertracks(
                     yield_label=True
                 ):
+                    # Ensure the speaker label is a string (SPEAKER_00, SPEAKER_01, etc.)
+                    # Some diarization models might return non-string values
+                    if isinstance(label, str):
+                        speaker_label = label
+                    else:
+                        # Convert to string format expected by whisperX
+                        speaker_label = f"SPEAKER_{str(label).zfill(2)}"
+
                     result.append(
                         {
                             "start": segment.start,
                             "end": segment.end,
-                            "speaker": label,
+                            "speaker": speaker_label,
                         }
                     )
                 return result
@@ -421,6 +437,17 @@ class ASRProcessor:
                                 )
                             # Complete the progress bar
                             pbar.update(100 - progress_percent)
+
+                            # Ensure speaker labels are strings
+                            if result:
+                                for i in range(len(result)):
+                                    if "speaker" in result[i] and not isinstance(
+                                        result[i]["speaker"], str
+                                    ):
+                                        result[i][
+                                            "speaker"
+                                        ] = f"SPEAKER_{str(result[i]['speaker']).zfill(2)}"
+
                             return result
                         except Exception as e:
                             # Complete the progress bar even if there's an error
@@ -600,8 +627,36 @@ class ASRProcessor:
                         show_progress=show_progress,
                     )
 
-                    # Assign speakers to segments
-                    result = whisperx.assign_word_speakers(diarize_segments, result)
+                    # Debug information
+                    if show_progress and diarize_segments and len(diarize_segments) > 0:
+                        self.logger.debug(
+                            f"Speaker segment sample: {diarize_segments[0]}"
+                        )
+                        self.logger.debug(
+                            f"Total speaker segments: {len(diarize_segments)}"
+                        )
+                        self.logger.debug(
+                            f"Speaker labels: {set(s.get('speaker', 'unknown') for s in diarize_segments)}"
+                        )
+
+                    # Check if any segments contain numeric speaker IDs (problematic)
+                    for seg in diarize_segments:
+                        if "speaker" in seg and isinstance(
+                            seg["speaker"], (int, float)
+                        ):
+                            seg["speaker"] = f"SPEAKER_{str(seg['speaker']).zfill(2)}"
+
+                    # Ensure all segments have string 'speaker' keys
+                    for i, seg in enumerate(diarize_segments):
+                        if "speaker" not in seg:
+                            if show_progress:
+                                self.logger.debug(
+                                    f"Adding missing speaker label to segment {i}"
+                                )
+                            seg["speaker"] = f"SPEAKER_UNKNOWN"
+
+                    # Use our custom implementation instead of direct whisperx call
+                    result = self._assign_word_speakers(diarize_segments, result)
 
                     if show_progress:
                         print(f"[ASR] Speaker diarization complete.", flush=True)
@@ -620,7 +675,7 @@ class ASRProcessor:
 
         # First, check if the result has the expected structure
         if "segments" not in result:
-            print(
+            self.logger.debug(
                 f"Warning: WhisperX result does not contain 'segments'. Keys: {list(result.keys())}"
             )
             # Create a minimal output with the whole text if available
@@ -645,7 +700,7 @@ class ASRProcessor:
                         or "start" not in word_data
                         or "end" not in word_data
                     ):
-                        print(
+                        self.logger.debug(
                             f"Warning: Word data does not contain required keys. Skipping word: {word_data}"
                         )
                         continue
@@ -671,3 +726,92 @@ class ASRProcessor:
                 )
 
         return words_with_timestamps
+
+    def _assign_word_speakers(self, diarize_segments, result):
+        """Custom implementation of whisperX's assign_word_speakers function to avoid index errors.
+
+        This implementation ensures all speaker labels are treated correctly.
+        """
+        if len(diarize_segments) == 0:
+            self.logger.debug("Warning: No diarization segments provided.")
+            return result
+
+        # Create mapping of speaker segments for quick lookup
+        # Each segment is [start_time, end_time, speaker_id]
+        speaker_segments = []
+        for segment in diarize_segments:
+            if not all(k in segment for k in ["start", "end", "speaker"]):
+                self.logger.debug(f"Warning: Invalid diarization segment: {segment}")
+                continue
+
+            # Ensure speaker is a string
+            speaker = segment["speaker"]
+            if not isinstance(speaker, str):
+                speaker = f"SPEAKER_{str(speaker).zfill(2)}"
+
+            speaker_segments.append((segment["start"], segment["end"], speaker))
+
+        # Sort by start time
+        speaker_segments.sort(key=lambda x: x[0])
+
+        # Check if result has the expected structure
+        if "segments" not in result:
+            self.logger.debug("Warning: Result does not have 'segments' key")
+            return result
+
+        # For each segment in the result
+        for segment_idx, segment in enumerate(result["segments"]):
+            # Skip segments without words
+            if "words" not in segment:
+                continue
+
+            # For each word in the segment
+            for word_idx, word in enumerate(segment["words"]):
+                # Skip words without timestamps
+                if "start" not in word or "end" not in word:
+                    continue
+
+                word_start = word["start"]
+                word_end = word["end"]
+
+                # Find the speaker who was talking during this word
+                # Strategy: find the speaker segment with the most overlap
+                best_speaker = None
+                max_overlap = 0
+
+                for start, end, speaker in speaker_segments:
+                    # Check for overlap
+                    overlap_start = max(start, word_start)
+                    overlap_end = min(end, word_end)
+                    overlap = max(0, overlap_end - overlap_start)
+
+                    if overlap > max_overlap:
+                        max_overlap = overlap
+                        best_speaker = speaker
+
+                # Assign the speaker to the word
+                if best_speaker is not None:
+                    result["segments"][segment_idx]["words"][word_idx][
+                        "speaker"
+                    ] = best_speaker
+
+        # Now assign speaker to each segment based on majority of words
+        for segment_idx, segment in enumerate(result["segments"]):
+            if "words" not in segment or not segment["words"]:
+                continue
+
+            # Count speakers in words
+            speaker_counts = {}
+            for word in segment["words"]:
+                if "speaker" in word:
+                    speaker = word["speaker"]
+                    if speaker not in speaker_counts:
+                        speaker_counts[speaker] = 0
+                    speaker_counts[speaker] += 1
+
+            # Assign the majority speaker to the segment
+            if speaker_counts:
+                majority_speaker = max(speaker_counts.items(), key=lambda x: x[1])[0]
+                result["segments"][segment_idx]["speaker"] = majority_speaker
+
+        return result
