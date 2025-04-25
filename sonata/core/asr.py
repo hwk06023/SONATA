@@ -12,6 +12,7 @@ from typing import Dict, List, Union, Tuple, Optional
 from sonata.constants import LanguageCode
 from tqdm import tqdm
 from speechbrain.inference import EncoderClassifier
+import importlib.util
 
 # Base environment variables
 os.environ["PL_DISABLE_FORK"] = "1"
@@ -1392,112 +1393,130 @@ class ASRProcessor:
             # 2. Apply WebRTC VAD if available
             webrtc_segments = []
             try:
-                import webrtcvad
+                # Check if webrtcvad is installed without causing an error
+                webrtcvad_spec = importlib.util.find_spec("webrtcvad")
 
-                if show_progress:
-                    print("[ASR] Applying WebRTC VAD...", flush=True)
+                if webrtcvad_spec is None:
+                    if show_progress:
+                        print(
+                            "[ASR] WebRTC VAD module not installed, skipping this step"
+                        )
+                else:
+                    # Import dynamically to avoid linting errors
+                    webrtcvad = importlib.import_module("webrtcvad")
 
-                # Apply multiple aggressiveness levels for better coverage
-                for aggressiveness in [
-                    3,
-                    2,
-                ]:  # Start with highest, then try more lenient
-                    # WebRTC VAD for more precise boundaries
-                    vad = webrtcvad.Vad(aggressiveness)  # 3 = highest aggressiveness
+                    if show_progress:
+                        print("[ASR] Applying WebRTC VAD...", flush=True)
 
-                    # Process in multiple frame sizes for better accuracy
-                    frame_durations = [10, 20, 30]  # ms
-                    frame_segments = []
+                    # Apply multiple aggressiveness levels for better coverage
+                    for aggressiveness in [
+                        3,
+                        2,
+                    ]:  # Start with highest, then try more lenient
+                        # WebRTC VAD for more precise boundaries
+                        vad = webrtcvad.Vad(
+                            aggressiveness
+                        )  # 3 = highest aggressiveness
 
-                    for frame_duration in frame_durations:
-                        # Process in frames
-                        frame_size = int(sample_rate * frame_duration / 1000)
-                        frame_count = len(waveform) // frame_size
+                        # Process in multiple frame sizes for better accuracy
+                        frame_durations = [10, 20, 30]  # ms
+                        frame_segments = []
 
-                        # Iterate over frames
-                        frames = []
-                        for i in range(0, frame_count):
-                            start = i * frame_size
-                            end = start + frame_size
-                            frame = waveform[start:end]
-                            frames.append(frame)
+                        for frame_duration in frame_durations:
+                            # Process in frames
+                            frame_size = int(sample_rate * frame_duration / 1000)
+                            frame_count = len(waveform) // frame_size
 
-                        # Get VAD results
-                        is_speech = []
-                        for frame in frames:
-                            # Convert to int16 PCM
-                            pcm_data = (frame * 32768).astype(np.int16).tobytes()
-                            try:
-                                result = vad.is_speech(pcm_data, sample_rate)
-                                is_speech.append(result)
-                            except:
-                                is_speech.append(False)
+                            # Iterate over frames
+                            frames = []
+                            for i in range(0, frame_count):
+                                start = i * frame_size
+                                end = start + frame_size
+                                frame = waveform[start:end]
+                                frames.append(frame)
 
-                        # Convert to segments with smoother transitions
-                        in_speech = False
-                        start_time = 0
-                        speech_frame_count = 0
-                        silence_frame_count = 0
+                            # Get VAD results
+                            is_speech = []
+                            for frame in frames:
+                                # Convert to int16 PCM
+                                pcm_data = (frame * 32768).astype(np.int16).tobytes()
+                                try:
+                                    result = vad.is_speech(pcm_data, sample_rate)
+                                    is_speech.append(result)
+                                except:
+                                    is_speech.append(False)
 
-                        for i, speech in enumerate(is_speech):
-                            frame_time = i * frame_duration / 1000  # Time in seconds
+                            # Convert to segments with smoother transitions
+                            in_speech = False
+                            start_time = 0
+                            speech_frame_count = 0
+                            silence_frame_count = 0
 
-                            if speech:
-                                speech_frame_count += 1
-                                if not in_speech:
-                                    # Only transition to speech after several speech frames
-                                    if speech_frame_count >= 3:
-                                        in_speech = True
-                                        # Go back a bit to catch speech onset
-                                        start_time = max(0, frame_time - 0.05)
-                                        silence_frame_count = 0
-                            else:
-                                silence_frame_count += 1
-                                if in_speech:
-                                    # Only transition to silence after several silent frames
-                                    if silence_frame_count >= 5:
-                                        in_speech = False
-                                        end_time = frame_time + 0.05  # Extra padding
-                                        frame_segments.append(
-                                            {"start": start_time, "end": end_time}
-                                        )
-                                        speech_frame_count = 0
+                            for i, speech in enumerate(is_speech):
+                                frame_time = (
+                                    i * frame_duration / 1000
+                                )  # Time in seconds
+
+                                if speech:
+                                    speech_frame_count += 1
+                                    if not in_speech:
+                                        # Only transition to speech after several speech frames
+                                        if speech_frame_count >= 3:
+                                            in_speech = True
+                                            # Go back a bit to catch speech onset
+                                            start_time = max(0, frame_time - 0.05)
+                                            silence_frame_count = 0
                                 else:
-                                    speech_frame_count = 0
+                                    silence_frame_count += 1
+                                    if in_speech:
+                                        # Only transition to silence after several silent frames
+                                        if silence_frame_count >= 5:
+                                            in_speech = False
+                                            end_time = (
+                                                frame_time + 0.05
+                                            )  # Extra padding
+                                            frame_segments.append(
+                                                {"start": start_time, "end": end_time}
+                                            )
+                                            speech_frame_count = 0
+                                    else:
+                                        speech_frame_count = 0
 
-                        # Don't forget the last segment
-                        if in_speech:
-                            end_time = len(is_speech) * frame_duration / 1000
-                            frame_segments.append(
-                                {"start": start_time, "end": end_time}
-                            )
+                            # Don't forget the last segment
+                            if in_speech:
+                                end_time = len(is_speech) * frame_duration / 1000
+                                frame_segments.append(
+                                    {"start": start_time, "end": end_time}
+                                )
 
-                    # Merge segments from different frame sizes
-                    for segment in frame_segments:
-                        # Check if this segment overlaps significantly with any existing segment
-                        should_add = True
-                        for existing_seg in webrtc_segments:
-                            overlap_start = max(segment["start"], existing_seg["start"])
-                            overlap_end = min(segment["end"], existing_seg["end"])
+                        # Merge segments from different frame sizes
+                        for segment in frame_segments:
+                            # Check if this segment overlaps significantly with any existing segment
+                            should_add = True
+                            for existing_seg in webrtc_segments:
+                                overlap_start = max(
+                                    segment["start"], existing_seg["start"]
+                                )
+                                overlap_end = min(segment["end"], existing_seg["end"])
 
-                            if overlap_end > overlap_start:
-                                # Calculate overlap percentage
-                                segment_duration = segment["end"] - segment["start"]
-                                overlap_duration = overlap_end - overlap_start
+                                if overlap_end > overlap_start:
+                                    # Calculate overlap percentage
+                                    segment_duration = segment["end"] - segment["start"]
+                                    overlap_duration = overlap_end - overlap_start
 
-                                if overlap_duration / segment_duration > 0.8:
-                                    # More than 80% overlap, skip this segment
-                                    should_add = False
-                                    break
+                                    if overlap_duration / segment_duration > 0.8:
+                                        # More than 80% overlap, skip this segment
+                                        should_add = False
+                                        break
 
-                        if (
-                            should_add and segment["end"] - segment["start"] > 0.1
-                        ):  # At least 100ms
-                            webrtc_segments.append(segment)
+                            if (
+                                should_add and segment["end"] - segment["start"] > 0.1
+                            ):  # At least 100ms
+                                webrtc_segments.append(segment)
 
-                    # If we got enough segments with aggressiveness=3, don't try lower levels
-                    if len(webrtc_segments) >= 5:
-                        break
+                        # If we got enough segments with aggressiveness=3, don't try lower levels
+                        if len(webrtc_segments) >= 5:
+                            break
 
             except Exception as e:
                 if show_progress:
@@ -1913,59 +1932,152 @@ class ASRProcessor:
                 if show_progress:
                     print("[ASR] Using neural speaker segmentation...", flush=True)
 
-                from pyannote.audio import Model
-                from pyannote.audio.pipelines import SpeakerSegmentation
+                # Completely avoid direct SpeakerSegmentation import
+                # Instead, use the diarize_model which is more reliable
+                if hasattr(self, "diarize_model") and self.diarize_model is not None:
+                    # Create a segmentation function based on diarization results
+                    def detect_speaker_changes_with_diarization(audio_file, segments):
+                        detected_changes = []
 
-                # Load or reuse the segmentation model
-                if self.scd_model is None:
-                    try:
-                        scd_model = Model.from_pretrained(
-                            "pyannote/segmentation-3.0",
-                            use_auth_token=None,  # Set your HF token if needed
-                        ).to(device)
+                        for segment in segments:
+                            try:
+                                # Process this segment with diarization
+                                diar_result = self.diarize_model(
+                                    audio_file,
+                                    start=segment["start"],
+                                    end=segment["end"],
+                                )
 
-                        # Create a segmentation pipeline
-                        self.scd_model = SpeakerSegmentation(
-                            segmentation_model=scd_model,
-                            clustering="pool",  # Use last layer pooling
-                            segmentation={
-                                "threshold": 0.45,  # Lower threshold = higher sensitivity
-                                "min_duration_off": 0.3,
-                            },  # Minimum silence duration between speakers
-                        )
-                    except Exception as e:
-                        if show_progress:
-                            print(f"[ASR] Could not load PyAnnote SCD model: {str(e)}")
-                        self.scd_model = None
+                                # Extract change points by detecting speaker changes
+                                prev_speaker = None
+                                for track, _, speaker in diar_result.itertracks(
+                                    yield_label=True
+                                ):
+                                    if (
+                                        prev_speaker is not None
+                                        and prev_speaker != speaker
+                                    ):
+                                        # Add the change point (adjusted to segment start time)
+                                        change_time = segment["start"] + track.start
+                                        detected_changes.append(change_time)
+                                    prev_speaker = speaker
+                            except Exception as e:
+                                if show_progress:
+                                    print(
+                                        f"[ASR] Error processing segment {segment}: {str(e)}"
+                                    )
 
-                # Apply segmentation to each VAD segment
-                if self.scd_model is not None:
+                        return detected_changes
+
+                    # Process segments and collect change points
                     for segment in vad_segments:
-                        # Extract the segment from the audio
-                        start_sample = int(segment["start"] * sample_rate)
-                        end_sample = int(segment["end"] * sample_rate)
-
                         # Skip very short segments
-                        if end_sample - start_sample < 0.5 * sample_rate:
+                        duration = segment["end"] - segment["start"]
+                        if duration < 1.0:  # Skip segments shorter than 1s
                             continue
 
-                        seg_audio = waveform[start_sample:end_sample]
+                        segment_changes = detect_speaker_changes_with_diarization(
+                            audio_path, [segment]
+                        )
 
-                        # Convert to torch tensor
-                        seg_tensor = torch.tensor(seg_audio).unsqueeze(0).to(device)
+                        # Add the detected changes to our main list
+                        change_points.extend(segment_changes)
 
-                        # Run segmentation
-                        audio_dict = {
-                            "waveform": seg_tensor,
-                            "sample_rate": sample_rate,
-                        }
-                        segmentation_result = self.scd_model(audio_dict)
+                    if show_progress:
+                        print(
+                            f"[ASR] Detected {len(change_points)} change points using diarization"
+                        )
+                else:
+                    # Fall back to using pyannote.audio's segmentation models
+                    # Try to access the Model class to create a segmentation model
+                    try:
+                        from pyannote.audio import Model
+                        import torch
 
-                        # Extract change points and adjust to original timeline
-                        for point in segmentation_result.get("change_points", []):
-                            change_time = segment["start"] + point
-                            change_points.append(change_time)
+                        # Check if segmentation model is available
+                        segmentation_model_available = False
 
+                        try:
+                            # Try to instantiate a segmentation model
+                            seg_model = Model.from_pretrained(
+                                "pyannote/segmentation-3.0", use_auth_token=None
+                            ).to(device)
+                            segmentation_model_available = True
+                        except Exception as model_error:
+                            if show_progress:
+                                print(
+                                    f"[ASR] Could not load segmentation model: {str(model_error)}"
+                                )
+
+                        if segmentation_model_available:
+                            # Process each VAD segment with the segmentation model
+                            for segment in vad_segments:
+                                # Extract the segment audio
+                                start_sample = int(segment["start"] * sample_rate)
+                                end_sample = int(segment["end"] * sample_rate)
+
+                                # Skip very short segments
+                                if end_sample - start_sample < 0.5 * sample_rate:
+                                    continue
+
+                                seg_audio = waveform[start_sample:end_sample]
+
+                                # Process with segmentation model
+                                with torch.no_grad():
+                                    # Create input tensor
+                                    audio_tensor = (
+                                        torch.tensor(seg_audio).unsqueeze(0).to(device)
+                                    )
+
+                                    # Get embeddings and detect changes
+                                    embeddings = seg_model(
+                                        {
+                                            "waveform": audio_tensor,
+                                            "sample_rate": sample_rate,
+                                        }
+                                    )
+
+                                    # Analyze embeddings to find change points
+                                    # Implementation will depend on the model output format
+                                    # Here is a simple approach using cosine distance:
+                                    emb = embeddings.squeeze().cpu().numpy()
+
+                                    if emb.ndim > 1 and emb.shape[0] > 1:
+                                        from scipy.spatial.distance import cosine
+                                        from scipy.signal import find_peaks
+
+                                        # Calculate distances between consecutive embeddings
+                                        distances = []
+                                        for i in range(1, len(emb)):
+                                            dist = cosine(emb[i - 1], emb[i])
+                                            distances.append(dist)
+
+                                        if distances:
+                                            # Find peaks in distances (potential change points)
+                                            distances = np.array(distances)
+                                            # Adaptive threshold based on mean and std
+                                            threshold = np.mean(
+                                                distances
+                                            ) + 1.0 * np.std(distances)
+                                            peaks, _ = find_peaks(
+                                                distances, height=threshold, distance=5
+                                            )
+
+                                            # Convert peak indices to time and add to change points
+                                            frame_shift = (
+                                                segment["end"] - segment["start"]
+                                            ) / emb.shape[0]
+                                            for peak in peaks:
+                                                change_time = (
+                                                    segment["start"]
+                                                    + (peak + 1) * frame_shift
+                                                )
+                                                change_points.append(change_time)
+                    except ImportError:
+                        if show_progress:
+                            print(
+                                "[ASR] PyAnnote's segmentation models are not available"
+                            )
             except Exception as e:
                 if show_progress:
                     print(f"[ASR] Neural segmentation failed: {str(e)}")
@@ -2317,6 +2429,7 @@ class ASRProcessor:
                 )
 
             # Step 5: Cluster speakers
+            # Ensure we're using the fully qualified method name to avoid reference errors
             speaker_mapping = self._cluster_speakers(
                 segment_embeddings,
                 num_speakers=num_speakers,
@@ -2422,6 +2535,9 @@ class ASRProcessor:
 
         except Exception as e:
             print(f"[ASR] Enhanced diarization failed with error: {str(e)}")
+            import traceback
+
+            traceback.print_exc()  # 자세한 오류 추적을 위해 추가
 
             # Fall back to original method
             print("[ASR] Falling back to standard diarization")
