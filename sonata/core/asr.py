@@ -2195,7 +2195,7 @@ class ASRProcessor:
             if n_clusters < len(embedding_list):
                 # Use appropriate clustering method
                 clustering = AgglomerativeClustering(
-                    n_clusters=n_clusters, affinity="cosine", linkage="average"
+                    n_clusters=n_clusters, metric="cosine", linkage="average"
                 ).fit(X_normalized)
 
                 # Get labels
