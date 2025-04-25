@@ -97,6 +97,10 @@ sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.son
 오디오 이벤트:
   --threshold VALUE           오디오 이벤트 감지 임계값 (0.0-1.0)
   --custom-thresholds FILE    사용자 정의 오디오 이벤트 임계값이 포함된 JSON 파일 경로
+  --deep-detect               다중 스케일 오디오 이벤트 감지 활성화 (정확도 향상)
+  --deep-detect-scales NUM    딥 감지를 위한 스케일 수 (1-3, 기본값: 3)
+  --deep-detect-window-sizes  딥 감지를 위한 사용자 정의 윈도우 크기 (쉼표로 구분)
+  --deep-detect-hop-sizes     딥 감지를 위한 사용자 정의 홉 크기 (쉼표로 구분)
 ```
 
 [📚 전체 사용법 문서 보기](../docs/USAGE.md)  

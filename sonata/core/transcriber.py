@@ -30,6 +30,7 @@ class IntegratedTranscriber:
         offline_config_path: Optional[str] = None,
         custom_audio_thresholds: Optional[Dict[str, float]] = None,
         deep_detect: bool = False,
+        deep_detect_params: Optional[Dict] = None,
     ):
         """Initialize the integrated transcriber.
 
@@ -42,11 +43,16 @@ class IntegratedTranscriber:
             offline_config_path: Path to offline diarization config file
             custom_audio_thresholds: Dictionary of custom thresholds for specific audio event types (optional)
             deep_detect: Whether to use multi-scale audio event detection
+            deep_detect_params: Dictionary with window_sizes and hop_sizes for deep detection
         """
         self.device = device
         self.offline_diarization = offline_diarization
         self.offline_config_path = offline_config_path
         self.deep_detect = deep_detect
+        self.deep_detect_params = deep_detect_params or {
+            "window_sizes": [0.2, 1.0, 2.5],
+            "hop_sizes": [0.1, 0.5, 1.0],
+        }
         self.logger = logging.getLogger(__name__)
 
         # Set up comprehensive warning suppression
@@ -121,10 +127,16 @@ class IntegratedTranscriber:
             self.logger.info(
                 "Using multi-scale deep detection for better paralinguistic feature detection..."
             )
+            # Use custom window and hop sizes if provided
+            window_sizes = self.deep_detect_params.get("window_sizes", [0.2, 1.0, 2.5])
+            hop_sizes = self.deep_detect_params.get("hop_sizes", [0.1, 0.5, 1.0])
+
+            print(f"Using {len(window_sizes)} window sizes: {window_sizes}")
+
             audio_events = self.audio_detector.detect_events_multi_scale(
                 audio=audio_path,
-                window_sizes=[0.2, 1.0, 2.5],
-                hop_sizes=[0.1, 0.5, 1.0],
+                window_sizes=window_sizes,
+                hop_sizes=hop_sizes,
                 show_progress=True,
             )
         else:

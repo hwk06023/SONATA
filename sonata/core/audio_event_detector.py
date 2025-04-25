@@ -1285,7 +1285,9 @@ class AudioEventDetector(AudiosetClassifier):
         # Define a worker function to ensure each thread has its own parameters
         def detect_with_scale(window_s, hop_s, scale_name):
             try:
-                # Create a dedicated detector instance with the same model and parameters
+                # Create a dedicated detector with its own model instance
+                from sonata.models.model_loader import load_audioset
+
                 detector = AudioEventDetector(
                     model_path=None,
                     threshold=self.threshold,
@@ -1296,9 +1298,8 @@ class AudioEventDetector(AudiosetClassifier):
                     hop_size=hop_s,
                 )
 
-                # Share the model reference which is thread-safe for inference
-                detector.model = self.model
-                detector.labels = dict(self.labels)
+                # Don't share model reference across threads - each thread loads its own
+                # We're not setting detector.model = self.model anymore
 
                 if show_progress:
                     print(f"[DeepDetect] Starting detection with scale {scale_name}")
@@ -1314,37 +1315,57 @@ class AudioEventDetector(AudiosetClassifier):
                 return events
             except Exception as e:
                 logging.error(f"[DeepDetect] Error in scale {scale_name}: {str(e)}")
+                if "Cannot copy out of meta tensor" in str(e) or "no data!" in str(e):
+                    # This is a PyTorch model loading issue - print a more helpful message
+                    print(
+                        f"[DeepDetect] PyTorch model loading issue with scale {scale_name}. This may occur when GPU memory is insufficient."
+                    )
+                    print(
+                        f"[DeepDetect] Attempting fallback to CPU for scale {scale_name}"
+                    )
+                    try:
+                        # Create another detector but force CPU device
+                        fallback_detector = AudioEventDetector(
+                            model_path=None,
+                            threshold=self.threshold,
+                            device="cpu",  # Force CPU for fallback
+                            event_types=None,
+                            custom_thresholds=dict(self.class_thresholds),
+                            window_size=window_s,
+                            hop_size=hop_s,
+                        )
+
+                        # Run detection with fallback detector
+                        fallback_events = fallback_detector.detect_events(
+                            audio_data, sr, show_progress=False
+                        )
+                        if show_progress:
+                            print(
+                                f"[DeepDetect] Fallback successful for scale {scale_name}: detected {len(fallback_events)} events"
+                            )
+                        return fallback_events
+                    except Exception as fallback_e:
+                        logging.error(
+                            f"[DeepDetect] Fallback attempt failed for scale {scale_name}: {str(fallback_e)}"
+                        )
+                        print(
+                            f"[DeepDetect] Fallback failed for scale {scale_name}. Skipping this scale."
+                        )
                 return []
 
-        # Use ThreadPoolExecutor for parallel processing
+        # Use sequential processing instead of ThreadPoolExecutor to avoid model sharing issues
         all_events = []
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future_to_scale = {}
+        for i, (window_size, hop_size) in enumerate(zip(window_sizes, hop_sizes)):
+            scale_name = f"w={window_size}s, h={hop_size}s"
+            if show_progress:
+                print(f"[DeepDetect] Processing scale {scale_name}")
 
-            # Submit all tasks
-            for i, (window_size, hop_size) in enumerate(zip(window_sizes, hop_sizes)):
-                scale_name = f"w={window_size}s, h={hop_size}s"
-                future = executor.submit(
-                    detect_with_scale,
-                    window_size,
-                    hop_size,
-                    scale_name,
+            events = detect_with_scale(window_size, hop_size, scale_name)
+            all_events.extend(events)
+            if show_progress:
+                print(
+                    f"[DeepDetect] Completed scale {scale_name}: {len(events)} events"
                 )
-                future_to_scale[future] = scale_name
-
-            # Collect results as they complete
-            for future in concurrent.futures.as_completed(future_to_scale):
-                scale_name = future_to_scale[future]
-                try:
-                    events = future.result()
-                    logging.info(
-                        f"[DeepDetect] Scale {scale_name}: {len(events)} events"
-                    )
-                    all_events.extend(events)
-                except Exception as e:
-                    logging.error(
-                        f"[DeepDetect] Failed to get results from scale {scale_name}: {str(e)}"
-                    )
 
         # Merge results using confidence-based non-maximum suppression
         merged_events = self._merge_events_nms(all_events)
