@@ -13,6 +13,11 @@ from sonata.constants import LanguageCode
 from tqdm import tqdm
 from speechbrain.inference import EncoderClassifier
 import importlib.util
+import librosa
+import webrtcvad
+import tempfile
+import os
+from pydub import AudioSegment
 
 # Base environment variables
 os.environ["PL_DISABLE_FORK"] = "1"
@@ -1254,387 +1259,206 @@ class ASRProcessor:
         return result
 
     def _enhanced_vad(self, audio_path, show_progress=True):
-        """Implement advanced ensemble Voice Activity Detection for maximum accuracy.
-
-        Uses a combination of multiple VAD models for better performance:
-        1. Silero VAD (neural network-based)
-        2. WebRTC VAD (traditional signal processing)
-        3. Energy-based VAD (for catching quiet speech)
-        4. PyAnnote VAD (if available, for challenging cases)
-
-        Args:
-            audio_path: Path to the audio file
-            show_progress: Whether to show progress indicators
-
-        Returns:
-            List of speech segments with start and end times
         """
+        Enhanced Voice Activity Detection using multiple VAD methods and ensemble fusion.
+        """
+        vad_segments = []
+
         if show_progress:
-            print("[ASR] Running enhanced Voice Activity Detection...", flush=True)
+            print("[ASR] Running enhanced Voice Activity Detection...")
 
+        # Load audio
+        audio, sr = librosa.load(audio_path, sr=16000, mono=True)
+
+        # 1. Silero VAD (Neural)
+        silero_segments = []
         try:
-            import torch
-            import librosa
-            import numpy as np
-            import scipy
+            if show_progress:
+                print("[ASR] Applying Silero VAD (Neural)...")
 
-            # Load audio
-            waveform, sample_rate = librosa.load(audio_path, sr=16000)
-
-            # Set up model device
-            device = (
-                self.device
-                if self.device == "cuda" and torch.cuda.is_available()
-                else "cpu"
+            model, utils = torch.hub.load(
+                repo_or_dir="snakers4/silero-vad",
+                model="silero_vad",
+                force_reload=False,
+                onnx=False,
             )
 
-            # 1. Apply Silero VAD (neural model)
-            if show_progress:
-                print("[ASR] Applying Silero VAD (Neural)...", flush=True)
-
-            if self.vad_model is None:
-                # Load Silero VAD
-                self.vad_model, utils = torch.hub.load(
-                    repo_or_dir="snakers4/silero-vad",
-                    model="silero_vad",
-                    force_reload=False,
-                    onnx=False,
-                    verbose=False,
-                )
-                self.vad_model.to(device)
-
-            # Prepare utils
             (get_speech_timestamps, _, _, _, _) = utils
 
-            # Make sure audio is in the right format
-            audio_tensor = torch.tensor(waveform).unsqueeze(0).to(device)
-
-            # Run model with multiple sensitivity levels and merge results
-            silero_segments_high_recall = get_speech_timestamps(
-                audio_tensor,
-                self.vad_model,
-                threshold=0.2,  # Very low threshold = highest sensitivity
-                sampling_rate=16000,
-                min_silence_duration_ms=500,
-                window_size_samples=1024,
-                speech_pad_ms=100,
-                return_seconds=True,
+            timestamps = get_speech_timestamps(
+                torch.tensor(audio), model, sampling_rate=sr, threshold=0.5
             )
 
-            silero_segments_balanced = get_speech_timestamps(
-                audio_tensor,
-                self.vad_model,
-                threshold=0.3,  # Balanced threshold
-                sampling_rate=16000,
-                min_silence_duration_ms=300,
-                window_size_samples=1024,
-                speech_pad_ms=30,
-                return_seconds=True,
-            )
+            for ts in timestamps:
+                start = ts["start"] / sr
+                end = ts["end"] / sr
+                silero_segments.append({"start": start, "end": end})
 
-            silero_segments_high_precision = get_speech_timestamps(
-                audio_tensor,
-                self.vad_model,
-                threshold=0.5,  # Higher threshold = more precision
-                sampling_rate=16000,
-                min_silence_duration_ms=200,
-                window_size_samples=1024,
-                speech_pad_ms=10,
-                return_seconds=True,
-            )
+        except Exception as e:
+            if show_progress:
+                print(f"[ASR] Silero VAD failed: {str(e)}")
 
-            # Combine silero results with different weights
-            silero_segments = []
-            # First add high precision segments (most reliable)
-            silero_segments.extend(silero_segments_high_precision)
+        # 2. WebRTC VAD
+        webrtc_segments = []
+        try:
+            import webrtcvad
 
-            # Add balanced segments if they don't mostly overlap with existing ones
-            for segment in silero_segments_balanced:
-                # Check if this segment overlaps significantly with any existing segment
-                should_add = True
-                for existing_seg in silero_segments:
-                    overlap_start = max(segment["start"], existing_seg["start"])
-                    overlap_end = min(segment["end"], existing_seg["end"])
+            if show_progress:
+                print("[ASR] Applying WebRTC VAD...")
 
-                    if overlap_end > overlap_start:
-                        # Calculate overlap percentage
-                        segment_duration = segment["end"] - segment["start"]
-                        overlap_duration = overlap_end - overlap_start
+            vad = webrtcvad.Vad()
+            vad.set_mode(3)  # Aggressive mode
 
-                        if overlap_duration / segment_duration > 0.7:
-                            # More than 70% overlap, skip this segment
-                            should_add = False
-                            break
+            # WebRTC VAD requires frame sizes of 10, 20, or 30 ms
+            frame_duration = 30  # in ms
+            frame_size = int(sr * frame_duration / 1000)
 
-                if should_add:
-                    silero_segments.append(segment)
+            # Pad audio to ensure it's divisible by frame_size
+            padding = frame_size - (len(audio) % frame_size)
+            padded_audio = np.pad(audio, (0, padding), "constant")
 
-            # Finally add high recall segments with even stricter non-overlap criteria
-            for segment in silero_segments_high_recall:
-                # Check for any significant overlap
-                should_add = True
-                for existing_seg in silero_segments:
-                    overlap_start = max(segment["start"], existing_seg["start"])
-                    overlap_end = min(segment["end"], existing_seg["end"])
+            # Detect speech frames
+            speech_frames = []
+            for i in range(0, len(padded_audio), frame_size):
+                frame = padded_audio[i : i + frame_size]
+                frame_bytes = (frame * 32767).astype(np.int16).tobytes()
+                is_speech = vad.is_speech(frame_bytes, sr)
+                speech_frames.append(is_speech)
 
-                    if overlap_end > overlap_start:
-                        # Calculate overlap percentage
-                        segment_duration = segment["end"] - segment["start"]
-                        overlap_duration = overlap_end - overlap_start
+            # Group consecutive speech frames into segments
+            in_speech = False
+            start_frame = 0
 
-                        if overlap_duration / segment_duration > 0.5:
-                            # More than 50% overlap, skip this segment
-                            should_add = False
-                            break
+            for i, is_speech in enumerate(speech_frames):
+                if is_speech and not in_speech:
+                    start_frame = i
+                    in_speech = True
+                elif not is_speech and in_speech:
+                    end_frame = i
+                    start_time = start_frame * frame_duration / 1000
+                    end_time = end_frame * frame_duration / 1000
+                    webrtc_segments.append({"start": start_time, "end": end_time})
+                    in_speech = False
 
-                if should_add:
-                    silero_segments.append(segment)
+            # Handle the case where the audio ends during speech
+            if in_speech:
+                end_frame = len(speech_frames)
+                start_time = start_frame * frame_duration / 1000
+                end_time = end_frame * frame_duration / 1000
+                webrtc_segments.append({"start": start_time, "end": end_time})
 
-            # 2. Apply WebRTC VAD if available
-            webrtc_segments = []
-            try:
-                # Check if webrtcvad is installed without causing an error
-                webrtcvad_spec = importlib.util.find_spec("webrtcvad")
+        except ImportError:
+            if show_progress:
+                print("[ASR] WebRTC VAD module not installed, skipping this step")
+        except Exception as e:
+            if show_progress:
+                print(f"[ASR] WebRTC VAD failed: {str(e)}")
 
-                if webrtcvad_spec is None:
-                    if show_progress:
-                        print(
-                            "[ASR] WebRTC VAD module not installed, skipping this step"
-                        )
-                else:
-                    # Import dynamically to avoid linting errors
-                    webrtcvad = importlib.import_module("webrtcvad")
+        # 3. Energy-based VAD
+        energy_segments = []
+        try:
+            if show_progress:
+                print("[ASR] Applying energy-based VAD...")
 
-                    if show_progress:
-                        print("[ASR] Applying WebRTC VAD...", flush=True)
+            # Calculate energy with multiple window sizes for better accuracy
+            window_sizes = [
+                int(0.01 * sr),
+                int(0.03 * sr),
+                int(0.05 * sr),
+            ]
+            hop_length = int(0.01 * sr)  # 10ms hop
 
-                    # Apply multiple aggressiveness levels for better coverage
-                    for aggressiveness in [
-                        3,
-                        2,
-                    ]:  # Start with highest, then try more lenient
-                        # WebRTC VAD for more precise boundaries
-                        vad = webrtcvad.Vad(
-                            aggressiveness
-                        )  # 3 = highest aggressiveness
+            for window_size in window_sizes:
+                # Calculate energy in each window
+                energy = []
+                for i in range(0, len(audio) - window_size, hop_length):
+                    frame = audio[i : i + window_size]
+                    energy.append(np.sum(frame**2))
 
-                        # Process in multiple frame sizes for better accuracy
-                        frame_durations = [10, 20, 30]  # ms
-                        frame_segments = []
-
-                        for frame_duration in frame_durations:
-                            # Process in frames
-                            frame_size = int(sample_rate * frame_duration / 1000)
-                            frame_count = len(waveform) // frame_size
-
-                            # Iterate over frames
-                            frames = []
-                            for i in range(0, frame_count):
-                                start = i * frame_size
-                                end = start + frame_size
-                                frame = waveform[start:end]
-                                frames.append(frame)
-
-                            # Get VAD results
-                            is_speech = []
-                            for frame in frames:
-                                # Convert to int16 PCM
-                                pcm_data = (frame * 32768).astype(np.int16).tobytes()
-                                try:
-                                    result = vad.is_speech(pcm_data, sample_rate)
-                                    is_speech.append(result)
-                                except:
-                                    is_speech.append(False)
-
-                            # Convert to segments with smoother transitions
-                            in_speech = False
-                            start_time = 0
-                            speech_frame_count = 0
-                            silence_frame_count = 0
-
-                            for i, speech in enumerate(is_speech):
-                                frame_time = (
-                                    i * frame_duration / 1000
-                                )  # Time in seconds
-
-                                if speech:
-                                    speech_frame_count += 1
-                                    if not in_speech:
-                                        # Only transition to speech after several speech frames
-                                        if speech_frame_count >= 3:
-                                            in_speech = True
-                                            # Go back a bit to catch speech onset
-                                            start_time = max(0, frame_time - 0.05)
-                                            silence_frame_count = 0
-                                else:
-                                    silence_frame_count += 1
-                                    if in_speech:
-                                        # Only transition to silence after several silent frames
-                                        if silence_frame_count >= 5:
-                                            in_speech = False
-                                            end_time = (
-                                                frame_time + 0.05
-                                            )  # Extra padding
-                                            frame_segments.append(
-                                                {"start": start_time, "end": end_time}
-                                            )
-                                            speech_frame_count = 0
-                                    else:
-                                        speech_frame_count = 0
-
-                            # Don't forget the last segment
-                            if in_speech:
-                                end_time = len(is_speech) * frame_duration / 1000
-                                frame_segments.append(
-                                    {"start": start_time, "end": end_time}
-                                )
-
-                        # Merge segments from different frame sizes
-                        for segment in frame_segments:
-                            # Check if this segment overlaps significantly with any existing segment
-                            should_add = True
-                            for existing_seg in webrtc_segments:
-                                overlap_start = max(
-                                    segment["start"], existing_seg["start"]
-                                )
-                                overlap_end = min(segment["end"], existing_seg["end"])
-
-                                if overlap_end > overlap_start:
-                                    # Calculate overlap percentage
-                                    segment_duration = segment["end"] - segment["start"]
-                                    overlap_duration = overlap_end - overlap_start
-
-                                    if overlap_duration / segment_duration > 0.8:
-                                        # More than 80% overlap, skip this segment
-                                        should_add = False
-                                        break
-
-                            if (
-                                should_add and segment["end"] - segment["start"] > 0.1
-                            ):  # At least 100ms
-                                webrtc_segments.append(segment)
-
-                        # If we got enough segments with aggressiveness=3, don't try lower levels
-                        if len(webrtc_segments) >= 5:
-                            break
-
-            except Exception as e:
-                if show_progress:
-                    print(
-                        f"[ASR] WebRTC VAD failed: {str(e)}, continuing with Silero only"
+                # Normalize energy
+                energy = np.array(energy)
+                if np.max(energy) - np.min(energy) > 0:
+                    energy = (energy - np.min(energy)) / (
+                        np.max(energy) - np.min(energy) + 1e-10
                     )
 
-            # 3. Apply energy-based VAD for low-volume speech
-            energy_segments = []
-            try:
-                if show_progress:
-                    print("[ASR] Applying energy-based VAD...", flush=True)
+                # Adaptive threshold based on percentile
+                percentile_20 = np.percentile(energy, 20)
+                percentile_50 = np.percentile(energy, 50)
+                threshold = percentile_20 + 0.1 * (percentile_50 - percentile_20)
 
-                # Calculate energy with multiple window sizes for better accuracy
-                window_sizes = [
-                    int(0.01 * sample_rate),
-                    int(0.03 * sample_rate),
-                    int(0.05 * sample_rate),
-                ]
-                hop_length = int(0.01 * sample_rate)  # 10ms hop
+                # Smooth the energy curve
+                energy_smooth = scipy.ndimage.gaussian_filter1d(energy, sigma=2)
 
-                for window_size in window_sizes:
-                    # Calculate energy in each window
-                    energy = []
-                    for i in range(0, len(waveform) - window_size, hop_length):
-                        frame = waveform[i : i + window_size]
-                        energy.append(np.sum(frame**2))
+                # Find segments above threshold
+                is_speech = energy_smooth > threshold
 
-                    # Normalize energy
-                    energy = np.array(energy)
-                    if np.max(energy) - np.min(energy) > 0:
-                        energy = (energy - np.min(energy)) / (
-                            np.max(energy) - np.min(energy) + 1e-10
-                        )
+                # Apply hysteresis to avoid rapid switching
+                hysteresis_up = threshold * 0.8  # Lower threshold for staying in speech
+                hysteresis_down = threshold * 1.2  # Higher threshold for exiting speech
 
-                    # Adaptive threshold based on percentile
-                    percentile_20 = np.percentile(energy, 20)
-                    percentile_50 = np.percentile(energy, 50)
-                    threshold = percentile_20 + 0.1 * (percentile_50 - percentile_20)
+                in_speech = False
+                start_idx = 0
+                energy_window_segments = []
 
-                    # Smooth the energy curve
-                    energy_smooth = scipy.ndimage.gaussian_filter1d(energy, sigma=2)
+                for i, speech in enumerate(is_speech):
+                    if not in_speech and energy_smooth[i] > threshold:
+                        in_speech = True
+                        start_idx = i
+                    elif in_speech and energy_smooth[i] < hysteresis_down:
+                        in_speech = False
+                        end_idx = i
+                        start_time = start_idx * hop_length / sr
+                        end_time = end_idx * hop_length / sr
 
-                    # Find segments above threshold
-                    is_speech = energy_smooth > threshold
-
-                    # Apply hysteresis to avoid rapid switching
-                    hysteresis_up = (
-                        threshold * 0.8
-                    )  # Lower threshold for staying in speech
-                    hysteresis_down = (
-                        threshold * 1.2
-                    )  # Higher threshold for exiting speech
-
-                    in_speech = False
-                    start_idx = 0
-                    energy_window_segments = []
-
-                    for i, speech in enumerate(is_speech):
-                        if not in_speech and energy_smooth[i] > threshold:
-                            in_speech = True
-                            start_idx = i
-                        elif in_speech and energy_smooth[i] < hysteresis_down:
-                            in_speech = False
-                            end_idx = i
-                            start_time = start_idx * hop_length / sample_rate
-                            end_time = end_idx * hop_length / sample_rate
-
-                            # Only add segments of reasonable duration
-                            if end_time - start_time > 0.2:  # At least 200ms
-                                energy_window_segments.append(
-                                    {"start": start_time, "end": end_time}
-                                )
-
-                    # Don't forget the last segment
-                    if in_speech:
-                        end_idx = len(is_speech)
-                        start_time = start_idx * hop_length / sample_rate
-                        end_time = end_idx * hop_length / sample_rate
-
-                        if end_time - start_time > 0.2:
+                        # Only add segments of reasonable duration
+                        if end_time - start_time > 0.2:  # At least 200ms
                             energy_window_segments.append(
                                 {"start": start_time, "end": end_time}
                             )
 
-                    # Add non-overlapping segments from this window size
-                    for segment in energy_window_segments:
-                        # Check if this segment overlaps significantly with any existing segment
-                        should_add = True
-                        for existing_seg in energy_segments:
-                            overlap_start = max(segment["start"], existing_seg["start"])
-                            overlap_end = min(segment["end"], existing_seg["end"])
+                # Don't forget the last segment
+                if in_speech:
+                    end_idx = len(is_speech)
+                    start_time = start_idx * hop_length / sr
+                    end_time = end_idx * hop_length / sr
 
-                            if overlap_end > overlap_start:
-                                # Calculate overlap percentage
-                                segment_duration = segment["end"] - segment["start"]
-                                overlap_duration = overlap_end - overlap_start
+                    if end_time - start_time > 0.2:
+                        energy_window_segments.append(
+                            {"start": start_time, "end": end_time}
+                        )
 
-                                if overlap_duration / segment_duration > 0.7:
-                                    # More than 70% overlap, skip this segment
-                                    should_add = False
-                                    break
+                # Add non-overlapping segments from this window size
+                for segment in energy_window_segments:
+                    # Check if this segment overlaps significantly with any existing segment
+                    should_add = True
+                    for existing_seg in energy_segments:
+                        overlap_start = max(segment["start"], existing_seg["start"])
+                        overlap_end = min(segment["end"], existing_seg["end"])
 
-                        if should_add:
-                            energy_segments.append(segment)
+                        if overlap_end > overlap_start:
+                            # Calculate overlap percentage
+                            segment_duration = segment["end"] - segment["start"]
+                            overlap_duration = overlap_end - overlap_start
 
-            except Exception as e:
+                            if overlap_duration / segment_duration > 0.7:
+                                # More than 70% overlap, skip this segment
+                                should_add = False
+                                break
+
+                    if should_add:
+                        energy_segments.append(segment)
+
+        except Exception as e:
+            if show_progress:
+                print(f"[ASR] Energy-based VAD failed: {str(e)}, continuing without it")
+
+        # 4. PyAnnote VAD
+        pyannote_segments = []
+        try:
+            if hasattr(self, "diarize_model") and self.diarize_model is not None:
                 if show_progress:
-                    print(
-                        f"[ASR] Energy-based VAD failed: {str(e)}, continuing without it"
-                    )
-
-            # 4. Try PyAnnote VAD if available
-            pyannote_segments = []
-            try:
-                if hasattr(self, "diarize_model") and self.diarize_model is not None:
-                    if show_progress:
-                        print("[ASR] Applying PyAnnote VAD...", flush=True)
+                    print("[ASR] Applying PyAnnote VAD...")
 
                     # Use diarization pipeline to get VAD results
                     if hasattr(self.diarize_model, "__call__") and hasattr(
@@ -1659,98 +1483,55 @@ class ASRProcessor:
                             pyannote_segments.append(
                                 {"start": segment.start, "end": segment.end}
                             )
-            except Exception as e:
-                if show_progress:
-                    print(f"[ASR] PyAnnote VAD failed: {str(e)}")
+        except Exception as e:
+            if show_progress:
+                print(f"[ASR] PyAnnote VAD failed: {str(e)}")
 
-            # 5. Combine all VAD results with priority weighting
-            # Assign weights to different VAD methods
-            vad_methods = [
-                {"name": "Silero", "segments": silero_segments, "weight": 1.0},
-                {"name": "WebRTC", "segments": webrtc_segments, "weight": 0.8},
-                {"name": "Energy", "segments": energy_segments, "weight": 0.5},
-                {"name": "PyAnnote", "segments": pyannote_segments, "weight": 0.9},
-            ]
+        # 5. Combine all VAD results with priority weighting
+        # Assign weights to different VAD methods
+        vad_methods = [
+            {"name": "Silero", "segments": silero_segments, "weight": 1.0},
+            {"name": "WebRTC", "segments": webrtc_segments, "weight": 0.8},
+            {"name": "Energy", "segments": energy_segments, "weight": 0.5},
+            {"name": "PyAnnote", "segments": pyannote_segments, "weight": 0.9},
+        ]
 
-            # Start with an empty timeline
-            combined_segments = []
+        # Start with an empty timeline
+        combined_segments = []
 
-            # Sort all segments by start time
-            all_segments = []
-            for method in vad_methods:
-                for segment in method["segments"]:
-                    all_segments.append(
-                        {
-                            "start": segment["start"],
-                            "end": segment["end"],
-                            "method": method["name"],
-                            "weight": method["weight"],
-                        }
-                    )
+        # Sort all segments by start time
+        all_segments = []
+        for method in vad_methods:
+            for segment in method["segments"]:
+                all_segments.append(
+                    {
+                        "start": segment["start"],
+                        "end": segment["end"],
+                        "method": method["name"],
+                        "weight": method["weight"],
+                    }
+                )
 
-            all_segments.sort(key=lambda x: x["start"])
+        all_segments.sort(key=lambda x: x["start"])
 
-            # Merge overlapping segments with weight-based voting
-            if not all_segments:
-                return []
+        # Merge overlapping segments with weight-based voting
+        if not all_segments:
+            return []
 
-            current = all_segments[0]
-            voting_segments = [current]
+        current = all_segments[0]
+        voting_segments = [current]
 
-            for segment in all_segments[1:]:
-                # Check if this segment overlaps with current merged segment
-                if segment["start"] <= current["end"] + 0.3:  # Allow small gaps (300ms)
-                    # Extend current segment if the incoming one has higher weight
-                    if segment["end"] > current["end"]:
-                        if segment["weight"] >= current["weight"] * 0.8:
-                            current["end"] = segment["end"]
-                    voting_segments.append(segment)
-                else:
-                    # Create a new segment for non-overlapping parts
-                    # First, finalize the current segment with voting
-                    if len(voting_segments) > 1:
-                        # Multiple methods detected this segment, use weighted voting
-                        methods = set(s["method"] for s in voting_segments)
-
-                        # If multiple methods agree, use their consensus boundaries
-                        if len(methods) >= 2:
-                            # Calculate weighted start time
-                            starts = [
-                                (s["start"], s["weight"]) for s in voting_segments
-                            ]
-                            total_weight = sum(weight for _, weight in starts)
-                            weighted_start = (
-                                sum(start * weight for start, weight in starts)
-                                / total_weight
-                            )
-
-                            # Calculate weighted end time
-                            ends = [(s["end"], s["weight"]) for s in voting_segments]
-                            total_weight = sum(weight for _, weight in ends)
-                            weighted_end = (
-                                sum(end * weight for end, weight in ends) / total_weight
-                            )
-
-                            combined_segments.append(
-                                {"start": weighted_start, "end": weighted_end}
-                            )
-                        else:
-                            # Single method, use as is
-                            combined_segments.append(
-                                {"start": current["start"], "end": current["end"]}
-                            )
-                    else:
-                        # Single method detected this segment
-                        combined_segments.append(
-                            {"start": current["start"], "end": current["end"]}
-                        )
-
-                    # Move to the new segment
-                    current = segment
-                    voting_segments = [current]
-
-            # Don't forget the last segment
-            if voting_segments:
+        for segment in all_segments[1:]:
+            # Check if this segment overlaps with current merged segment
+            if segment["start"] <= current["end"] + 0.3:  # Allow small gaps (300ms)
+                # Extend current segment if the incoming one has higher weight
+                if segment["end"] > current["end"]:
+                    if segment["weight"] >= current["weight"] * 0.8:
+                        current["end"] = segment["end"]
+                voting_segments.append(segment)
+            else:
+                # Create a new segment for non-overlapping parts
+                # First, finalize the current segment with voting
                 if len(voting_segments) > 1:
                     # Multiple methods detected this segment, use weighted voting
                     methods = set(s["method"] for s in voting_segments)
@@ -1786,110 +1567,89 @@ class ASRProcessor:
                         {"start": current["start"], "end": current["end"]}
                     )
 
-            # 6. Final cleanup and filtering
-            final_segments = []
+                # Move to the new segment
+                current = segment
+                voting_segments = [current]
 
-            # Sort by start time
-            combined_segments.sort(key=lambda x: x["start"])
+        # Don't forget the last segment
+        if voting_segments:
+            if len(voting_segments) > 1:
+                # Multiple methods detected this segment, use weighted voting
+                methods = set(s["method"] for s in voting_segments)
 
-            # Merge segments that are very close or overlapping
-            if not combined_segments:
-                return []
+                # If multiple methods agree, use their consensus boundaries
+                if len(methods) >= 2:
+                    # Calculate weighted start time
+                    starts = [(s["start"], s["weight"]) for s in voting_segments]
+                    total_weight = sum(weight for _, weight in starts)
+                    weighted_start = (
+                        sum(start * weight for start, weight in starts) / total_weight
+                    )
 
-            current = combined_segments[0]
+                    # Calculate weighted end time
+                    ends = [(s["end"], s["weight"]) for s in voting_segments]
+                    total_weight = sum(weight for _, weight in ends)
+                    weighted_end = (
+                        sum(end * weight for end, weight in ends) / total_weight
+                    )
 
-            for segment in combined_segments[1:]:
-                # If this segment starts soon after the current one ends
-                if (
-                    segment["start"] - current["end"] < 0.3
-                ):  # 300ms threshold for merging
-                    # Merge by extending the end time
-                    current["end"] = max(current["end"], segment["end"])
+                    combined_segments.append(
+                        {"start": weighted_start, "end": weighted_end}
+                    )
                 else:
-                    # Add the current segment to the final list and move to the next
-                    final_segments.append(current)
-                    current = segment
-
-            # Add the last segment
-            final_segments.append(current)
-
-            # Filter out very short segments (likely noise)
-            filtered_segments = [
-                s for s in final_segments if s["end"] - s["start"] > 0.3
-            ]
-
-            if show_progress:
-                counts = {}
-                for method in vad_methods:
-                    counts[method["name"]] = len(method["segments"])
-
-                print(
-                    f"[ASR] VAD detection counts - Silero: {counts['Silero']}, WebRTC: {counts['WebRTC']}, "
-                    f"Energy: {counts['Energy']}, PyAnnote: {counts['PyAnnote']}"
-                )
-                print(
-                    f"[ASR] Enhanced VAD detected {len(filtered_segments)} speech segments after ensemble fusion",
-                    flush=True,
+                    # Single method, use as is
+                    combined_segments.append(
+                        {"start": current["start"], "end": current["end"]}
+                    )
+            else:
+                # Single method detected this segment
+                combined_segments.append(
+                    {"start": current["start"], "end": current["end"]}
                 )
 
-            return filtered_segments
+        # 6. Final cleanup and filtering
+        final_segments = []
 
-        except Exception as e:
-            print(f"[ASR] Enhanced VAD failed with error: {str(e)}")
-            # Try to fallback to a more basic approach
-            try:
-                # Fallback to basic VAD
-                if show_progress:
-                    print("[ASR] Falling back to basic VAD...", flush=True)
+        # Sort by start time
+        combined_segments.sort(key=lambda x: x["start"])
 
-                # Use librosa's amplitude-based VAD
-                import librosa
+        # Merge segments that are very close or overlapping
+        if not combined_segments:
+            return []
 
-                waveform, sr = librosa.load(audio_path, sr=16000)
+        current = combined_segments[0]
 
-                # Get amplitude envelope
-                amplitude = np.abs(waveform)
+        for segment in combined_segments[1:]:
+            # If this segment starts soon after the current one ends
+            if segment["start"] - current["end"] < 0.3:  # 300ms threshold for merging
+                # Merge by extending the end time
+                current["end"] = max(current["end"], segment["end"])
+            else:
+                # Add the current segment to the final list and move to the next
+                final_segments.append(current)
+                current = segment
 
-                # Smooth the amplitude
-                window_size = int(0.03 * sr)
-                amplitude_smooth = np.convolve(
-                    amplitude, np.ones(window_size) / window_size, mode="same"
-                )
+        # Add the last segment
+        final_segments.append(current)
 
-                # Apply a threshold
-                threshold = np.mean(amplitude_smooth) * 0.5
-                is_speech = amplitude_smooth > threshold
+        # Filter out very short segments (likely noise)
+        filtered_segments = [s for s in final_segments if s["end"] - s["start"] > 0.3]
 
-                # Convert to segments
-                in_speech = False
-                start_idx = 0
-                segments = []
+        if show_progress:
+            counts = {}
+            for method in vad_methods:
+                counts[method["name"]] = len(method["segments"])
 
-                for i, speech in enumerate(is_speech):
-                    if speech and not in_speech:
-                        in_speech = True
-                        start_idx = i
-                    elif not speech and in_speech:
-                        in_speech = False
-                        end_idx = i
-                        start_time = start_idx / sr
-                        end_time = end_idx / sr
-                        segments.append({"start": start_time, "end": end_time})
+            print(
+                f"[ASR] VAD detection counts - Silero: {counts['Silero']}, WebRTC: {counts['WebRTC']}, "
+                f"Energy: {counts['Energy']}, PyAnnote: {counts['PyAnnote']}"
+            )
+            print(
+                f"[ASR] Enhanced VAD detected {len(filtered_segments)} speech segments after ensemble fusion",
+                flush=True,
+            )
 
-                # Don't forget the last segment
-                if in_speech:
-                    end_time = len(is_speech) / sr
-                    segments.append({"start": start_time, "end": end_time})
-
-                return segments
-
-            except:
-                # Last resort: return a single segment covering the whole audio
-                print(
-                    "[ASR] Fallback VAD also failed. Using entire audio as one segment."
-                )
-                audio_info = librosa.get_duration(path=audio_path)
-                return [{"start": 0, "end": audio_info}]
+        return filtered_segments
 
     def _detect_speaker_changes(self, audio_path, vad_segments, show_progress=True):
         """Detect potential speaker change points within speech segments.
@@ -1935,32 +1695,59 @@ class ASRProcessor:
                 # Completely avoid direct SpeakerSegmentation import
                 # Instead, use the diarize_model which is more reliable
                 if hasattr(self, "diarize_model") and self.diarize_model is not None:
+                    # Store reference to the diarize model to use in the nested function
+                    diarize_model = self.diarize_model
+
                     # Create a segmentation function based on diarization results
                     def detect_speaker_changes_with_diarization(audio_file, segments):
                         detected_changes = []
 
                         for segment in segments:
                             try:
-                                # Process this segment with diarization
-                                diar_result = self.diarize_model(
-                                    audio_file,
-                                    start=segment["start"],
-                                    end=segment["end"],
-                                )
+                                # Process this segment with diarization without start/end parameters
+                                # Instead, extract the segment and process it
+                                import soundfile as sf
+                                from pydub import AudioSegment
+                                import tempfile
+                                import os
 
-                                # Extract change points by detecting speaker changes
-                                prev_speaker = None
-                                for track, _, speaker in diar_result.itertracks(
-                                    yield_label=True
-                                ):
-                                    if (
-                                        prev_speaker is not None
-                                        and prev_speaker != speaker
+                                # Read the audio segment
+                                audio_obj = AudioSegment.from_file(audio_file)
+                                # Extract the segment (convert to milliseconds)
+                                start_ms = int(segment["start"] * 1000)
+                                end_ms = int(segment["end"] * 1000)
+                                segment_audio = audio_obj[start_ms:end_ms]
+
+                                # Save to temporary file
+                                with tempfile.NamedTemporaryFile(
+                                    suffix=".wav", delete=False
+                                ) as tmp_file:
+                                    temp_path = tmp_file.name
+
+                                segment_audio.export(temp_path, format="wav")
+
+                                # Process with diarization using model from outer scope
+                                try:
+                                    diar_result = diarize_model(temp_path)
+
+                                    # Extract change points by detecting speaker changes
+                                    prev_speaker = None
+                                    for track, _, speaker in diar_result.itertracks(
+                                        yield_label=True
                                     ):
-                                        # Add the change point (adjusted to segment start time)
-                                        change_time = segment["start"] + track.start
-                                        detected_changes.append(change_time)
-                                    prev_speaker = speaker
+                                        if (
+                                            prev_speaker is not None
+                                            and prev_speaker != speaker
+                                        ):
+                                            # Add the change point (adjusted to segment start time)
+                                            change_time = segment["start"] + track.start
+                                            detected_changes.append(change_time)
+                                        prev_speaker = speaker
+                                finally:
+                                    # Clean up temp file
+                                    if os.path.exists(temp_path):
+                                        os.unlink(temp_path)
+
                             except Exception as e:
                                 if show_progress:
                                     print(
@@ -2562,7 +2349,7 @@ class ASRProcessor:
             show_progress: Whether to show progress
 
         Returns:
-            Dictionary mapping segment indices to embedding vectors
+            List of embedding vectors for each segment
         """
         if show_progress:
             print("[ASR] Extracting speaker embeddings...", flush=True)
@@ -2571,147 +2358,294 @@ class ASRProcessor:
             import torch
             import librosa
             import numpy as np
+            import tempfile
+            import os
+            from pydub import AudioSegment
+            from tqdm import tqdm
 
             # Load audio
             waveform, sample_rate = librosa.load(audio_path, sr=16000)
 
             device = (
                 self.device
-                if self.device == "cuda" and torch.cuda.is_available()
+                if hasattr(self, "device")
+                and self.device == "cuda"
+                and torch.cuda.is_available()
                 else "cpu"
             )
 
-            # Initialize embeddings dictionary
-            embeddings = {}
+            embeddings = []
 
-            # Load or initialize models
-            if self.speaker_embedding_model is None:
+            # Check if we have a speech embedding model from diarization
+            has_embedding_extractor = (
+                hasattr(self, "diarize_model")
+                and self.diarize_model is not None
+                and hasattr(self.diarize_model, "get_embeddings")
+            )
+
+            # Set up progress tracking
+            total_segments = len(segments)
+            if show_progress and total_segments > 1:
+                pbar = tqdm(total=total_segments, desc="Extracting embeddings")
+
+            # Extract embeddings for each segment
+            for i, segment in enumerate(segments):
                 try:
-                    if show_progress:
-                        print(
-                            "[ASR] Loading ECAPA-TDNN speaker embedding model...",
-                            flush=True,
-                        )
+                    start_time = segment["start"]
+                    end_time = segment["end"]
 
-                    from speechbrain.inference import EncoderClassifier
-
-                    # Load the ECAPA-TDNN model from SpeechBrain
-                    self.speaker_embedding_model = EncoderClassifier.from_hparams(
-                        source="speechbrain/spkrec-ecapa-voxceleb",
-                        savedir="./pretrained_models/spkrec-ecapa-voxceleb",
-                        run_opts={"device": device},
-                        freeze_params=True,  # Freeze model for stability
-                    )
-                except Exception as e:
-                    if show_progress:
-                        print(f"[ASR] Could not load ECAPA-TDNN: {str(e)}")
-
-                    try:
-                        # Try another model as fallback
-                        if show_progress:
-                            print(
-                                "[ASR] Trying to load Xvector model as fallback...",
-                                flush=True,
-                            )
-
-                        from speechbrain.inference import EncoderClassifier
-
-                        # Load the Xvector model from SpeechBrain
-                        self.speaker_embedding_model = EncoderClassifier.from_hparams(
-                            source="speechbrain/spkrec-xvect-voxceleb",
-                            savedir="./pretrained_models/spkrec-xvect-voxceleb",
-                            run_opts={"device": device},
-                            freeze_params=True,  # Freeze model for stability
-                        )
-                    except Exception as e2:
-                        if show_progress:
-                            print(
-                                f"[ASR] Could not load Xvector model either: {str(e2)}"
-                            )
-                        self.speaker_embedding_model = None
-
-            # Process segments
-            if self.speaker_embedding_model is not None:
-                if show_progress:
-                    from tqdm import tqdm
-
-                    segments_iter = tqdm(
-                        enumerate(segments),
-                        total=len(segments),
-                        desc="Extracting embeddings",
-                    )
-                else:
-                    segments_iter = enumerate(segments)
-
-                for i, segment in segments_iter:
-                    # Extract the segment from the audio
-                    start_sample = max(0, int(segment["start"] * sample_rate))
-                    end_sample = min(len(waveform), int(segment["end"] * sample_rate))
-
-                    # Skip very short segments
-                    if (
-                        end_sample - start_sample < 0.5 * sample_rate
-                    ):  # Skip segments shorter than 0.5s
+                    # Skip segments that are too short
+                    if end_time - start_time < 0.5:
+                        if show_progress and total_segments > 1:
+                            pbar.update(1)
                         continue
 
-                    seg_audio = waveform[start_sample:end_sample]
+                    if has_embedding_extractor:
+                        # Use the embedding extractor from the diarization model
+                        try:
+                            # Extract the segment audio
+                            start_sample = int(start_time * sample_rate)
+                            end_sample = min(len(waveform), int(end_time * sample_rate))
 
-                    # Convert to tensor and extract embedding
-                    with torch.no_grad():
-                        # Make sure the audio is the right shape
-                        audio_tensor = torch.tensor(seg_audio).unsqueeze(0).to(device)
+                            if end_sample - start_sample < 0.1 * sample_rate:
+                                # Skip too short segments
+                                embeddings.append(None)
+                                continue
 
-                        # Extract embedding
-                        embedding = self.speaker_embedding_model.encode_batch(
-                            audio_tensor
-                        )
-                        embedding_np = embedding.squeeze().cpu().numpy()
+                            segment_audio = waveform[start_sample:end_sample]
 
-                        # Store embedding
-                        embeddings[i] = embedding_np
+                            # Get embedding using the diarization model's embedding extractor
+                            with torch.no_grad():
+                                segment_tensor = (
+                                    torch.tensor(segment_audio).unsqueeze(0).to(device)
+                                )
+                                embedding = self.diarize_model.get_embeddings(
+                                    {
+                                        "waveform": segment_tensor,
+                                        "sample_rate": sample_rate,
+                                    }
+                                )
 
-                return embeddings
-            else:
-                # Fallback to MFCC-based embeddings if models aren't available
-                if show_progress:
-                    print(
-                        "[ASR] Using MFCC-based embeddings as fallback...", flush=True
-                    )
-                    from tqdm import tqdm
+                                # Convert to numpy array
+                                embedding = embedding.squeeze().cpu().numpy()
+                                embeddings.append(embedding)
+                        except Exception as e:
+                            print(
+                                f"[ASR] Error extracting embedding with model: {str(e)}"
+                            )
+                            # Try fallback method
+                            embeddings.append(None)
+                    else:
+                        # Fallback: Use SpeechBrain ECAPA-TDNN model if available
+                        try:
+                            import speechbrain as sb
 
-                    segments_iter = tqdm(
-                        enumerate(segments),
-                        total=len(segments),
-                        desc="Extracting embeddings",
-                    )
-                else:
-                    segments_iter = enumerate(segments)
+                            # Check if we already have the embedding model
+                            if (
+                                not hasattr(self, "embed_model")
+                                or self.embed_model is None
+                            ):
+                                # Load the ECAPA-TDNN model
+                                self.embed_model = sb.pretrained.EncoderClassifier.from_hparams(
+                                    source="speechbrain/spkrec-ecapa-voxceleb",
+                                    savedir="pretrained_models/spkrec-ecapa-voxceleb",
+                                    run_opts={"device": device},
+                                )
 
-                for i, segment in segments_iter:
-                    # Extract the segment from the audio
-                    start_sample = max(0, int(segment["start"] * sample_rate))
-                    end_sample = min(len(waveform), int(segment["end"] * sample_rate))
+                            # Extract the segment
+                            audio_obj = AudioSegment.from_file(audio_path)
+                            start_ms = int(start_time * 1000)
+                            end_ms = int(end_time * 1000)
+                            segment_audio = audio_obj[start_ms:end_ms]
 
-                    # Skip very short segments
-                    if end_sample - start_sample < 0.5 * sample_rate:
-                        continue
+                            # Save to temporary file
+                            with tempfile.NamedTemporaryFile(
+                                suffix=".wav", delete=False
+                            ) as tmp_file:
+                                temp_path = tmp_file.name
 
-                    seg_audio = waveform[start_sample:end_sample]
+                            segment_audio.export(temp_path, format="wav")
 
-                    # Extract MFCCs
-                    mfccs = librosa.feature.mfcc(y=seg_audio, sr=sample_rate, n_mfcc=20)
-                    # Compute stats over time
-                    mfcc_means = np.mean(mfccs, axis=1)
-                    mfcc_vars = np.var(mfccs, axis=1)
+                            try:
+                                # Extract embedding with SpeechBrain
+                                with torch.no_grad():
+                                    signal, fs = self.embed_model.load_audio(temp_path)
+                                    batch = signal.unsqueeze(0).to(device)
+                                    embedding = self.embed_model.encode_batch(batch)
+                                    embedding = embedding.squeeze().cpu().numpy()
+                                    embeddings.append(embedding)
+                            finally:
+                                # Clean up temp file
+                                if os.path.exists(temp_path):
+                                    os.unlink(temp_path)
+                        except Exception as e:
+                            print(
+                                f"[ASR] Error with SpeechBrain embedding extraction: {str(e)}"
+                            )
 
-                    # Combine into a single feature vector
-                    embedding = np.concatenate([mfcc_means, mfcc_vars])
+                            # Last resort: Use MFCC features if everything else fails
+                            try:
+                                start_sample = int(start_time * sample_rate)
+                                end_sample = min(
+                                    len(waveform), int(end_time * sample_rate)
+                                )
+                                segment_audio = waveform[start_sample:end_sample]
 
-                    # Store embedding
-                    embeddings[i] = embedding
+                                # Extract MFCC features
+                                mfccs = librosa.feature.mfcc(
+                                    y=segment_audio, sr=sample_rate, n_mfcc=20
+                                )
+                                # Use mean of MFCCs as a simple embedding
+                                embedding = np.mean(mfccs, axis=1)
+                                embeddings.append(embedding)
+                            except Exception as mfcc_error:
+                                print(
+                                    f"[ASR] Failed to extract MFCC features: {str(mfcc_error)}"
+                                )
+                                # If all methods fail, append None
+                                embeddings.append(None)
+                except Exception as segment_error:
+                    print(f"[ASR] Error processing segment {i}: {str(segment_error)}")
+                    embeddings.append(None)
 
-                return embeddings
+                # Update progress bar
+                if show_progress and total_segments > 1:
+                    pbar.update(1)
+
+            # Close progress bar
+            if show_progress and total_segments > 1:
+                pbar.close()
+
+            # Filter out None values
+            embeddings = [e for e in embeddings if e is not None]
+
+            if len(embeddings) == 0:
+                print("[ASR] Failed to extract any valid embeddings")
+                return []
+
+            return embeddings
 
         except Exception as e:
-            print(f"[ASR] Speaker embedding extraction failed: {str(e)}")
-            return {}
+            if show_progress:
+                print(f"[ASR] Speaker embedding extraction failed: {str(e)}")
+                import traceback
+
+                traceback.print_exc()
+            return []
+
+    def _cluster_speakers(
+        self,
+        embeddings,
+        num_speakers=None,
+        min_speakers=None,
+        max_speakers=None,
+        show_progress=True,
+    ):
+        """
+        Cluster speaker embeddings to identify unique speakers.
+
+        Args:
+            embeddings: List of speaker embeddings for each segment
+            num_speakers: Optional fixed number of speakers
+            min_speakers: Minimum number of speakers if auto-determining
+            max_speakers: Maximum number of speakers if auto-determining
+            show_progress: Whether to show progress information
+
+        Returns:
+            Dictionary mapping segment indices to speaker IDs
+        """
+        import numpy as np
+        from sklearn.cluster import AgglomerativeClustering
+        from sklearn.metrics import silhouette_score
+
+        # Handle edge cases
+        if len(embeddings) <= 1:
+            return {0: 0} if len(embeddings) == 1 else {}
+
+        # Convert embeddings to numpy array
+        X = np.array(embeddings)
+
+        # Normalize embeddings
+        norm = np.linalg.norm(X, axis=1, keepdims=True)
+        norm[norm == 0] = 1e-10  # Avoid division by zero
+        X = X / norm
+
+        # If number of speakers is provided, use it directly
+        if num_speakers is not None:
+            n_clusters = min(num_speakers, len(X))
+            clustering = AgglomerativeClustering(
+                n_clusters=n_clusters, affinity="cosine", linkage="average"
+            )
+            labels = clustering.fit_predict(X)
+
+            mapping = {i: label for i, label in enumerate(labels)}
+            return mapping
+
+        # Auto-determine number of speakers using silhouette score
+        min_speakers = min_speakers or 2
+        max_speakers = max_speakers or min(10, len(X) - 1)
+
+        # Adjust bounds based on number of embeddings
+        min_speakers = min(min_speakers, len(X) - 1)
+        max_speakers = min(max_speakers, len(X) - 1)
+
+        # Ensure valid range
+        if min_speakers > max_speakers or min_speakers < 2:
+            min_speakers = 2
+            max_speakers = min(max_speakers, len(X) - 1)
+
+        if max_speakers < 2:
+            # Not enough data for meaningful clustering
+            return {i: 0 for i in range(len(embeddings))}
+
+        best_score = -1
+        best_n_clusters = min_speakers
+        best_labels = None
+
+        # Try different numbers of clusters
+        for n_clusters in range(min_speakers, max_speakers + 1):
+            if n_clusters >= len(X):
+                continue
+
+            clustering = AgglomerativeClustering(
+                n_clusters=n_clusters, affinity="cosine", linkage="average"
+            )
+            labels = clustering.fit_predict(X)
+
+            if len(set(labels)) <= 1:
+                continue
+
+            try:
+                score = silhouette_score(X, labels, metric="cosine")
+
+                if score > best_score:
+                    best_score = score
+                    best_n_clusters = n_clusters
+                    best_labels = labels
+
+                if show_progress:
+                    print(
+                        f"[ASR] Tried {n_clusters} speakers, silhouette score: {score:.4f}"
+                    )
+            except Exception as e:
+                if show_progress:
+                    print(
+                        f"[ASR] Error computing silhouette score for {n_clusters} clusters: {str(e)}"
+                    )
+
+        if best_labels is None:
+            # Fallback if clustering failed
+            n_clusters = min(min_speakers, len(X))
+            clustering = AgglomerativeClustering(
+                n_clusters=n_clusters, affinity="cosine", linkage="average"
+            )
+            best_labels = clustering.fit_predict(X)
+
+        if show_progress:
+            print(
+                f"[ASR] Selected {best_n_clusters} speakers based on clustering analysis"
+            )
+
+        # Create mapping from segment index to speaker ID
+        mapping = {i: label for i, label in enumerate(best_labels)}
+        return mapping
