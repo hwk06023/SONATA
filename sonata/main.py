@@ -168,6 +168,11 @@ def parse_args():
         default="0.1,0.5,1.0",
         help="Comma-separated list of hop sizes in seconds for deep detection (default: 0.1,0.5,1.0)",
     )
+    parser.add_argument(
+        "--deep-detect-parallel",
+        action="store_true",
+        help="Use parallel processing for multi-scale detection (may cause GPU memory issues)",
+    )
 
     return parser.parse_args()
 
@@ -330,7 +335,11 @@ def main():
             window_sizes = window_sizes[: args.deep_detect_scales]
             hop_sizes = hop_sizes[: args.deep_detect_scales]
 
-        deep_detect_params = {"window_sizes": window_sizes, "hop_sizes": hop_sizes}
+        deep_detect_params = {
+            "window_sizes": window_sizes,
+            "hop_sizes": hop_sizes,
+            "parallel": args.deep_detect_parallel,
+        }
 
     transcriber = IntegratedTranscriber(
         asr_model=args.model,

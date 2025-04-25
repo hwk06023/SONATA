@@ -1246,6 +1246,7 @@ class AudioEventDetector(AudiosetClassifier):
         sr: int = 16000,
         window_sizes: List[float] = [0.2, 1.0, 2.5],
         hop_sizes: List[float] = [0.1, 0.5, 1.0],
+        parallel: bool = False,
         show_progress: bool = True,
     ) -> List[AudioEvent]:
         """
@@ -1256,6 +1257,7 @@ class AudioEventDetector(AudiosetClassifier):
             sr: Sample rate of the audio
             window_sizes: List of window sizes in seconds
             hop_sizes: List of hop sizes in seconds (must match window_sizes length)
+            parallel: Whether to use parallel processing with ThreadPoolExecutor
             show_progress: Whether to show progress bars
 
         Returns:
@@ -1286,6 +1288,11 @@ class AudioEventDetector(AudiosetClassifier):
         def detect_with_scale(window_s, hop_s, scale_name):
             try:
                 # Create a dedicated detector with its own model instance
+                print(
+                    f"[DeepDetect] Loading model for scale {scale_name}... (may take several minutes on CPU)"
+                )
+                sys.stdout.flush()  # Ensure immediate output
+
                 from sonata.models.model_loader import load_audioset
 
                 detector = AudioEventDetector(
@@ -1353,19 +1360,61 @@ class AudioEventDetector(AudiosetClassifier):
                         )
                 return []
 
-        # Use sequential processing instead of ThreadPoolExecutor to avoid model sharing issues
+        # Use parallel or sequential processing based on the parallel flag
         all_events = []
-        for i, (window_size, hop_size) in enumerate(zip(window_sizes, hop_sizes)):
-            scale_name = f"w={window_size}s, h={hop_size}s"
-            if show_progress:
-                print(f"[DeepDetect] Processing scale {scale_name}")
 
-            events = detect_with_scale(window_size, hop_size, scale_name)
-            all_events.extend(events)
+        if parallel:
+            # Use ThreadPoolExecutor for parallel processing
             if show_progress:
                 print(
-                    f"[DeepDetect] Completed scale {scale_name}: {len(events)} events"
+                    "[DeepDetect] Using parallel processing (ThreadPool) for detection"
                 )
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future_to_scale = {}
+
+                # Submit all tasks
+                for i, (window_size, hop_size) in enumerate(
+                    zip(window_sizes, hop_sizes)
+                ):
+                    scale_name = f"w={window_size}s, h={hop_size}s"
+                    future = executor.submit(
+                        detect_with_scale,
+                        window_size,
+                        hop_size,
+                        scale_name,
+                    )
+                    future_to_scale[future] = scale_name
+
+                # Collect results as they complete
+                for future in concurrent.futures.as_completed(future_to_scale):
+                    scale_name = future_to_scale[future]
+                    try:
+                        events = future.result()
+                        logging.info(
+                            f"[DeepDetect] Scale {scale_name}: {len(events)} events"
+                        )
+                        all_events.extend(events)
+                    except Exception as e:
+                        logging.error(
+                            f"[DeepDetect] Failed to get results from scale {scale_name}: {str(e)}"
+                        )
+        else:
+            # Use sequential processing to avoid model sharing issues
+            if show_progress:
+                print("[DeepDetect] Using sequential processing for detection")
+
+            for i, (window_size, hop_size) in enumerate(zip(window_sizes, hop_sizes)):
+                scale_name = f"w={window_size}s, h={hop_size}s"
+                if show_progress:
+                    print(f"[DeepDetect] Processing scale {scale_name}")
+
+                events = detect_with_scale(window_size, hop_size, scale_name)
+                all_events.extend(events)
+                if show_progress:
+                    print(
+                        f"[DeepDetect] Completed scale {scale_name}: {len(events)} events"
+                    )
 
         # Merge results using confidence-based non-maximum suppression
         merged_events = self._merge_events_nms(all_events)
