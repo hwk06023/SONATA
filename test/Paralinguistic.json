@@ -22,7 +22,7 @@
   "sniff": 0.1,
   "snoring": 0.1,
   "sneeze": 0.1,
-  "throat_clearing": 0.1,
+  "throat_clearing": 0.2,
   "whispering": 0.1,
   "whistle": 0.1,
   "whistling": 0.1,
