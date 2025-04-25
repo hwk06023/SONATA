@@ -19,6 +19,7 @@ from sonata.constants import (
     AUDIO_EVENT_THRESHOLDS,
 )
 from tqdm import tqdm
+import concurrent.futures
 
 # Temporary - Set up debug logging
 logging.basicConfig(
@@ -541,6 +542,8 @@ class AudioEventDetector(AudiosetClassifier):
         device: str = None,
         event_types: Optional[List[str]] = None,
         custom_thresholds: Optional[Dict[str, float]] = None,
+        window_size: float = 1.0,
+        hop_size: float = 0.5,
     ):
         """Initialize the audio event detector.
 
@@ -550,6 +553,8 @@ class AudioEventDetector(AudiosetClassifier):
             device: Computing device (cuda/cpu)
             event_types: List of event types to detect (defaults to all)
             custom_thresholds: Dictionary mapping event types to custom threshold values (optional)
+            window_size: Size of the analysis window in seconds
+            hop_size: Hop size between windows in seconds
         """
         # Default to CPU if no device specified
         if device is None:
@@ -598,8 +603,8 @@ class AudioEventDetector(AudiosetClassifier):
 
         # Use windowing for segmented analysis
         self.use_windowing = True
-        self.window_size = 1.0  # seconds
-        self.hop_size = 0.5  # seconds
+        self.window_size = window_size  # seconds
+        self.hop_size = hop_size  # seconds
 
     def detect_events(
         self,
@@ -1168,3 +1173,185 @@ class AudioEventDetector(AudiosetClassifier):
             logging.warning(f"Error refining event timestamps: {str(e)}")
             # Return original events if refinement fails
             return events
+
+    def _merge_events_nms(
+        self, events: List[AudioEvent], iou_threshold: float = 0.5
+    ) -> List[AudioEvent]:
+        """
+        Merge audio events using confidence-based non-maximum suppression.
+
+        Args:
+            events: List of detected audio events from all scales
+            iou_threshold: Intersection over Union threshold for considering events as overlapping
+
+        Returns:
+            List of merged audio events
+        """
+        if not events:
+            return []
+
+        # Group events by type
+        events_by_type = {}
+        for event in events:
+            if event.type not in events_by_type:
+                events_by_type[event.type] = []
+            events_by_type[event.type].append(event)
+
+        final_events = []
+
+        # Process each event type separately
+        for event_type, type_events in events_by_type.items():
+            # Sort by confidence (highest first)
+            type_events.sort(key=lambda e: e.confidence, reverse=True)
+
+            # Apply NMS
+            kept_events = []
+            for event in type_events:
+                # Check if this event overlaps with any already kept event
+                should_keep = True
+                for kept_event in kept_events:
+                    # Calculate temporal IoU
+                    intersection_start = max(event.start_time, kept_event.start_time)
+                    intersection_end = min(event.end_time, kept_event.end_time)
+
+                    if intersection_end <= intersection_start:
+                        continue  # No overlap
+
+                    intersection = intersection_end - intersection_start
+                    union = (
+                        (event.end_time - event.start_time)
+                        + (kept_event.end_time - kept_event.start_time)
+                        - intersection
+                    )
+
+                    iou = intersection / union if union > 0 else 0
+
+                    if iou > iou_threshold:
+                        should_keep = False
+                        break
+
+                if should_keep:
+                    kept_events.append(event)
+
+            final_events.extend(kept_events)
+
+        # Sort by start time for consistent output
+        final_events.sort(key=lambda e: e.start_time)
+
+        return final_events
+
+    def detect_events_multi_scale(
+        self,
+        audio: Union[str, torch.Tensor, np.ndarray],
+        sr: int = 16000,
+        window_sizes: List[float] = [0.2, 1.0, 2.5],
+        hop_sizes: List[float] = [0.1, 0.5, 1.0],
+        show_progress: bool = True,
+    ) -> List[AudioEvent]:
+        """
+        Detect audio events using multiple scale windows in parallel.
+
+        Args:
+            audio: Audio file path or loaded audio data
+            sr: Sample rate of the audio
+            window_sizes: List of window sizes in seconds
+            hop_sizes: List of hop sizes in seconds (must match window_sizes length)
+            show_progress: Whether to show progress bars
+
+        Returns:
+            List of detected audio events after merging results from all scales
+        """
+        if len(window_sizes) != len(hop_sizes):
+            raise ValueError("window_sizes and hop_sizes must have the same length")
+
+        if show_progress:
+            print(
+                f"[DeepDetect] Running multi-scale detection with {len(window_sizes)} window sizes..."
+            )
+
+        # Load audio data once if it's a file path
+        audio_data = audio
+        if isinstance(audio, str):
+            try:
+                if show_progress:
+                    print(f"[DeepDetect] Loading audio from file: {audio}")
+                audio_data, sr = librosa.load(audio, sr=sr)
+                if show_progress:
+                    print("[DeepDetect] Audio loaded successfully")
+            except Exception as e:
+                logging.error(f"[DeepDetect] Failed to load audio file: {str(e)}")
+                return []
+
+        # Define a worker function to ensure each thread has its own parameters
+        def detect_with_scale(window_s, hop_s, scale_name):
+            try:
+                # Create a dedicated detector instance with the same model and parameters
+                detector = AudioEventDetector(
+                    model_path=None,
+                    threshold=self.threshold,
+                    device=self.device,
+                    event_types=None,
+                    custom_thresholds=dict(self.class_thresholds),
+                    window_size=window_s,
+                    hop_size=hop_s,
+                )
+
+                # Share the model reference which is thread-safe for inference
+                detector.model = self.model
+                detector.labels = dict(self.labels)
+
+                if show_progress:
+                    print(f"[DeepDetect] Starting detection with scale {scale_name}")
+
+                # Run detection with this scale's parameters
+                events = detector.detect_events(audio_data, sr, show_progress=False)
+
+                if show_progress:
+                    print(
+                        f"[DeepDetect] Scale {scale_name}: detected {len(events)} events"
+                    )
+
+                return events
+            except Exception as e:
+                logging.error(f"[DeepDetect] Error in scale {scale_name}: {str(e)}")
+                return []
+
+        # Use ThreadPoolExecutor for parallel processing
+        all_events = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_scale = {}
+
+            # Submit all tasks
+            for i, (window_size, hop_size) in enumerate(zip(window_sizes, hop_sizes)):
+                scale_name = f"w={window_size}s, h={hop_size}s"
+                future = executor.submit(
+                    detect_with_scale,
+                    window_size,
+                    hop_size,
+                    scale_name,
+                )
+                future_to_scale[future] = scale_name
+
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(future_to_scale):
+                scale_name = future_to_scale[future]
+                try:
+                    events = future.result()
+                    logging.info(
+                        f"[DeepDetect] Scale {scale_name}: {len(events)} events"
+                    )
+                    all_events.extend(events)
+                except Exception as e:
+                    logging.error(
+                        f"[DeepDetect] Failed to get results from scale {scale_name}: {str(e)}"
+                    )
+
+        # Merge results using confidence-based non-maximum suppression
+        merged_events = self._merge_events_nms(all_events)
+
+        if show_progress:
+            print(
+                f"[DeepDetect] Merged {len(all_events)} events from all scales into {len(merged_events)} final events"
+            )
+
+        return merged_events

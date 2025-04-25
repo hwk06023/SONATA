@@ -143,6 +143,13 @@ def parse_args():
         help="Download and setup offline diarization models",
     )
 
+    # Deep detection option
+    parser.add_argument(
+        "--deep-detect",
+        action="store_true",
+        help="Enable multi-scale audio event detection with parallel window sizes for better paralinguistic detection",
+    )
+
     return parser.parse_args()
 
 
@@ -298,7 +305,10 @@ def main():
         device=args.device,
         offline_diarization=args.offline_diarize,
         offline_config_path=args.offline_config if args.offline_diarize else None,
-        custom_audio_thresholds=custom_thresholds,
+        custom_audio_thresholds=custom_thresholds
+        if "custom_thresholds" in locals()
+        else None,
+        deep_detect=args.deep_detect,
     )
 
     # Process audio
