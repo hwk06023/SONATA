@@ -704,13 +704,23 @@ class AudioEventDetector(AudiosetClassifier):
                 1, int(np.ceil((len(audio_data) - window_samples) / hop_samples)) + 1
             )
 
+            # Create progress tracking variables
+            progress_callback = getattr(self, "_progress_callback", None)
+
             if show_progress:
-                iterator = tqdm(
-                    range(0, len(audio_data) - window_samples + 1, hop_samples),
-                    desc="[AudioDetector] Processing segments",
-                    unit="segment",
-                    total=total_segments,
-                )
+                if progress_callback:
+                    # Use external callback if available
+                    iterator = range(
+                        0, len(audio_data) - window_samples + 1, hop_samples
+                    )
+                else:
+                    # Use tqdm progress bar if no callback
+                    iterator = tqdm(
+                        range(0, len(audio_data) - window_samples + 1, hop_samples),
+                        desc="[AudioDetector] Processing segments",
+                        unit="segment",
+                        total=total_segments,
+                    )
             else:
                 iterator = range(0, len(audio_data) - window_samples + 1, hop_samples)
 
@@ -740,6 +750,10 @@ class AudioEventDetector(AudiosetClassifier):
 
                 # Add to window detections
                 window_detections.extend(segment_events)
+
+                # Update progress using callback if available
+                if progress_callback and show_progress:
+                    progress_callback(i, total_segments)
 
             # Filter window detections to avoid duplicates
             if window_detections:
@@ -1311,8 +1325,60 @@ class AudioEventDetector(AudiosetClassifier):
                 if show_progress:
                     print(f"[DeepDetect] Starting detection with scale {scale_name}")
 
+                # Get original method reference
+                original_detect = detector.detect_events
+
+                # Create a wrapper to add progress bar
+                def detect_with_progress(audio, sr, show_progress=False):
+                    # For file paths, get estimated duration for progress calculation
+                    audio_duration = None
+                    if isinstance(audio, str):
+                        try:
+                            y, sr = librosa.load(audio, sr=sr, duration=5)
+                            audio_info = sf.info(audio)
+                            audio_duration = audio_info.duration
+                        except Exception:
+                            pass
+                    elif isinstance(audio, np.ndarray):
+                        audio_duration = len(audio) / sr
+
+                    # Create progress bar for this scale
+                    if audio_duration:
+                        # Estimate number of segments based on window_s and hop_s
+                        estimated_segments = max(
+                            1, int((audio_duration - window_s) / hop_s) + 1
+                        )
+                        pbar = tqdm(
+                            total=estimated_segments,
+                            desc=f"[DeepDetect] Scale {scale_name}",
+                            unit="segments",
+                            leave=True,
+                            position=0,
+                            file=sys.stdout,
+                        )
+
+                        # Define progress updater
+                        def progress_callback(current, total):
+                            pbar.update(1)
+
+                        # Temporarily attach callback to detector
+                        detector._progress_callback = progress_callback
+
+                        # Call original method
+                        result = original_detect(audio, sr, show_progress=False)
+
+                        # Close progress bar
+                        pbar.close()
+                        return result
+                    else:
+                        # If duration can't be determined, just use original method
+                        return original_detect(audio, sr, show_progress=show_progress)
+
+                # Override detect_events with progress version
+                detector.detect_events = detect_with_progress
+
                 # Run detection with this scale's parameters
-                events = detector.detect_events(audio_data, sr, show_progress=False)
+                events = detector.detect_events(audio_data, sr, show_progress=True)
 
                 if show_progress:
                     print(

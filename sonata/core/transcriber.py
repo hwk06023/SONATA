@@ -131,17 +131,20 @@ class IntegratedTranscriber:
             window_sizes = self.deep_detect_params.get("window_sizes", [0.2, 1.0, 2.5])
             hop_sizes = self.deep_detect_params.get("hop_sizes", [0.1, 0.5, 1.0])
             parallel = self.deep_detect_params.get("parallel", False)
+            show_detailed_progress = self.deep_detect_params.get("show_progress", False)
 
             print(f"Using {len(window_sizes)} window sizes: {window_sizes}")
             if parallel:
                 print(f"Using parallel processing mode (ThreadPool)")
+            if show_detailed_progress:
+                print(f"Using detailed progress bars for scale monitoring")
 
             audio_events = self.audio_detector.detect_events_multi_scale(
                 audio=audio_path,
                 window_sizes=window_sizes,
                 hop_sizes=hop_sizes,
                 parallel=parallel,
-                show_progress=True,
+                show_progress=show_detailed_progress,
             )
         else:
             # Use standard detection with single window size
