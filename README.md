@@ -123,6 +123,7 @@ SONATA can detect over 500 different audio events, from laughter and applause to
 - 😢 Improved emotive detection
 - 🔊 Better speaker diarization
 - ⚡ Performance optimization
+- 🛠️ Fix parallel processing issues in deep detection mode for improved reliability
 
 ## 🤝 Contributing
 
