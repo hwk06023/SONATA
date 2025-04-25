@@ -11,6 +11,7 @@ from contextlib import redirect_stdout, redirect_stderr, nullcontext
 from typing import Dict, List, Union, Tuple, Optional
 from sonata.constants import LanguageCode
 from tqdm import tqdm
+from speechbrain.inference import EncoderClassifier
 
 # Base environment variables
 os.environ["PL_DISABLE_FORK"] = "1"
@@ -1958,7 +1959,7 @@ class ASRProcessor:
                             flush=True,
                         )
 
-                    from speechbrain.pretrained import EncoderClassifier
+                    from speechbrain.inference import EncoderClassifier
 
                     # Load the ECAPA-TDNN model from SpeechBrain
                     self.speaker_embedding_model = EncoderClassifier.from_hparams(
@@ -1978,7 +1979,7 @@ class ASRProcessor:
                                 flush=True,
                             )
 
-                        from speechbrain.pretrained import EncoderClassifier
+                        from speechbrain.inference import EncoderClassifier
 
                         # Load the Xvector model from SpeechBrain
                         self.speaker_embedding_model = EncoderClassifier.from_hparams(
