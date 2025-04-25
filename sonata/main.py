@@ -171,7 +171,7 @@ def parse_args():
     parser.add_argument(
         "--deep-detect-parallel",
         action="store_true",
-        help="Use parallel processing for multi-scale detection (may cause GPU memory issues)",
+        help="Use parallel processing for multi-scale detection (automatically enables --deep-detect)",
     )
 
     return parser.parse_args()
@@ -224,6 +224,10 @@ def main():
         # First check the package's own version
         print(f"SONATA v{__version__}")
         sys.exit(0)
+
+    # If deep-detect-parallel is set, automatically enable deep-detect
+    if args.deep_detect_parallel:
+        args.deep_detect = True
 
     # Handle offline diarization setup
     if args.setup_offline:
