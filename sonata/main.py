@@ -173,6 +173,11 @@ def parse_args():
         action="store_true",
         help="Use parallel processing for multi-scale detection (automatically enables --deep-detect)",
     )
+    parser.add_argument(
+        "--deep-detect-progress",
+        action="store_true",
+        help="Show detailed progress bars for deep detection processing",
+    )
 
     return parser.parse_args()
 
@@ -343,6 +348,7 @@ def main():
             "window_sizes": window_sizes,
             "hop_sizes": hop_sizes,
             "parallel": args.deep_detect_parallel,
+            "show_progress": args.deep_detect_progress,
         }
 
     transcriber = IntegratedTranscriber(
