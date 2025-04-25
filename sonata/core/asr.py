@@ -7,6 +7,7 @@ import io
 import sys
 import logging
 import warnings
+import scipy
 from contextlib import redirect_stdout, redirect_stderr, nullcontext
 from typing import Dict, List, Union, Tuple, Optional
 from sonata.constants import LanguageCode
