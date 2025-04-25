@@ -90,6 +90,9 @@ class IntegratedTranscriber:
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
         hf_token: Optional[str] = None,
+        embedding_model: str = "ecapa",
+        enhance_vad: bool = True,
+        use_enhanced_diarization: bool = True,
     ) -> Dict:
         """Process audio to get transcription with audio events integrated.
 
@@ -103,6 +106,9 @@ class IntegratedTranscriber:
             min_speakers: Minimum number of speakers for diarization
             max_speakers: Maximum number of speakers for diarization
             hf_token: HuggingFace token for diarization model (may not be required if using offline mode)
+            embedding_model: Speaker embedding model type ('ecapa', 'resnet', 'xvector')
+            enhance_vad: Whether to use enhanced VAD for better speech detection
+            use_enhanced_diarization: Whether to use the enhanced diarization pipeline
 
         Returns:
             Dictionary containing the complete transcription results
@@ -161,26 +167,56 @@ class IntegratedTranscriber:
             self.logger.info("\nRunning speaker diarization...")
 
             # Load diarization model if needed
-            if self.asr.diarize_model is None:
+            if self.asr.diarize_model is None or (
+                hasattr(self.asr, "embedding_model_name")
+                and self.asr.embedding_model_name != embedding_model
+            ):
                 self.asr.load_diarize_model(
                     hf_token=hf_token,
                     show_progress=True,
                     offline_mode=self.offline_diarization,
                     offline_config_path=self.offline_config_path,
+                    embedding_model=embedding_model,
+                    enhance_vad=enhance_vad,
                 )
 
             if self.asr.diarize_model is not None:
                 try:
-                    # Run diarization
-                    diarize_segments = self.asr.diarize_audio(
-                        audio_path=audio_path,
-                        num_speakers=num_speakers,
-                        min_speakers=min_speakers,
-                        max_speakers=max_speakers,
-                        show_progress=True,
-                    )
+                    # Run diarization with enhanced parameters
+                    if use_enhanced_diarization:
+                        self.logger.info(
+                            "Using enhanced diarization pipeline for maximum accuracy"
+                        )
+                        if enhance_vad:
+                            self.logger.info(
+                                "Enhanced Voice Activity Detection enabled"
+                            )
+                        self.logger.info(
+                            f"Using {embedding_model} speaker embedding model"
+                        )
 
-                    # Use whisperX's native assign_word_speakers function
+                        # Run enhanced diarization
+                        diarize_segments = self.asr.enhanced_diarize_audio(
+                            audio_path=audio_path,
+                            num_speakers=num_speakers,
+                            min_speakers=min_speakers,
+                            max_speakers=max_speakers,
+                            show_progress=True,
+                        )
+                    else:
+                        # Run standard diarization
+                        self.logger.info(
+                            f"Using standard diarization with {embedding_model} embeddings"
+                        )
+                        diarize_segments = self.asr.diarize_audio(
+                            audio_path=audio_path,
+                            num_speakers=num_speakers,
+                            min_speakers=min_speakers,
+                            max_speakers=max_speakers,
+                            show_progress=True,
+                        )
+
+                    # Use our enhanced speaker assignment implementation
                     try:
                         # Log the structure of a few segments to debug issues
                         if diarize_segments and len(diarize_segments) > 0:
@@ -240,13 +276,24 @@ class IntegratedTranscriber:
                                 )
                                 seg["speaker"] = f"SPEAKER_UNKNOWN"
 
-                        # Now execute the actual assign_word_speakers
-                        asr_result = self._custom_assign_word_speakers(
+                        # Now use the ASR processor's enhanced speaker assignment
+                        asr_result = self.asr._assign_word_speakers(
                             diarize_segments, asr_result
                         )
 
                         # Update word_timestamps with speaker information from the updated ASR result
                         word_timestamps = self.asr.get_word_timestamps(asr_result)
+
+                        # Check for overlap information
+                        overlap_count = 0
+                        for seg in diarize_segments:
+                            if seg.get("overlap", False):
+                                overlap_count += 1
+
+                        if overlap_count > 0:
+                            self.logger.info(
+                                f"Detected {overlap_count} overlapping speech segments"
+                            )
                     except Exception as e:
                         self.logger.error(
                             f"Error assigning speakers to words: {str(e)}"
@@ -482,92 +529,3 @@ class IntegratedTranscriber:
         minutes = int(seconds // 60)
         seconds_remainder = seconds % 60
         return f"{minutes:02d}:{seconds_remainder:06.3f}"
-
-    def _custom_assign_word_speakers(self, diarize_segments, result):
-        """Custom implementation of whisperX's assign_word_speakers function to avoid index errors.
-
-        This implementation ensures all speaker labels are treated correctly.
-        """
-        if len(diarize_segments) == 0:
-            self.logger.warning("Warning: No diarization segments provided.")
-            return result
-
-        # Create mapping of speaker segments for quick lookup
-        # Each segment is [start_time, end_time, speaker_id]
-        speaker_segments = []
-        for segment in diarize_segments:
-            if not all(k in segment for k in ["start", "end", "speaker"]):
-                self.logger.warning(f"Warning: Invalid diarization segment: {segment}")
-                continue
-
-            # Ensure speaker is a string
-            speaker = segment["speaker"]
-            if not isinstance(speaker, str):
-                speaker = f"SPEAKER_{str(speaker).zfill(2)}"
-
-            speaker_segments.append((segment["start"], segment["end"], speaker))
-
-        # Sort by start time
-        speaker_segments.sort(key=lambda x: x[0])
-
-        # Check if result has the expected structure
-        if "segments" not in result:
-            self.logger.warning("Warning: Result does not have 'segments' key")
-            return result
-
-        # For each segment in the result
-        for segment_idx, segment in enumerate(result["segments"]):
-            # Skip segments without words
-            if "words" not in segment:
-                continue
-
-            # For each word in the segment
-            for word_idx, word in enumerate(segment["words"]):
-                # Skip words without timestamps
-                if "start" not in word or "end" not in word:
-                    continue
-
-                word_start = word["start"]
-                word_end = word["end"]
-
-                # Find the speaker who was talking during this word
-                # Strategy: find the speaker segment with the most overlap
-                best_speaker = None
-                max_overlap = 0
-
-                for start, end, speaker in speaker_segments:
-                    # Check for overlap
-                    overlap_start = max(start, word_start)
-                    overlap_end = min(end, word_end)
-                    overlap = max(0, overlap_end - overlap_start)
-
-                    if overlap > max_overlap:
-                        max_overlap = overlap
-                        best_speaker = speaker
-
-                # Assign the speaker to the word
-                if best_speaker is not None:
-                    result["segments"][segment_idx]["words"][word_idx][
-                        "speaker"
-                    ] = best_speaker
-
-        # Now assign speaker to each segment based on majority of words
-        for segment_idx, segment in enumerate(result["segments"]):
-            if "words" not in segment or not segment["words"]:
-                continue
-
-            # Count speakers in words
-            speaker_counts = {}
-            for word in segment["words"]:
-                if "speaker" in word:
-                    speaker = word["speaker"]
-                    if speaker not in speaker_counts:
-                        speaker_counts[speaker] = 0
-                    speaker_counts[speaker] += 1
-
-            # Assign the majority speaker to the segment
-            if speaker_counts:
-                majority_speaker = max(speaker_counts.items(), key=lambda x: x[1])[0]
-                result["segments"][segment_idx]["speaker"] = majority_speaker
-
-        return result
