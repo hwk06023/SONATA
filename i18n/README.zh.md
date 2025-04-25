@@ -97,6 +97,10 @@ sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.son
 音频事件:
   --threshold VALUE           音频事件检测阈值 (0.0-1.0)
   --custom-thresholds FILE    自定义音频事件阈值的 JSON 文件路径
+  --deep-detect               启用多尺度音频事件检测以提高准确性
+  --deep-detect-scales NUM    深度检测的尺度数量 (1-3, 默认: 3)
+  --deep-detect-window-sizes  深度检测的自定义窗口大小 (用逗号分隔)
+  --deep-detect-hop-sizes     深度检测的自定义跳跃大小 (用逗号分隔)
 ```
 
 [📚 查看完整使用文档](../docs/USAGE.md)  
@@ -121,6 +125,7 @@ SONATA 可以检测 500 多种不同的音频事件，从笑声、掌声到环�
 - 😢 提升情感检测能力
 - 🔊 改进 speaker diarization 效果
 - ⚡ 优化性能表现
+- 🛠️ 修复深度检测模式中的并行处理问题以提高可靠性
 
 ## 🤝 Contributing
 
