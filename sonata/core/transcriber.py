@@ -29,6 +29,8 @@ class IntegratedTranscriber:
         offline_diarization: bool = False,
         offline_config_path: Optional[str] = None,
         custom_audio_thresholds: Optional[Dict[str, float]] = None,
+        deep_detect: bool = False,
+        deep_detect_params: Optional[Dict] = None,
     ):
         """Initialize the integrated transcriber.
 
@@ -40,10 +42,17 @@ class IntegratedTranscriber:
             offline_diarization: Whether to use offline diarization mode
             offline_config_path: Path to offline diarization config file
             custom_audio_thresholds: Dictionary of custom thresholds for specific audio event types (optional)
+            deep_detect: Whether to use multi-scale audio event detection
+            deep_detect_params: Dictionary with window_sizes and hop_sizes for deep detection
         """
         self.device = device
         self.offline_diarization = offline_diarization
         self.offline_config_path = offline_config_path
+        self.deep_detect = deep_detect
+        self.deep_detect_params = deep_detect_params or {
+            "window_sizes": [0.2, 1.0, 2.5],
+            "hop_sizes": [0.1, 0.5, 1.0],
+        }
         self.logger = logging.getLogger(__name__)
 
         # Set up comprehensive warning suppression
@@ -113,10 +122,36 @@ class IntegratedTranscriber:
 
         # Then run audio event detection with progress indicators
         self.logger.info("\nRunning audio event detection...")
-        audio_events = self.audio_detector.detect_events(
-            audio=audio_path,
-            show_progress=True,
-        )
+
+        if self.deep_detect:
+            self.logger.info(
+                "Using multi-scale deep detection for better paralinguistic feature detection..."
+            )
+            # Use custom window and hop sizes if provided
+            window_sizes = self.deep_detect_params.get("window_sizes", [0.2, 1.0, 2.5])
+            hop_sizes = self.deep_detect_params.get("hop_sizes", [0.1, 0.5, 1.0])
+            parallel = self.deep_detect_params.get("parallel", False)
+            show_detailed_progress = self.deep_detect_params.get("show_progress", False)
+
+            print(f"Using {len(window_sizes)} window sizes: {window_sizes}")
+            if parallel:
+                print(f"Using parallel processing mode (ThreadPool)")
+            if show_detailed_progress:
+                print(f"Using detailed progress bars for scale monitoring")
+
+            audio_events = self.audio_detector.detect_events_multi_scale(
+                audio=audio_path,
+                window_sizes=window_sizes,
+                hop_sizes=hop_sizes,
+                parallel=parallel,
+                show_progress=show_detailed_progress,
+            )
+        else:
+            # Use standard detection with single window size
+            audio_events = self.audio_detector.detect_events(
+                audio=audio_path,
+                show_progress=True,
+            )
 
         # Get word timestamps after ASR is done
         word_timestamps = self.asr.get_word_timestamps(asr_result)
@@ -236,12 +271,30 @@ class IntegratedTranscriber:
                     f"Warning: Speaker diarization was requested but the model couldn't be loaded."
                 )
 
+        # Post-process audio events to filter out those below threshold
+        filtered_audio_events = []
+        for event in audio_events:
+            # Get the appropriate threshold for this event type
+            event_threshold = audio_threshold
+            if event.type in self.audio_detector.class_thresholds:
+                event_threshold = self.audio_detector.class_thresholds[event.type]
+
+            # Only keep events that meet or exceed their threshold
+            if event.confidence >= event_threshold:
+                filtered_audio_events.append(event)
+
+        self.logger.info(
+            f"After threshold filtering: {len(filtered_audio_events)}/{len(audio_events)} audio events kept"
+        )
+
         # Integrate transcription and audio events
-        integrated_result = self._integrate_results(word_timestamps, audio_events)
+        integrated_result = self._integrate_results(
+            word_timestamps, filtered_audio_events
+        )
 
         return {
             "raw_asr": asr_result,
-            "audio_events": [e.to_dict() for e in audio_events],
+            "audio_events": [e.to_dict() for e in filtered_audio_events],
             "integrated_transcript": integrated_result,
         }
 

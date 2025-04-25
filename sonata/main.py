@@ -143,6 +143,42 @@ def parse_args():
         help="Download and setup offline diarization models",
     )
 
+    # Deep detection option
+    parser.add_argument(
+        "--deep-detect",
+        action="store_true",
+        help="Enable multi-scale audio event detection with parallel window sizes for better paralinguistic detection",
+    )
+    parser.add_argument(
+        "--deep-detect-scales",
+        type=int,
+        choices=[1, 2, 3],
+        default=3,
+        help="Number of scales to use for deep detection (default: 3, fewer scales = faster processing)",
+    )
+    parser.add_argument(
+        "--deep-detect-window-sizes",
+        type=str,
+        default="0.2,1.0,2.5",
+        help="Comma-separated list of window sizes in seconds for deep detection (default: 0.2,1.0,2.5)",
+    )
+    parser.add_argument(
+        "--deep-detect-hop-sizes",
+        type=str,
+        default="0.1,0.5,1.0",
+        help="Comma-separated list of hop sizes in seconds for deep detection (default: 0.1,0.5,1.0)",
+    )
+    parser.add_argument(
+        "--deep-detect-parallel",
+        action="store_true",
+        help="Use parallel processing for multi-scale detection (automatically enables --deep-detect)",
+    )
+    parser.add_argument(
+        "--deep-detect-progress",
+        action="store_true",
+        help="Show detailed progress bars for deep detection processing",
+    )
+
     return parser.parse_args()
 
 
@@ -193,6 +229,10 @@ def main():
         # First check the package's own version
         print(f"SONATA v{__version__}")
         sys.exit(0)
+
+    # If deep-detect-parallel is set, automatically enable deep-detect
+    if args.deep_detect_parallel:
+        args.deep_detect = True
 
     # Handle offline diarization setup
     if args.setup_offline:
@@ -292,13 +332,36 @@ def main():
 
     # Initialize the transcriber
     print(f"Initializing transcriber with {args.model} model on {args.device}...")
+
+    # Process deep detection parameters if provided
+    deep_detect_params = None
+    if args.deep_detect:
+        window_sizes = [float(x) for x in args.deep_detect_window_sizes.split(",")]
+        hop_sizes = [float(x) for x in args.deep_detect_hop_sizes.split(",")]
+
+        # Limit to the specified number of scales
+        if args.deep_detect_scales < len(window_sizes):
+            window_sizes = window_sizes[: args.deep_detect_scales]
+            hop_sizes = hop_sizes[: args.deep_detect_scales]
+
+        deep_detect_params = {
+            "window_sizes": window_sizes,
+            "hop_sizes": hop_sizes,
+            "parallel": args.deep_detect_parallel,
+            "show_progress": args.deep_detect_progress,
+        }
+
     transcriber = IntegratedTranscriber(
         asr_model=args.model,
         audio_model_path=args.audio_model,
         device=args.device,
         offline_diarization=args.offline_diarize,
         offline_config_path=args.offline_config if args.offline_diarize else None,
-        custom_audio_thresholds=custom_thresholds,
+        custom_audio_thresholds=custom_thresholds
+        if custom_thresholds is not None
+        else None,
+        deep_detect=args.deep_detect,
+        deep_detect_params=deep_detect_params,
     )
 
     # Process audio

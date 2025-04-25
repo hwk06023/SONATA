@@ -95,6 +95,10 @@ Diarization:
 Audio Events:
   --threshold VALUE           Threshold for audio event detection (0.0-1.0)
   --custom-thresholds FILE    Path to JSON file with custom audio event thresholds
+  --deep-detect               Enable multi-scale audio event detection for better accuracy
+  --deep-detect-scales NUM    Number of scales for deep detection (1-3, default: 3)
+  --deep-detect-window-sizes  Custom window sizes for deep detection (comma-separated)
+  --deep-detect-hop-sizes     Custom hop sizes for deep detection (comma-separated)
 ```
 
 [📚 See full usage documentation](https://github.com/hwk06023/SONATA/blob/main/docs/USAGE.md)  
@@ -119,6 +123,7 @@ SONATA can detect over 500 different audio events, from laughter and applause to
 - 😢 Improved emotive detection
 - 🔊 Better speaker diarization
 - ⚡ Performance optimization
+- 🛠️ Fix parallel processing issues in deep detection mode for improved reliability
 
 ## 🤝 Contributing
 

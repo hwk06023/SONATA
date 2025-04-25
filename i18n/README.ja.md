@@ -97,6 +97,10 @@ sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.son
 音声イベント:
   --threshold VALUE           音声イベント検出の閾値 (0.0-1.0)
   --custom-thresholds FILE    カスタム音声イベント閾値を含むJSONファイルのパス
+  --deep-detect               マルチスケール音声イベント検出を有効化（精度向上）
+  --deep-detect-scales NUM    深層検出のためのスケール数 (1-3, デフォルト: 3)
+  --deep-detect-window-sizes  深層検出のためのカスタムウィンドウサイズ（カンマ区切り）
+  --deep-detect-hop-sizes     深層検出のためのカスタムホップサイズ（カンマ区切り）
 ```
 
 [📚 完全な使用方法ドキュメントを見る](../docs/USAGE.md)  
@@ -121,6 +125,7 @@ SONATAは笑い声、拍手から環境音、音楽まで500以上の異なる�
 - 😢 感情検出の改善
 - 🔊 より優れた speaker diarization
 - ⚡ パフォーマンスの最適化
+- 🛠️ 深層検出モードの並列処理問題の修正による信頼性向上
 
 ## 🤝 Contributing
 
