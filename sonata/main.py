@@ -305,6 +305,12 @@ def process_file(transcriber, input_path, output_path, args):
         processed_path = trim_silence(wav_path)
         print(f"Preprocessed audio saved to: {processed_path}")
 
+    # Set default text output path if not provided
+    base_name = os.path.splitext(output_path)[0]
+    text_output = args.text_output
+    if text_output is None:
+        text_output = f"{base_name}.txt"
+
     # Handle splitting if requested
     if args.split:
         print(f"Splitting audio into {args.split_length}s segments...")
@@ -342,13 +348,11 @@ def process_file(transcriber, input_path, output_path, args):
         merged_result = merge_segment_results(results)
         transcriber.save_result(merged_result, output_path)
 
-        # Save text output if requested
-        if args.text_output:
-            text_content = transcriber.get_formatted_transcript(
-                merged_result, args.format
-            )
-            with open(args.text_output, "w", encoding="utf-8") as f:
-                f.write(text_content)
+        # Save text output
+        text_content = transcriber.get_formatted_transcript(merged_result, args.format)
+        with open(text_output, "w", encoding="utf-8") as f:
+            f.write(text_content)
+        print(f"Formatted transcript saved to: {text_output}")
 
         print(f"Merged transcript saved to: {output_path}")
     else:
@@ -365,12 +369,11 @@ def process_file(transcriber, input_path, output_path, args):
         transcriber.save_result(result, output_path)
         print(f"Transcript saved to: {output_path}")
 
-        # Save text output if requested
-        if args.text_output:
-            text_content = transcriber.get_formatted_transcript(result, args.format)
-            with open(args.text_output, "w", encoding="utf-8") as f:
-                f.write(text_content)
-            print(f"Formatted transcript saved to: {args.text_output}")
+        # Save text output
+        text_content = transcriber.get_formatted_transcript(result, args.format)
+        with open(text_output, "w", encoding="utf-8") as f:
+            f.write(text_content)
+        print(f"Formatted transcript saved to: {text_output}")
 
 
 def merge_segment_results(segment_results):

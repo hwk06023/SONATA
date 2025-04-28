@@ -420,105 +420,107 @@ class IntegratedTranscriber:
     def get_formatted_transcript(
         self, result: Dict, format_type: str = "default"
     ) -> str:
-        """Get a formatted text transcript from the results.
+        """Get a formatted transcript based on the requested format.
 
         Args:
-            result: The result from process_audio
-            format_type: Format type ('concise', 'default', or 'extended')
+            result: The transcription result
+            format_type: The format type ('concise', 'default', or 'extended')
+                - concise: Text with integrated audio event tags
+                - default: Text with timestamps (default format)
+                - extended: Default format with confidence scores
 
         Returns:
-            Formatted transcript as a string
+            A formatted transcript string
         """
-        if not result or "integrated_transcript" not in result:
-            return "No transcript available."
+        rich_text = result["integrated_transcript"]["rich_text"]
 
-        transcript_data = result["integrated_transcript"]
-        rich_text = transcript_data.get("rich_text", [])
+        # Concise format: simple text with audio event tags integrated
+        if format_type == "concise":
+            text_parts = []
+            current_sentence = []
+            current_speaker = None
 
-        if not rich_text:
-            return transcript_data.get("plain_text", "No transcript available.")
+            for item in rich_text:
+                # Handle speaker changes
+                if item["type"] == "word" and "speaker" in item:
+                    if current_speaker != item["speaker"]:
+                        current_speaker = item["speaker"]
+                        if current_sentence:  # If we have text, add a line break
+                            text_parts.append("".join(current_sentence))
+                            current_sentence = []
+                        current_sentence.append(f"[{current_speaker}]: ")
 
-        formatted_text = ""
+                # Add content
+                if item["type"] == "word":
+                    # Add space before word if needed
+                    word = item["content"]
+                    if word not in [".", ",", "!", "?", ":", ";"] and current_sentence:
+                        current_sentence.append(" ")
+                    current_sentence.append(word)
+                else:  # audio_event
+                    current_sentence.append(f" {item['content']}")
 
-        current_speaker = None
-        speaker_text = ""
+            # Add final sentence
+            if current_sentence:
+                text_parts.append("".join(current_sentence))
 
-        for item in rich_text:
-            content = item["content"]
-            start = item["start"]
-            end = item["end"]
-            speaker = item.get("speaker")
-            audio_events = item.get("audio_events", [])
+            return "\n".join(text_parts)
 
-            # Format time
-            start_time = self._format_time(start)
-            end_time = self._format_time(end)
+        # Default format: with timestamps
+        elif format_type == "default":
+            formatted_lines = []
+            current_speaker = None
 
-            # Handle speaker changes
-            if speaker != current_speaker:
-                # Save previous speaker's content
-                if speaker_text:
-                    if format_type == "concise":
-                        formatted_text += speaker_text + "\n\n"
-                    elif format_type == "default":
-                        formatted_text += speaker_text + "\n\n"
-                    else:  # extended
-                        formatted_text += speaker_text + "\n\n"
+            for item in rich_text:
+                start_time = self._format_time(item["start"])
 
-                # Reset for new speaker
-                current_speaker = speaker
-                speaker_text = ""
+                # Check for speaker change
+                if item["type"] == "word" and "speaker" in item:
+                    if current_speaker != item["speaker"]:
+                        current_speaker = item["speaker"]
+                        formatted_lines.append(f"\n[{start_time}] [{current_speaker}]")
 
-                # Add speaker header
-                if speaker:
-                    if format_type == "concise":
-                        speaker_text = f"[{speaker}] "
-                    elif format_type == "default":
-                        speaker_text = f"[{speaker}]\n"
-                    else:  # extended
-                        speaker_text = f"[{speaker}]\n"
+                if item["type"] == "word":
+                    formatted_lines.append(f"[{start_time}] {item['content']}")
+                else:  # audio_event
+                    formatted_lines.append(f"[{start_time}] {item['content']}")
 
-            # Format content based on format type
-            if format_type == "concise":
-                # Add audio event tags inline
-                text_with_events = content
-                for event in audio_events:
-                    if event not in text_with_events:
-                        text_with_events += f" [{event}]"
+            return "\n".join(formatted_lines)
 
-                speaker_text += text_with_events + " "
+        # Extended format: with confidence scores
+        elif format_type == "extended":
+            formatted_lines = []
+            current_speaker = None
 
-            elif format_type == "default":
-                # Add timestamps and audio events as suffixes
-                event_tags = " ".join([f"[{event}]" for event in audio_events])
-                if event_tags:
-                    event_tags = " " + event_tags
+            for item in rich_text:
+                start_time = self._format_time(item["start"])
 
-                speaker_text += f"[{start_time} → {end_time}] {content}{event_tags}\n"
+                # Check for speaker change
+                if item["type"] == "word" and "speaker" in item:
+                    if current_speaker != item["speaker"]:
+                        current_speaker = item["speaker"]
+                        formatted_lines.append(f"\n[{start_time}] [{current_speaker}]")
 
-            else:  # extended
-                # Add confidence and more detailed information
-                confidence = item.get("confidence", "N/A")
-                confidence_str = (
-                    f"{confidence:.2f}" if isinstance(confidence, float) else confidence
-                )
+                if item["type"] == "word":
+                    score = item.get("score", 0.0)
+                    formatted_lines.append(
+                        f"[{start_time}] {item['content']} (confidence: {score:.2f})"
+                    )
+                else:  # audio_event
+                    confidence = item.get("confidence", 0.0)
+                    formatted_lines.append(
+                        f"[{start_time}] {item['content']} (confidence: {confidence:.2f})"
+                    )
 
-                event_tags = " ".join([f"[{event}]" for event in audio_events])
-                if event_tags:
-                    event_tags = " " + event_tags
+            return "\n".join(formatted_lines)
 
-                speaker_text += f"[{start_time} → {end_time}] [{confidence_str}] {content}{event_tags}\n"
-
-        # Add the last speaker's content
-        if speaker_text:
-            formatted_text += speaker_text
-
-        return formatted_text
+        # Default to standard format if invalid format type
+        else:
+            return self.get_formatted_transcript(result, format_type="default")
 
     @staticmethod
     def _format_time(seconds: float) -> str:
-        """Format seconds as HH:MM:SS.mmm"""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        seconds = seconds % 60
-        return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}"
+        """Format time in seconds to MM:SS.sss format."""
+        minutes = int(seconds // 60)
+        seconds_remainder = seconds % 60
+        return f"{minutes:02d}:{seconds_remainder:06.3f}"
