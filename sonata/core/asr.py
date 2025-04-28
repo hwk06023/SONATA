@@ -270,6 +270,22 @@ class ASRProcessor:
                                 self.embedding_model_name = (
                                     "resnet"  # WhisperX uses ResNet by default
                                 )
+                        except Exception as e:
+                            print(f"Advanced diarization setup failed: {str(e)}")
+                            print("Falling back to standard WhisperX diarization")
+
+                            if not hf_token:
+                                raise ValueError(
+                                    "HuggingFace token is required for online diarization"
+                                )
+
+                            self.diarize_model = whisperx.DiarizationPipeline(
+                                use_auth_token=hf_token, device=self.device
+                            )
+
+                            self.diarize_model_type = "whisperx"
+                            self.embedding_model_name = "resnet"
+
                 if show_progress:
                     print(
                         f"[ASR] Diarization model loaded successfully using {self.embedding_model_name} embeddings.",
