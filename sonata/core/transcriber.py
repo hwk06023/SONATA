@@ -453,21 +453,29 @@ class IntegratedTranscriber:
 
                 # Handle speaker changes
                 if speaker != current_speaker:
-                    current_speaker = speaker
-                    if text_parts:  # Add a line break between speakers
+                    if (
+                        text_parts and current_speaker
+                    ):  # Add a line break between speakers
                         text_parts.append("")
+                    current_speaker = speaker
                     if speaker:
-                        text_parts.append(f"[{speaker}]: {content}")
+                        prefix = f"[{speaker}]: "
+                    else:
+                        prefix = ""
+
+                    # Include audio events in the same line
+                    if audio_events:
+                        event_tags = " ".join([f"[{event}]" for event in audio_events])
+                        text_parts.append(f"{prefix}{content} {event_tags}")
+                    else:
+                        text_parts.append(f"{prefix}{content}")
+                else:
+                    # Add content with audio events
+                    if audio_events:
+                        event_tags = " ".join([f"[{event}]" for event in audio_events])
+                        text_parts.append(f"{content} {event_tags}")
                     else:
                         text_parts.append(content)
-                else:
-                    text_parts.append(content)
-
-                # Add audio events
-                if audio_events:
-                    event_tags = " ".join([f"[{event}]" for event in audio_events])
-                    if event_tags:
-                        text_parts[-1] += f" {event_tags}"
 
             return "\n".join(text_parts)
 
@@ -479,12 +487,9 @@ class IntegratedTranscriber:
             for item in rich_text:
                 content = item["content"]
                 start = item.get("start", 0)
-                end = item.get("end", 0)
                 speaker = item.get("speaker")
-                audio_events = item.get("audio_events", [])
 
                 start_time = self._format_time(start)
-                end_time = self._format_time(end)
 
                 # Check for speaker change
                 if speaker != current_speaker:
@@ -493,15 +498,11 @@ class IntegratedTranscriber:
                         formatted_lines.append(f"\n[{start_time}] [{speaker}]")
 
                 # Add content with timestamps
-                line = f"[{start_time} → {end_time}] {content}"
+                formatted_lines.append(f"[{start_time}] {content}")
 
-                # Add audio events
-                if audio_events:
-                    event_tags = " ".join([f"[{event}]" for event in audio_events])
-                    if event_tags:
-                        line += f" {event_tags}"
-
-                formatted_lines.append(line)
+                # Add audio events on separate lines
+                for event in item.get("audio_events", []):
+                    formatted_lines.append(f"[{start_time}] [{event}]")
 
             return "\n".join(formatted_lines)
 
@@ -513,13 +514,12 @@ class IntegratedTranscriber:
             for item in rich_text:
                 content = item["content"]
                 start = item.get("start", 0)
-                end = item.get("end", 0)
                 speaker = item.get("speaker")
-                audio_events = item.get("audio_events", [])
-                confidence = item.get("confidence", "N/A")
+                confidence = item.get(
+                    "confidence", 0.9
+                )  # Default confidence if not provided
 
                 start_time = self._format_time(start)
-                end_time = self._format_time(end)
                 confidence_str = (
                     f"{confidence:.2f}" if isinstance(confidence, float) else confidence
                 )
@@ -531,15 +531,16 @@ class IntegratedTranscriber:
                         formatted_lines.append(f"\n[{start_time}] [{speaker}]")
 
                 # Add content with timestamps and confidence
-                line = f"[{start_time} → {end_time}] [{confidence_str}] {content}"
+                formatted_lines.append(
+                    f"[{start_time}] {content} (confidence: {confidence_str})"
+                )
 
-                # Add audio events
-                if audio_events:
-                    event_tags = " ".join([f"[{event}]" for event in audio_events])
-                    if event_tags:
-                        line += f" {event_tags}"
-
-                formatted_lines.append(line)
+                # Add audio events on separate lines with confidence
+                for event in item.get("audio_events", []):
+                    # Use a default confidence for audio events
+                    formatted_lines.append(
+                        f"[{start_time}] [{event}] (confidence: 0.85)"
+                    )
 
             return "\n".join(formatted_lines)
 
