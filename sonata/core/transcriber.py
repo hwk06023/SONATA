@@ -3,11 +3,13 @@ import json
 import io
 import logging
 import sys
+import traceback
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Dict, List, Union, Tuple, Optional
 import concurrent.futures
 from sonata.core.asr import ASRProcessor
 from sonata.core.audio_event_detector import AudioEventDetector, AudioEvent
+from sonata.core.custom_diarization import CustomDiarizer, SpeakerSegment
 from sonata.constants import (
     AUDIO_EVENT_THRESHOLD,
     DEFAULT_MODEL,
@@ -26,8 +28,6 @@ class IntegratedTranscriber:
         audio_model_path: Optional[str] = None,
         device: str = DEFAULT_DEVICE,
         compute_type: str = DEFAULT_COMPUTE_TYPE,
-        offline_diarization: bool = False,
-        offline_config_path: Optional[str] = None,
         custom_audio_thresholds: Optional[Dict[str, float]] = None,
         deep_detect: bool = False,
         deep_detect_params: Optional[Dict] = None,
@@ -39,15 +39,11 @@ class IntegratedTranscriber:
             audio_model_path: Path to custom audio event detection model (optional)
             device: Compute device (cpu/cuda)
             compute_type: Compute precision (float32, float16, etc.)
-            offline_diarization: Whether to use offline diarization mode
-            offline_config_path: Path to offline diarization config file
             custom_audio_thresholds: Dictionary of custom thresholds for specific audio event types (optional)
             deep_detect: Whether to use multi-scale audio event detection
             deep_detect_params: Dictionary with window_sizes and hop_sizes for deep detection
         """
         self.device = device
-        self.offline_diarization = offline_diarization
-        self.offline_config_path = offline_config_path
         self.deep_detect = deep_detect
         self.deep_detect_params = deep_detect_params or {
             "window_sizes": [0.2, 1.0, 2.5],
@@ -87,12 +83,6 @@ class IntegratedTranscriber:
         batch_size: int = 16,
         diarize: bool = False,
         num_speakers: Optional[int] = None,
-        min_speakers: Optional[int] = None,
-        max_speakers: Optional[int] = None,
-        hf_token: Optional[str] = None,
-        embedding_model: str = "ecapa",
-        enhance_vad: bool = True,
-        use_enhanced_diarization: bool = True,
     ) -> Dict:
         """Process audio to get transcription with audio events integrated.
 
@@ -102,430 +92,433 @@ class IntegratedTranscriber:
             audio_threshold: Detection threshold for audio events
             batch_size: Batch size for processing
             diarize: Whether to perform speaker diarization
-            num_speakers: Number of speakers for diarization
-            min_speakers: Minimum number of speakers for diarization
-            max_speakers: Maximum number of speakers for diarization
-            hf_token: HuggingFace token for diarization model (may not be required if using offline mode)
-            embedding_model: Speaker embedding model type ('ecapa', 'resnet', 'xvector')
-            enhance_vad: Whether to use enhanced VAD for better speech detection
-            use_enhanced_diarization: Whether to use the enhanced diarization pipeline
+            num_speakers: Number of speakers for diarization (optional)
 
         Returns:
             Dictionary containing the complete transcription results
         """
+        # Validate input parameters
+        if not os.path.exists(audio_path):
+            err_msg = f"Audio file not found: {audio_path}"
+            self.logger.error(err_msg)
+            return {
+                "error": err_msg,
+                "integrated_transcript": {"plain_text": "", "rich_text": []},
+            }
+
+        if not isinstance(batch_size, int) or batch_size <= 0:
+            self.logger.warning(f"Invalid batch_size: {batch_size}. Using default (16)")
+            batch_size = 16
+
         # Set threshold for the detector
         self.audio_detector.threshold = audio_threshold
 
         # Run ASR first
         self.logger.info("Running speech recognition...")
-        asr_result = self.asr.process_audio(
-            audio_path=audio_path,
-            language=language,
-            batch_size=batch_size,
-            show_progress=True,
-            diarize=False,  # We'll handle diarization separately
-        )
+        try:
+            asr_result = self.asr.process_audio(
+                audio_path=audio_path,
+                language=language,
+                batch_size=batch_size,
+                show_progress=True,
+                diarize=False,  # We'll handle diarization separately
+            )
+        except Exception as e:
+            error_msg = f"ASR processing failed: {str(e)}"
+            self.logger.error(error_msg)
+            self.logger.error(traceback.format_exc())
+            asr_result = {"error": error_msg, "segments": []}
 
         # Then run audio event detection with progress indicators
         self.logger.info("\nRunning audio event detection...")
+        try:
+            if self.deep_detect:
+                self.logger.info(
+                    "Using multi-scale deep detection for better paralinguistic feature detection..."
+                )
+                # Use custom window and hop sizes if provided
+                window_sizes = self.deep_detect_params.get(
+                    "window_sizes", [0.2, 1.0, 2.5]
+                )
+                hop_sizes = self.deep_detect_params.get("hop_sizes", [0.1, 0.5, 1.0])
+                parallel = self.deep_detect_params.get("parallel", False)
+                show_detailed_progress = self.deep_detect_params.get(
+                    "show_progress", False
+                )
 
-        if self.deep_detect:
-            self.logger.info(
-                "Using multi-scale deep detection for better paralinguistic feature detection..."
-            )
-            # Use custom window and hop sizes if provided
-            window_sizes = self.deep_detect_params.get("window_sizes", [0.2, 1.0, 2.5])
-            hop_sizes = self.deep_detect_params.get("hop_sizes", [0.1, 0.5, 1.0])
-            parallel = self.deep_detect_params.get("parallel", False)
-            show_detailed_progress = self.deep_detect_params.get("show_progress", False)
+                print(f"Using {len(window_sizes)} window sizes: {window_sizes}")
+                if parallel:
+                    print(f"Using parallel processing mode (ThreadPool)")
+                if show_detailed_progress:
+                    print(f"Using detailed progress bars for scale monitoring")
 
-            print(f"Using {len(window_sizes)} window sizes: {window_sizes}")
-            if parallel:
-                print(f"Using parallel processing mode (ThreadPool)")
-            if show_detailed_progress:
-                print(f"Using detailed progress bars for scale monitoring")
-
-            audio_events = self.audio_detector.detect_events_multi_scale(
-                audio=audio_path,
-                window_sizes=window_sizes,
-                hop_sizes=hop_sizes,
-                parallel=parallel,
-                show_progress=show_detailed_progress,
-            )
-        else:
-            # Use standard detection with single window size
-            audio_events = self.audio_detector.detect_events(
-                audio=audio_path,
-                show_progress=True,
-            )
+                audio_events = self.audio_detector.detect_events_multi_scale(
+                    audio=audio_path,
+                    window_sizes=window_sizes,
+                    hop_sizes=hop_sizes,
+                    parallel=parallel,
+                    show_progress=show_detailed_progress,
+                )
+            else:
+                # Use standard detection with single window size
+                audio_events = self.audio_detector.detect_events(
+                    audio=audio_path,
+                    show_progress=True,
+                )
+        except Exception as e:
+            error_msg = f"Audio event detection failed: {str(e)}"
+            self.logger.error(error_msg)
+            self.logger.error(traceback.format_exc())
+            audio_events = []
 
         # Get word timestamps after ASR is done
-        word_timestamps = self.asr.get_word_timestamps(asr_result)
+        word_timestamps = []
+        try:
+            word_timestamps = self.asr.get_word_timestamps(asr_result)
+        except Exception as e:
+            error_msg = f"Failed to get word timestamps: {str(e)}"
+            self.logger.error(error_msg)
+            self.logger.error(traceback.format_exc())
 
         # Handle diarization if requested
         if diarize:
-            self.logger.info("\nRunning speaker diarization...")
-
-            # Load diarization model if needed
-            if self.asr.diarize_model is None or (
-                hasattr(self.asr, "embedding_model_name")
-                and self.asr.embedding_model_name != embedding_model
-            ):
-                self.asr.load_diarize_model(
-                    hf_token=hf_token,
-                    show_progress=True,
-                    offline_mode=self.offline_diarization,
-                    offline_config_path=self.offline_config_path,
-                    embedding_model=embedding_model,
-                    enhance_vad=enhance_vad,
+            self.logger.info("Running speaker diarization...")
+            try:
+                # Use the new custom diarizer
+                custom_diarizer = CustomDiarizer(device=self.device)
+                diarize_segments = custom_diarizer.diarize(
+                    audio_path=audio_path, num_speakers=num_speakers, show_progress=True
                 )
 
-            if self.asr.diarize_model is not None:
-                try:
-                    # Run diarization with enhanced parameters
-                    if use_enhanced_diarization:
-                        self.logger.info(
-                            "Using enhanced diarization pipeline for maximum accuracy"
-                        )
-                        if enhance_vad:
-                            self.logger.info(
-                                "Enhanced Voice Activity Detection enabled"
-                            )
-                        self.logger.info(
-                            f"Using {embedding_model} speaker embedding model"
-                        )
-
-                        # Run enhanced diarization
-                        diarize_segments = self.asr.enhanced_diarize_audio(
-                            audio_path=audio_path,
-                            num_speakers=num_speakers,
-                            min_speakers=min_speakers,
-                            max_speakers=max_speakers,
-                            show_progress=True,
-                        )
-                    else:
-                        # Run standard diarization
-                        self.logger.info(
-                            f"Using standard diarization with {embedding_model} embeddings"
-                        )
-                        diarize_segments = self.asr.diarize_audio(
-                            audio_path=audio_path,
-                            num_speakers=num_speakers,
-                            min_speakers=min_speakers,
-                            max_speakers=max_speakers,
-                            show_progress=True,
-                        )
-
-                    # Use our enhanced speaker assignment implementation
-                    try:
-                        # Log the structure of a few segments to debug issues
-                        if diarize_segments and len(diarize_segments) > 0:
-                            self.logger.debug(
-                                f"Speaker segment sample: {diarize_segments[0]}"
-                            )
-                            self.logger.debug(
-                                f"Total speaker segments: {len(diarize_segments)}"
-                            )
-                            self.logger.debug(
-                                f"Speaker labels: {set(s.get('speaker', 'unknown') for s in diarize_segments)}"
-                            )
-
-                        # Debug ASR structure
-                        self.logger.debug(f"ASR result keys: {asr_result.keys()}")
-                        if "segments" in asr_result:
-                            self.logger.debug(
-                                f"ASR segments count: {len(asr_result['segments'])}"
-                            )
-                            if len(asr_result["segments"]) > 0:
-                                self.logger.debug(
-                                    f"First ASR segment keys: {asr_result['segments'][0].keys()}"
-                                )
-                                if "words" in asr_result["segments"][0]:
-                                    self.logger.debug(
-                                        f"First word sample: {asr_result['segments'][0]['words'][0] if asr_result['segments'][0]['words'] else 'No words'}"
-                                    )
-
-                        # Check if any segments contain numeric speaker IDs (problematic)
-                        has_numeric_speakers = False
-                        for seg in diarize_segments:
-                            if "speaker" in seg and isinstance(
-                                seg["speaker"], (int, float)
-                            ):
-                                has_numeric_speakers = True
-                                self.logger.debug(
-                                    f"Found numeric speaker ID: {seg['speaker']}"
-                                )
-
-                        if has_numeric_speakers:
-                            self.logger.debug(
-                                "Converting numeric speaker IDs to strings..."
-                            )
-                            for seg in diarize_segments:
-                                if "speaker" in seg and isinstance(
-                                    seg["speaker"], (int, float)
-                                ):
-                                    seg[
-                                        "speaker"
-                                    ] = f"SPEAKER_{str(seg['speaker']).zfill(2)}"
-
-                        # Ensure all segments have string 'speaker' keys
-                        for i, seg in enumerate(diarize_segments):
-                            if "speaker" not in seg:
-                                self.logger.debug(
-                                    f"Adding missing speaker label to segment {i}"
-                                )
-                                seg["speaker"] = f"SPEAKER_UNKNOWN"
-
-                        # Now use the ASR processor's enhanced speaker assignment
-                        asr_result = self.asr._assign_word_speakers(
-                            diarize_segments, asr_result
-                        )
-
-                        # Update word_timestamps with speaker information from the updated ASR result
-                        word_timestamps = self.asr.get_word_timestamps(asr_result)
-
-                        # Check for overlap information
-                        overlap_count = 0
-                        for seg in diarize_segments:
-                            if seg.get("overlap", False):
-                                overlap_count += 1
-
-                        if overlap_count > 0:
-                            self.logger.info(
-                                f"Detected {overlap_count} overlapping speech segments"
-                            )
-                    except Exception as e:
-                        self.logger.error(
-                            f"Error assigning speakers to words: {str(e)}"
-                        )
-                        self.logger.error(
-                            f"Diarize segments type: {type(diarize_segments)}"
-                        )
-                        if isinstance(diarize_segments, list) and diarize_segments:
-                            self.logger.error(f"First segment: {diarize_segments[0]}")
-                        raise e  # Re-raise to be caught by the outer try/except
-
-                    self.logger.info(
-                        f"Speaker diarization complete with {len(set(s['speaker'] for s in diarize_segments))} speakers detected",
-                        flush=True,
+                # Convert speaker segments to the format expected by assign_word_speakers
+                speaker_segments = []
+                for segment in diarize_segments:
+                    speaker_segments.append(
+                        {
+                            "start": segment.start,
+                            "end": segment.end,
+                            "speaker": segment.speaker,
+                            "score": segment.score,
+                        }
                     )
-                except Exception as e:
-                    self.logger.warning(
-                        f"Warning: Speaker diarization failed. Error: {str(e)}"
-                    )
-            else:
-                self.logger.warning(
-                    f"Warning: Speaker diarization was requested but the model couldn't be loaded."
-                )
 
-        # Post-process audio events to filter out those below threshold
-        filtered_audio_events = []
-        for event in audio_events:
-            # Get the appropriate threshold for this event type
-            event_threshold = audio_threshold
-            if event.type in self.audio_detector.class_thresholds:
-                event_threshold = self.audio_detector.class_thresholds[event.type]
+                # Assign speakers to words
+                result = self._assign_word_speakers(speaker_segments, asr_result)
+            except Exception as e:
+                error_msg = f"Speaker diarization failed: {str(e)}"
+                self.logger.error(error_msg)
+                self.logger.error(traceback.format_exc())
+                result = asr_result
+        else:
+            result = asr_result
 
-            # Only keep events that meet or exceed their threshold
-            if event.confidence >= event_threshold:
-                filtered_audio_events.append(event)
+        # Integrate word timestamps with audio events
+        try:
+            integrated_result = self._integrate_results(word_timestamps, audio_events)
+            result["integrated_transcript"] = integrated_result
+            result["audio_events"] = [event.to_dict() for event in audio_events]
+        except Exception as e:
+            error_msg = f"Failed to integrate results: {str(e)}"
+            self.logger.error(error_msg)
+            self.logger.error(traceback.format_exc())
+            result["integrated_transcript"] = {"plain_text": "", "rich_text": []}
+            result["audio_events"] = []
 
-        self.logger.info(
-            f"After threshold filtering: {len(filtered_audio_events)}/{len(audio_events)} audio events kept"
-        )
+        return result
 
-        # Integrate transcription and audio events
-        integrated_result = self._integrate_results(
-            word_timestamps, filtered_audio_events
-        )
+    def _assign_word_speakers(self, speaker_segments, asr_result):
+        """Assign speakers to words in the ASR result based on diarization segments.
 
-        return {
-            "raw_asr": asr_result,
-            "audio_events": [e.to_dict() for e in filtered_audio_events],
-            "integrated_transcript": integrated_result,
-        }
+        Args:
+            speaker_segments: List of speaker segments from diarization
+            asr_result: ASR result with segments containing words
+
+        Returns:
+            Updated ASR result with speaker information
+        """
+        result = asr_result.copy()
+
+        # Skip if no speaker segments
+        if not speaker_segments or "segments" not in result:
+            return result
+
+        # Process each segment
+        for segment in result.get("segments", []):
+            # Skip segments without words
+            if "words" not in segment:
+                continue
+
+            # Process each word in the segment
+            for word in segment["words"]:
+                word_start = word.get("start", 0)
+                word_end = word.get("end", 0)
+
+                # Find matching speaker segment
+                assigned_speaker = None
+                max_overlap = 0
+
+                for spk_segment in speaker_segments:
+                    spk_start = spk_segment["start"]
+                    spk_end = spk_segment["end"]
+
+                    # Calculate overlap
+                    overlap_start = max(word_start, spk_start)
+                    overlap_end = min(word_end, spk_end)
+                    overlap = max(0, overlap_end - overlap_start)
+
+                    # Check if this speaker has more overlap
+                    if overlap > max_overlap:
+                        max_overlap = overlap
+                        assigned_speaker = spk_segment["speaker"]
+
+                # Assign speaker to word
+                if assigned_speaker:
+                    word["speaker"] = assigned_speaker
+
+        return result
 
     def _integrate_results(
         self, word_timestamps: List[Dict], audio_events: List[AudioEvent]
     ) -> Dict:
-        """Integrate ASR results with audio events based on timestamps."""
-        # Sort all elements by their timestamps
-        sorted_elements = []
+        """Integrate word timestamps with audio events."""
+        # Create a timeline mapping timestamp -> action
+        timeline = []
 
-        # Add words
+        # Sort events by start time for easier integration
+        audio_events.sort(key=lambda x: x.start_time)
+
+        # Add word timestamps to timeline
         for word in word_timestamps:
-            element = {
-                "type": "word",
-                "content": word["word"],
-                "start": word["start"],
-                "end": word["end"],
-                "score": word.get("score", 0.0),
-            }
-            # Add speaker information if available
-            if "speaker" in word:
-                element["speaker"] = word["speaker"]
-            sorted_elements.append(element)
+            start_time = word.get("start", 0)
+            end_time = word.get("end", 0)
+            speaker = word.get("speaker", None)
 
-        # Add audio events
-        for event in audio_events:
-            sorted_elements.append(
+            # Add word start event
+            timeline.append(
                 {
-                    "type": "audio_event",
-                    "content": event.to_tag(),
-                    "event_type": event.type,
-                    "start": event.start_time,
-                    "end": event.end_time,
+                    "time": start_time,
+                    "type": "word_start",
+                    "content": word["word"],
+                    "speaker": speaker,
+                    "confidence": word.get("confidence", 1.0),
+                }
+            )
+
+            # Add word end event
+            timeline.append(
+                {
+                    "time": end_time,
+                    "type": "word_end",
+                    "content": word["word"],
+                    "speaker": speaker,
+                }
+            )
+
+        # Add audio events to timeline
+        for event in audio_events:
+            # Add audio event start
+            timeline.append(
+                {
+                    "time": event.start_time,
+                    "type": "audio_event_start",
+                    "content": event.type,
                     "confidence": event.confidence,
                 }
             )
 
-        # Sort by start time
-        sorted_elements.sort(key=lambda x: x["start"])
-
-        # Create integrated transcript
-        plain_text = ""
-        rich_text = []
-
-        for element in sorted_elements:
-            if element["type"] == "word":
-                word_text = element["content"] + " "
-                plain_text += word_text
-
-                word_element = {
-                    "type": "word",
-                    "content": element["content"],
-                    "start": element["start"],
-                    "end": element["end"],
-                    "score": element.get("score", 0.0),
+            # Add audio event end
+            timeline.append(
+                {
+                    "time": event.end_time,
+                    "type": "audio_event_end",
+                    "content": event.type,
                 }
-                # Add speaker information if available
-                if "speaker" in element:
-                    word_element["speaker"] = element["speaker"]
-                rich_text.append(word_element)
-            else:  # audio_event
-                plain_text += element["content"] + " "
-                rich_text.append(
-                    {
-                        "type": "audio_event",
-                        "content": element["content"],
-                        "event_type": element["event_type"],
-                        "start": element["start"],
-                        "end": element["end"],
-                        "confidence": element.get("confidence", 0.0),
-                    }
-                )
+            )
 
-        return {"plain_text": plain_text.strip(), "rich_text": rich_text}
+        # Sort timeline by time
+        timeline.sort(key=lambda x: x["time"])
+
+        # Process timeline to create integrated transcript
+        rich_text = []
+        plain_text = ""
+        current_text = ""
+        open_audio_events = set()
+        active_speaker = None
+
+        for event in timeline:
+            event_type = event["type"]
+
+            if event_type == "word_start":
+                word = event["content"]
+
+                # Check if speaker changed
+                if event.get("speaker") != active_speaker:
+                    # If we have accumulated text, add it to rich_text
+                    if current_text:
+                        rich_text.append(
+                            {
+                                "content": current_text.strip(),
+                                "start": prev_start,
+                                "end": prev_end,
+                                "speaker": active_speaker,
+                                "audio_events": list(open_audio_events),
+                            }
+                        )
+
+                        # Add speaker label to plain text if needed
+                        if active_speaker and event.get("speaker"):
+                            plain_text += f" [{active_speaker}] "
+
+                        plain_text += current_text.strip() + " "
+                        current_text = ""
+
+                    active_speaker = event.get("speaker")
+                    prev_start = event["time"]
+
+                # Add word with proper spacing
+                if current_text and not current_text.endswith(" "):
+                    current_text += " "
+                current_text += word
+                prev_end = event.get("time", 0)
+
+            elif event_type == "audio_event_start":
+                open_audio_events.add(event["content"])
+
+            elif event_type == "audio_event_end":
+                if event["content"] in open_audio_events:
+                    open_audio_events.remove(event["content"])
+
+        # Add any remaining text
+        if current_text:
+            rich_text.append(
+                {
+                    "content": current_text.strip(),
+                    "start": prev_start if "prev_start" in locals() else 0,
+                    "end": prev_end if "prev_end" in locals() else 0,
+                    "speaker": active_speaker,
+                    "audio_events": list(open_audio_events),
+                }
+            )
+
+            # Add final speaker label if needed
+            if active_speaker:
+                plain_text += f" [{active_speaker}] "
+
+            plain_text += current_text.strip()
+
+        return {
+            "plain_text": plain_text.strip(),
+            "rich_text": rich_text,
+        }
 
     def save_result(self, result: Dict, output_path: str):
-        """Save the transcription result to a file."""
+        """Save the transcription result to a JSON file."""
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
 
     def get_formatted_transcript(
         self, result: Dict, format_type: str = "default"
     ) -> str:
-        """Get a formatted transcript based on the requested format.
+        """Get a formatted text transcript from the results.
 
         Args:
-            result: The transcription result
-            format_type: The format type ('concise', 'default', or 'extended')
-                - concise: Text with integrated audio event tags
-                - default: Text with timestamps (default format)
-                - extended: Default format with confidence scores
+            result: The result from process_audio
+            format_type: Format type ('concise', 'default', or 'extended')
 
         Returns:
-            A formatted transcript string
+            Formatted transcript as a string
         """
-        rich_text = result["integrated_transcript"]["rich_text"]
+        if not result or "integrated_transcript" not in result:
+            return "No transcript available."
 
-        # Concise format: simple text with audio event tags integrated
-        if format_type == "concise":
-            text_parts = []
-            current_sentence = []
-            current_speaker = None
+        transcript_data = result["integrated_transcript"]
+        rich_text = transcript_data.get("rich_text", [])
 
-            for item in rich_text:
-                # Handle speaker changes
-                if item["type"] == "word" and "speaker" in item:
-                    if current_speaker != item["speaker"]:
-                        current_speaker = item["speaker"]
-                        if current_sentence:  # If we have text, add a line break
-                            text_parts.append("".join(current_sentence))
-                            current_sentence = []
-                        current_sentence.append(f"[{current_speaker}]: ")
+        if not rich_text:
+            return transcript_data.get("plain_text", "No transcript available.")
 
-                # Add content
-                if item["type"] == "word":
-                    # Add space before word if needed
-                    word = item["content"]
-                    if word not in [".", ",", "!", "?", ":", ";"] and current_sentence:
-                        current_sentence.append(" ")
-                    current_sentence.append(word)
-                else:  # audio_event
-                    current_sentence.append(f" {item['content']}")
+        formatted_text = ""
 
-            # Add final sentence
-            if current_sentence:
-                text_parts.append("".join(current_sentence))
+        current_speaker = None
+        speaker_text = ""
 
-            return "\n".join(text_parts)
+        for item in rich_text:
+            content = item["content"]
+            start = item["start"]
+            end = item["end"]
+            speaker = item.get("speaker")
+            audio_events = item.get("audio_events", [])
 
-        # Default format: with timestamps
-        elif format_type == "default":
-            formatted_lines = []
-            current_speaker = None
+            # Format time
+            start_time = self._format_time(start)
+            end_time = self._format_time(end)
 
-            for item in rich_text:
-                start_time = self._format_time(item["start"])
+            # Handle speaker changes
+            if speaker != current_speaker:
+                # Save previous speaker's content
+                if speaker_text:
+                    if format_type == "concise":
+                        formatted_text += speaker_text + "\n\n"
+                    elif format_type == "default":
+                        formatted_text += speaker_text + "\n\n"
+                    else:  # extended
+                        formatted_text += speaker_text + "\n\n"
 
-                # Check for speaker change
-                if item["type"] == "word" and "speaker" in item:
-                    if current_speaker != item["speaker"]:
-                        current_speaker = item["speaker"]
-                        formatted_lines.append(f"\n[{start_time}] [{current_speaker}]")
+                # Reset for new speaker
+                current_speaker = speaker
+                speaker_text = ""
 
-                if item["type"] == "word":
-                    formatted_lines.append(f"[{start_time}] {item['content']}")
-                else:  # audio_event
-                    formatted_lines.append(f"[{start_time}] {item['content']}")
+                # Add speaker header
+                if speaker:
+                    if format_type == "concise":
+                        speaker_text = f"[{speaker}] "
+                    elif format_type == "default":
+                        speaker_text = f"[{speaker}]\n"
+                    else:  # extended
+                        speaker_text = f"[{speaker}]\n"
 
-            return "\n".join(formatted_lines)
+            # Format content based on format type
+            if format_type == "concise":
+                # Add audio event tags inline
+                text_with_events = content
+                for event in audio_events:
+                    if event not in text_with_events:
+                        text_with_events += f" [{event}]"
 
-        # Extended format: with confidence scores
-        elif format_type == "extended":
-            formatted_lines = []
-            current_speaker = None
+                speaker_text += text_with_events + " "
 
-            for item in rich_text:
-                start_time = self._format_time(item["start"])
+            elif format_type == "default":
+                # Add timestamps and audio events as suffixes
+                event_tags = " ".join([f"[{event}]" for event in audio_events])
+                if event_tags:
+                    event_tags = " " + event_tags
 
-                # Check for speaker change
-                if item["type"] == "word" and "speaker" in item:
-                    if current_speaker != item["speaker"]:
-                        current_speaker = item["speaker"]
-                        formatted_lines.append(f"\n[{start_time}] [{current_speaker}]")
+                speaker_text += f"[{start_time} → {end_time}] {content}{event_tags}\n"
 
-                if item["type"] == "word":
-                    score = item.get("score", 0.0)
-                    formatted_lines.append(
-                        f"[{start_time}] {item['content']} (confidence: {score:.2f})"
-                    )
-                else:  # audio_event
-                    confidence = item.get("confidence", 0.0)
-                    formatted_lines.append(
-                        f"[{start_time}] {item['content']} (confidence: {confidence:.2f})"
-                    )
+            else:  # extended
+                # Add confidence and more detailed information
+                confidence = item.get("confidence", "N/A")
+                confidence_str = (
+                    f"{confidence:.2f}" if isinstance(confidence, float) else confidence
+                )
 
-            return "\n".join(formatted_lines)
+                event_tags = " ".join([f"[{event}]" for event in audio_events])
+                if event_tags:
+                    event_tags = " " + event_tags
 
-        # Default to standard format if invalid format type
-        else:
-            return self.get_formatted_transcript(result, format_type="default")
+                speaker_text += f"[{start_time} → {end_time}] [{confidence_str}] {content}{event_tags}\n"
+
+        # Add the last speaker's content
+        if speaker_text:
+            formatted_text += speaker_text
+
+        return formatted_text
 
     @staticmethod
     def _format_time(seconds: float) -> str:
-        """Format time in seconds to MM:SS.sss format."""
-        minutes = int(seconds // 60)
-        seconds_remainder = seconds % 60
-        return f"{minutes:02d}:{seconds_remainder:06.3f}"
+        """Format seconds as HH:MM:SS.mmm"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        seconds = seconds % 60
+        return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}"

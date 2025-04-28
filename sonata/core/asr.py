@@ -945,12 +945,18 @@ class ASRProcessor:
         words_with_timestamps = []
 
         # First, check if the result has the expected structure
+        if not isinstance(result, dict):
+            self.logger.debug(
+                f"Warning: WhisperX result is not a dictionary. Got {type(result)}"
+            )
+            return []
+
         if "segments" not in result:
             self.logger.debug(
-                f"Warning: WhisperX result does not contain 'segments'. Keys: {list(result.keys())}"
+                f"Warning: WhisperX result does not contain 'segments'. Keys: {list(result.keys()) if isinstance(result, dict) else 'not a dict'}"
             )
             # Create a minimal output with the whole text if available
-            if "text" in result:
+            if isinstance(result, dict) and "text" in result:
                 return [
                     {
                         "word": result["text"],
@@ -961,10 +967,31 @@ class ASRProcessor:
                 ]
             return []
 
+        # Check if segments is a list
+        if not isinstance(result["segments"], list):
+            self.logger.debug(
+                f"Warning: 'segments' is not a list. Got {type(result['segments'])}"
+            )
+            return []
+
         for segment in result["segments"]:
+            # Verify segment is a dictionary
+            if not isinstance(segment, dict):
+                self.logger.debug(
+                    f"Warning: Segment is not a dictionary. Got {type(segment)}"
+                )
+                continue
+
             # Check for word-level information
-            if "words" in segment:
+            if "words" in segment and isinstance(segment["words"], list):
                 for word_data in segment["words"]:
+                    # Skip if not a dictionary
+                    if not isinstance(word_data, dict):
+                        self.logger.debug(
+                            f"Warning: Word data is not a dictionary. Got {type(word_data)}"
+                        )
+                        continue
+
                     # Check if required keys exist
                     if (
                         "word" not in word_data
@@ -986,7 +1013,7 @@ class ASRProcessor:
                     if "speaker" in word_data:
                         word_with_time["speaker"] = word_data["speaker"]
                     words_with_timestamps.append(word_with_time)
-            else:
+            elif "text" in segment and "start" in segment and "end" in segment:
                 # Fallback if no word-level data (shouldn't happen with alignment)
                 words_with_timestamps.append(
                     {
@@ -994,6 +1021,11 @@ class ASRProcessor:
                         "start": segment["start"],
                         "end": segment["end"],
                     }
+                )
+            else:
+                # Segment doesn't have either words or required text with timestamps
+                self.logger.debug(
+                    f"Warning: Segment missing both 'words' and required text fields: {segment.keys() if isinstance(segment, dict) else 'not a dict'}"
                 )
 
         return words_with_timestamps

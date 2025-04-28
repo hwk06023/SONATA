@@ -19,7 +19,7 @@ SONATA(SOund and Narrative Advanced Transcription Assistant) is advanced ASR sys
 - 🎙️ High-accuracy speech-to-text transcription using WhisperX
 - 😀 Recognition of 523+ emotive sounds and non-verbal cues
 - 🌍 Multi-language support with 10 languages
-- 👥 Speaker diarization for multi-speaker transcription (online and offline modes)
+- 👥 SOTA speaker diarization using Silero VAD and WavLM embeddings
 - ⏱️ Rich timestamp information at the word level
 - 🔄 Audio preprocessing capabilities
 
@@ -63,13 +63,11 @@ print(result["integrated_transcript"]["plain_text"])
 sonata-asr path/to/audio.wav
 
 # With speaker diarization
-sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
+sonata-asr path/to/audio.wav --diarize
 
-# With offline speaker diarization (no token needed after setup)
-sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
+# Set number of speakers if known
+sonata-asr path/to/audio.wav --diarize --num-speakers 3
 ```
-
-> **Note:** For online speaker diarization, you need to have access permissions to both [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) and [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) models. Please visit both model pages and accept the terms of use to gain access. This is required for all languages.
 
 #### Common CLI Options:
 
@@ -84,13 +82,8 @@ General:
   --preprocess                Preprocess audio (convert format and trim silence)
 
 Diarization:
-  --diarize                   Enable speaker diarization
-  --hf-token TOKEN            HuggingFace token (for online diarization)
-  --min-speakers NUM          Set minimum number of speakers
-  --max-speakers NUM          Set maximum number of speakers
-  --offline-diarize           Use offline diarization (no token needed after setup)
-  --offline-config PATH       Path to offline diarization config
-  --setup-offline             Download and set up offline diarization models
+  --diarize                   Enable SOTA speaker diarization using Silero VAD and WavLM
+  --num-speakers NUM          Set exact number of speakers (optional)
 
 Audio Events:
   --threshold VALUE           Threshold for audio event detection (0.0-1.0)
@@ -102,8 +95,7 @@ Audio Events:
 ```
 
 [📚 See full usage documentation](https://github.com/hwk06023/SONATA/blob/main/docs/USAGE.md)  
-[⌨️ See complete CLI documentation](https://github.com/hwk06023/SONATA/blob/main/docs/CLI.md)  
-[🎤 See offline diarization guide](https://github.com/hwk06023/SONATA/blob/main/docs/OFFLINE_DIARIZATION.md)
+[⌨️ See complete CLI documentation](https://github.com/hwk06023/SONATA/blob/main/docs/CLI.md)
 
 ## 🗣️ Supported Languages
 
@@ -140,6 +132,7 @@ This project is licensed under the GNU General Public License v3.0.
 - [WhisperX](https://github.com/m-bain/whisperX) - Fast speech recognition
 - [AudioSet AST](https://github.com/YuanGongND/ast) - Audio event detection
   - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - Pretrained model for audio event classification
-- [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - Speaker diarization
-  - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) - Speaker diarization pipeline
+- [Silero VAD](https://github.com/snakers4/silero-vad) - Voice activity detection
+- [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) - Microsoft's advanced audio understanding model
+  - [microsoft/wavlm-base-plus-sv](https://huggingface.co/microsoft/wavlm-base-plus-sv) - Speaker verification model
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP tools

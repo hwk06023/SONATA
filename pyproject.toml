@@ -1,87 +1,102 @@
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
 
-[tool.poetry]
+[project]
 name = "sonata-asr"
-version = "0.0.9"
-description = "SONATA: SOund and Narrative Advanced Transcription Assistant"
-authors = ["hwk06023 <hwk06023@github.com>"]
+version = "0.3.1"
+description = "SONATA: SOund and Narrative Advanced Transcription Assistant - ASR with audio event detection"
+authors = [
+    {name = "Hyeonwoo Kim", email = "hwkim.work@gmail.com"},
+]
 readme = "README.md"
-license = "GPL-3.0-or-later"
-repository = "https://github.com/hwk06023/SONATA"
-keywords = ["sonata", "sonata-asr", "audio", "transcription", "speech", "emotion", "ASR", "whisper", "audio-detection", "sound-events", "speaker-diarization", "audio-analysis", "non-verbal-cues", "emotive-sounds", "multilingual", "speech-recognition", "speech-to-text", "audio-classification", "audio-events", "audio-processing", "voice-analysis", "language-detection", "whisperx", "automatic-speech-recognition", "voice-transcription", "speaker-recognition", "multimodal", "audio-segmentation", "audio-preprocessing", "word-timestamps", "emotion-detection", "noise-detection", "multi-speaker", "subtitle-generation", "annotated-transcripts", "human-expression", "context-aware", "real-time-transcription", "offline-diarization", "audio-event-detection", "multi-language", "multilingual"]
+requires-python = ">=3.8"
+license = {text = "GPL-3.0"}
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
     "Topic :: Multimedia :: Sound/Audio :: Speech",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Science/Research",
 ]
-include = [
-    "LICENSE",
-    "README.md"
+keywords = ["asr", "speech recognition", "audio transcription", "audio events", "whisper"]
+dependencies = [
+    "numpy>=1.20.0",
+    "scipy>=1.7.0",
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+    "whisperx>=3.1.0",
+    "pydub>=0.25.1",
+    "librosa>=0.9.1",
+    "tqdm>=4.62.3",
+    "transformers>=4.30.0",
+    "scikit-learn>=1.0.0",
+    "webrtcvad-wheels>=2.0.11",
+    "soundfile>=0.12.1",
 ]
-packages = [
-    { include = "sonata" },
-    { include = "sonata/core" },
-    { include = "sonata/libs" },
-    { include = "sonata/models" },
-    { include = "sonata/utils" }
+
+[project.optional-dependencies]
+dev = [
+    "black>=23.3.0",
+    "pre-commit>=3.3.1",
+    "pytest>=7.3.1",
 ]
 
-[tool.poetry.dependencies]
-python = ">=3.8,<4.0"
-numpy = ">=1.20.0"
-torch = ">=1.10.0"
-torchaudio = ">=0.10.0"
-transformers = ">=4.25.1"
-whisperx = ">=3.1.0"
-librosa = ">=0.10.0"
-pydub = ">=0.25.1"
-scipy = ">=1.7.0"
-soundfile = ">=0.10.3"
-tqdm = ">=4.62.0"
-matplotlib = ">=3.5.0"
-scikit-learn = ">=1.0.0"
-huggingface_hub = ">=0.12.0"
-hf_xet = ">=0.1.0"
-pyannote-audio = ">=2.1.1"
-pyannote-core = ">=4.5"
-pyannote-pipeline = ">=2.3"
-speechbrain = ">=0.5.14"
-webrtcvad = ">=2.0.10"
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^7.3.1"
-black = "^23.3.0"
-isort = "^5.12.0"
-flake8 = "^6.0.0"
-mypy = "^1.3.0"
-coverage = "^7.2.7"
-
-[tool.poetry.group.docs.dependencies]
-sphinx = "^7.0.1"
-sphinx-rtd-theme = "^1.2.2"
-myst-parser = "^2.0.0"
-
-[tool.poetry.scripts]
-sonata-asr = "sonata.main:main"
-
-[tool.poetry.urls]
+[project.urls]
+"Homepage" = "https://github.com/hwk06023/SONATA"
 "Bug Tracker" = "https://github.com/hwk06023/SONATA/issues"
-"Documentation" = "https://github.com/hwk06023/SONATA"
+"Documentation" = "https://github.com/hwk06023/SONATA/blob/main/docs"
+
+[tool.setuptools]
+packages = ["sonata"]
+
+[project.scripts]
+sonata-asr = "sonata.main:main"
 
 [tool.black]
 line-length = 88
-target-version = ["py38"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | build
+  | dist
+)/
+'''
 
 [tool.isort]
 profile = "black"
-line_length = 88 
+line_length = 88
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "librosa.*",
+    "whisperx.*",
+    "torch.*",
+    "torchaudio.*", 
+    "transformers.*",
+    "sklearn.*",
+    "webrtcvad.*",
+    "soundfile.*",
+    "pydub.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py" 
