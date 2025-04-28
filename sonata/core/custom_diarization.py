@@ -257,11 +257,39 @@ class CustomDiarizer:
             np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
         )
 
-        # Perform clustering
-        clustering = AgglomerativeClustering(
-            n_clusters=num_speakers, affinity="cosine", linkage="average"
-        )
-        labels = clustering.fit_predict(norm_embeddings)
+        # Perform clustering with proper parameters
+        try:
+            # First try with sklearn's recommended parameters
+            clustering = AgglomerativeClustering(
+                n_clusters=num_speakers, metric="cosine", linkage="average"
+            )
+            labels = clustering.fit_predict(norm_embeddings)
+        except Exception as e:
+            self.logger.warning(f"Cosine clustering failed: {str(e)}")
+
+            try:
+                # Try with connectivity matrix for better performance
+                from sklearn.neighbors import kneighbors_graph
+
+                connectivity = kneighbors_graph(
+                    norm_embeddings,
+                    n_neighbors=min(len(norm_embeddings) // 2, 10),
+                    include_self=False,
+                )
+
+                clustering = AgglomerativeClustering(
+                    n_clusters=num_speakers, connectivity=connectivity
+                )
+                labels = clustering.fit_predict(norm_embeddings)
+            except Exception as e2:
+                self.logger.warning(f"Connectivity clustering failed: {str(e2)}")
+
+                # Final fallback to the most basic clustering
+                clustering = AgglomerativeClustering(
+                    n_clusters=num_speakers,
+                    linkage="ward",  # The default linkage method (works with euclidean)
+                )
+                labels = clustering.fit_predict(norm_embeddings)
 
         return labels
 
