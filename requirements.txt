@@ -11,4 +11,6 @@ tqdm>=4.62.0
 matplotlib>=3.5.0
 scikit-learn>=1.0.0
 huggingface_hub>=0.12.0
-webrtcvad-wheels>=2.0.11 
+webrtcvad-wheels>=2.0.11
+pyannote.audio>=2.1.1
+speechbrain>=0.5.14 
