@@ -9,6 +9,12 @@ from dataclasses import dataclass
 import logging
 import os
 from tqdm import tqdm
+import warnings
+
+# Filter PyTorch transformer attention warnings
+warnings.filterwarnings(
+    "ignore", message="Support for mismatched key_padding_mask and attn_mask"
+)
 
 
 @dataclass
