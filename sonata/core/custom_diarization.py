@@ -528,24 +528,60 @@ class CustomDiarizer:
             np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
         )
 
-        # Try multiple clustering methods and select the best result
-        clustering_methods = [
-            {
-                "name": "Agglomerative (Cosine)",
-                "method": AgglomerativeClustering(
-                    n_clusters=num_speakers, affinity="cosine", linkage="average"
-                ),
-            },
-            {
-                "name": "Spectral",
-                "method": SpectralClustering(
-                    n_clusters=num_speakers,
-                    affinity="nearest_neighbors",
-                    n_neighbors=min(len(norm_embeddings) // 3, 10),
-                    random_state=42,
-                ),
-            },
-        ]
+        # Try multiple clustering methods with proper version handling
+        clustering_methods = []
+
+        # Check if scikit-learn supports all parameters (handle version compatibility)
+        try:
+            # Try creating with affinity and check if it raises an error
+            test_clustering = AgglomerativeClustering(
+                n_clusters=2, affinity="cosine", linkage="average"
+            )
+            # If no error, add the full method
+            clustering_methods.append(
+                {
+                    "name": "Agglomerative (Cosine)",
+                    "method": AgglomerativeClustering(
+                        n_clusters=num_speakers, affinity="cosine", linkage="average"
+                    ),
+                }
+            )
+        except TypeError:
+            # Fallback to simpler parameters
+            clustering_methods.append(
+                {
+                    "name": "Agglomerative (Basic)",
+                    "method": AgglomerativeClustering(n_clusters=num_speakers),
+                }
+            )
+
+        # Try spectral clustering with similar version check
+        try:
+            clustering_methods.append(
+                {
+                    "name": "Spectral",
+                    "method": SpectralClustering(
+                        n_clusters=num_speakers,
+                        affinity="nearest_neighbors",
+                        n_neighbors=min(len(norm_embeddings) // 3, 10),
+                        random_state=42,
+                    ),
+                }
+            )
+        except TypeError:
+            # Fallback to simpler spectral clustering
+            try:
+                clustering_methods.append(
+                    {
+                        "name": "Spectral (Basic)",
+                        "method": SpectralClustering(
+                            n_clusters=num_speakers, random_state=42
+                        ),
+                    }
+                )
+            except:
+                # Skip if not available
+                pass
 
         best_labels = None
         best_score = -1
@@ -600,9 +636,22 @@ class CustomDiarizer:
 
         if best_labels is None:
             # Fallback to simplest clustering
-            clustering = AgglomerativeClustering(n_clusters=num_speakers)
-            best_labels = clustering.fit_predict(norm_embeddings)
-            best_method = "Fallback Agglomerative"
+            try:
+                # Most basic form that should work with any scikit-learn version
+                clustering = AgglomerativeClustering(n_clusters=num_speakers)
+                best_labels = clustering.fit_predict(norm_embeddings)
+                best_method = "Fallback Agglomerative"
+            except Exception as last_error:
+                if show_progress:
+                    print(
+                        f"All clustering methods failed. Last error: {str(last_error)}"
+                    )
+                # Create simple labels if everything fails
+                best_labels = np.zeros(len(norm_embeddings), dtype=int)
+                for i in range(1, min(num_speakers, len(norm_embeddings))):
+                    if i < len(norm_embeddings):
+                        best_labels[i] = i % num_speakers
+                best_method = "Emergency Fallback (Sequential Assignment)"
 
         if show_progress:
             print(f"Selected clustering method: {best_method}")

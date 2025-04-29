@@ -2723,7 +2723,7 @@ class ASRProcessor:
 
         # Handle edge cases
         if len(embeddings) <= 1:
-            return {0: "SPEAKER_00"} if len(embeddings) == 1 else {}
+            return {0: f"SPEAKER_00"} if len(embeddings) == 1 else {}
 
         # Convert embeddings to numpy array if needed
         X = np.array(embeddings)
@@ -2758,15 +2758,24 @@ class ASRProcessor:
                     affinity_matrix = sparse.csr_matrix(affinity_matrix)
 
                 # Get the Laplacian from SpectralClustering
-                from sklearn.cluster._spectral import spectral_embedding
+                try:
+                    from sklearn.cluster._spectral import spectral_embedding
 
-                eigenvalues = spectral_embedding(
-                    affinity_matrix,
-                    n_components=min(10, affinity_matrix.shape[0] - 1),
-                    eigen_solver="arpack",
-                    drop_first=True,
-                    return_eigenvalues=True,
-                )[1]
+                    eigenvalues = spectral_embedding(
+                        affinity_matrix,
+                        n_components=min(10, affinity_matrix.shape[0] - 1),
+                        eigen_solver="arpack",
+                        drop_first=True,
+                        return_eigenvalues=True,
+                    )[1]
+                except (ImportError, AttributeError):
+                    # Fallback for older scikit-learn versions
+                    from scipy.sparse.linalg import eigsh
+
+                    laplacian = sparse.csgraph.laplacian(affinity_matrix, normed=True)
+                    eigenvalues, _ = eigsh(
+                        laplacian, k=min(10, affinity_matrix.shape[0] - 1), which="SM"
+                    )
 
                 # Find the elbow point in eigenvalues
                 eigenvalues = sorted(eigenvalues)
@@ -2805,30 +2814,71 @@ class ASRProcessor:
                     min_speakers, min(max_speakers, int(np.sqrt(len(X)) / 2))
                 )
 
-        # Try multiple clustering algorithms for better results
-        methods = [
-            {
-                "name": "Agglomerative (cosine)",
-                "method": AgglomerativeClustering(
-                    n_clusters=n_clusters, affinity="cosine", linkage="average"
-                ),
-            },
-            {
-                "name": "Spectral",
-                "method": SpectralClustering(
-                    n_clusters=n_clusters,
-                    affinity="nearest_neighbors",
-                    n_neighbors=min(len(X) // 3, 10),
-                    random_state=42,
-                ),
-            },
-            {
-                "name": "Agglomerative (ward)",
-                "method": AgglomerativeClustering(
-                    n_clusters=n_clusters, linkage="ward"
-                ),
-            },
-        ]
+        # Try multiple clustering methods with proper version handling
+        methods = []
+
+        # Check scikit-learn version and use compatible parameters
+        # 1. Agglomerative with cosine distance
+        try:
+            test_agg = AgglomerativeClustering(
+                n_clusters=2, affinity="cosine", linkage="average"
+            )
+            methods.append(
+                {
+                    "name": "Agglomerative (cosine)",
+                    "method": AgglomerativeClustering(
+                        n_clusters=n_clusters, affinity="cosine", linkage="average"
+                    ),
+                }
+            )
+        except TypeError:
+            # Fallback for older scikit-learn versions without affinity support
+            methods.append(
+                {
+                    "name": "Agglomerative (basic)",
+                    "method": AgglomerativeClustering(n_clusters=n_clusters),
+                }
+            )
+
+        # 2. Spectral clustering with nearest neighbors
+        try:
+            methods.append(
+                {
+                    "name": "Spectral",
+                    "method": SpectralClustering(
+                        n_clusters=n_clusters,
+                        affinity="nearest_neighbors",
+                        n_neighbors=min(len(X) // 3, 10),
+                        random_state=42,
+                    ),
+                }
+            )
+        except TypeError:
+            # Basic spectral clustering fallback
+            try:
+                methods.append(
+                    {
+                        "name": "Spectral (basic)",
+                        "method": SpectralClustering(
+                            n_clusters=n_clusters, random_state=42
+                        ),
+                    }
+                )
+            except:
+                pass
+
+        # 3. Ward linkage clustering (generally available in all versions)
+        try:
+            methods.append(
+                {
+                    "name": "Agglomerative (ward)",
+                    "method": AgglomerativeClustering(
+                        n_clusters=n_clusters, linkage="ward"
+                    ),
+                }
+            )
+        except:
+            pass
 
         best_score = -1
         best_labels = None
@@ -2845,19 +2895,26 @@ class ASRProcessor:
 
                 # Evaluate clustering quality
                 try:
-                    from sklearn.metrics import (
-                        silhouette_score,
-                        calinski_harabasz_score,
-                    )
+                    # Try with different metrics depending on what's available
+                    try:
+                        from sklearn.metrics import (
+                            silhouette_score,
+                            calinski_harabasz_score,
+                        )
 
-                    # Silhouette score measures how well-separated the clusters are
-                    sil_score = silhouette_score(X, labels, metric="cosine")
+                        # Silhouette score measures how well-separated the clusters are
+                        sil_score = silhouette_score(X, labels, metric="cosine")
 
-                    # Calinski-Harabasz measures the ratio of between-cluster to within-cluster dispersion
-                    ch_score = calinski_harabasz_score(X, labels)
+                        # Calinski-Harabasz measures the ratio of between-cluster to within-cluster dispersion
+                        ch_score = calinski_harabasz_score(X, labels)
 
-                    # Combined score (weighted average)
-                    combined_score = (0.7 * sil_score) + (0.3 * (ch_score / 10000))
+                        # Combined score (weighted average)
+                        combined_score = (0.7 * sil_score) + (0.3 * (ch_score / 10000))
+                    except (ImportError, AttributeError):
+                        # Simplified version for older scikit-learn
+                        sil_score = silhouette_score(X, labels)
+                        combined_score = sil_score
+                        ch_score = 0
 
                     if show_progress:
                         print(
@@ -2879,13 +2936,25 @@ class ASRProcessor:
 
         # If all methods failed, use simple agglomerative clustering
         if best_labels is None:
-            clustering = AgglomerativeClustering(n_clusters=n_clusters)
-            best_labels = clustering.fit_predict(X)
-            best_method = "Fallback Agglomerative"
+            try:
+                clustering = AgglomerativeClustering(n_clusters=n_clusters)
+                best_labels = clustering.fit_predict(X)
+                best_method = "Fallback Agglomerative"
+            except Exception as e:
+                if show_progress:
+                    print(f"[ASR] All clustering methods failed. Final error: {str(e)}")
+                # Create sequential labels if everything fails
+                best_labels = np.zeros(len(X), dtype=int)
+                for i in range(1, min(n_clusters, len(X))):
+                    if i < len(X):
+                        best_labels[i] = i % n_clusters
+                best_method = "Emergency Fallback (Sequential Assignment)"
 
         if show_progress:
             print(f"[ASR] Selected {best_method} with {len(set(best_labels))} speakers")
 
         # Format speaker labels with SPEAKER_XX format
-        mapping = {i: f"SPEAKER_{label:02d}" for i, label in enumerate(best_labels)}
+        mapping = {
+            i: f"SPEAKER_{int(label):02d}" for i, label in enumerate(best_labels)
+        }
         return mapping
