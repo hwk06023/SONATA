@@ -65,10 +65,10 @@ print(result["integrated_transcript"]["plain_text"])
 sonata-asr path/to/audio.wav
 
 # 使用说话人分离
-sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
+sonata-asr path/to/audio.wav --diarize
 
-# 使用离线说话人分离（设置后无需令牌）
-sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
+# 设置已知的说话人数量
+sonata-asr path/to/audio.wav --diarize --num-speakers 3
 ```
 
 > **注意:** 在线说话人分离需要获得 [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) 和 [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) 两个模型的访问权限。请访问这两个模型页面并接受各自的使用条款以获取访问权限。
@@ -81,18 +81,12 @@ sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.son
   -l, --language LANG         语言代码 (en, ko, zh, ja, fr, de, es, it, pt, ru)
   -m, --model NAME            WhisperX 模型大小 (tiny, small, medium, large-v3 等)
   -d, --device DEVICE         运行模型的设备 (cpu, cuda)
-  --text-output FILE          将格式化的转录结果保存到指定的文本文件
-  --format TYPE               输出格式: concise, default, extended
+  --text-output               将转录文本保存到文本文件 (默认: input_name.txt)
   --preprocess                音频预处理 (格式转换和静音剪裁)
 
 说话人分离:
-  --diarize                   启用说话人分离
-  --hf-token TOKEN            HuggingFace 令牌 (用于在线说话人分离)
-  --min-speakers NUM          设置最小说话人数量
-  --max-speakers NUM          设置最大说话人数量
-  --offline-diarize           使用离线说话人分离 (设置后无需令牌)
-  --offline-config PATH       离线说话人分离配置文件路径
-  --setup-offline             下载并设置离线说话人分离模型
+  --diarize                   使用 Silero VAD 和 WavLM 进行 SOTA 说话人分离
+  --num-speakers NUM          设置确切的说话人数量 (可选)
 
 音频事件:
   --threshold VALUE           音频事件检测阈值 (0.0-1.0)
@@ -142,6 +136,7 @@ Contributing 欢迎！请随时提交拉取请求。
 - [WhisperX](https://github.com/m-bain/whisperX) - 快速语音识别
 - [AudioSet AST](https://github.com/YuanGongND/ast) - 音频事件检测
   - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - 用于音频事件分类的预训练模型
-- [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - speaker diarization
-  - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) - 说话人分离流水线
+- [Silero VAD](https://github.com/snakers4/silero-vad) - 语音活动检测
+- [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) - 微软的高级音频理解模型
+  - [microsoft/wavlm-base-plus-sv](https://huggingface.co/microsoft/wavlm-base-plus-sv) - 说话人验证模型
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP 工具 
