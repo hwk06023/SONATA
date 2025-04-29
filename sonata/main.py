@@ -76,9 +76,8 @@ def parse_args():
     )
     parser.add_argument(
         "--text-output",
-        type=str,
-        help="Path to save formatted transcript text file",
-        default=None,
+        action="store_true",
+        help="Save formatted transcript to text file (default: input_name.txt)",
     )
     parser.add_argument(
         "--preprocess",
@@ -170,7 +169,9 @@ def show_usage_and_exit():
     print("                           - concise: Text with integrated audio event tags")
     print("                           - default: Text with timestamps")
     print("                           - extended: Includes confidence scores")
-    print("  --text-output [FILE]    Save formatted transcript to specified text file")
+    print(
+        "  --text-output            Save transcript to text file (defaults to input_name.txt)"
+    )
     print(
         "  --diarize               Enable speaker diarization to identify different speakers"
     )
@@ -306,11 +307,9 @@ def process_file(transcriber, input_path, output_path, args):
         processed_path = trim_silence(wav_path)
         print(f"Preprocessed audio saved to: {processed_path}")
 
-    # Set default text output path if not provided
+    # Set default text output path
     base_name = os.path.splitext(output_path)[0]
-    text_output = args.text_output
-    if text_output is None:
-        text_output = f"{base_name}.txt"
+    text_output = f"{base_name}.txt"
 
     # Handle splitting if requested
     if args.split:
