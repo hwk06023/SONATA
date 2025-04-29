@@ -2177,6 +2177,60 @@ class ASRProcessor:
             print(f"[ASR] Running enhanced speaker diarization...", flush=True)
 
         try:
+            # Try to use the custom diarizer for better performance
+            try:
+                from sonata.core.custom_diarization import CustomDiarizer
+
+                custom_diarizer = CustomDiarizer(
+                    device=self.device if hasattr(self, "device") else "cpu"
+                )
+
+                # Use the enhanced custom diarizer
+                speaker_segments = custom_diarizer.diarize(
+                    audio_path=audio_path,
+                    num_speakers=num_speakers,
+                    show_progress=show_progress,
+                )
+
+                # Convert to standard format
+                result = []
+                for segment in speaker_segments:
+                    diarize_segment = {
+                        "start": segment.start,
+                        "end": segment.end,
+                        "speaker": segment.speaker,
+                    }
+
+                    # Add overlap information if available
+                    if segment.is_overlap and segment.overlap_speakers:
+                        diarize_segment["overlap"] = True
+                        diarize_segment["overlap_speakers"] = segment.overlap_speakers
+
+                    result.append(diarize_segment)
+
+                if result:
+                    if show_progress:
+                        print(
+                            f"[ASR] Enhanced diarization using CustomDiarizer completed successfully with {len(set(s['speaker'] for s in result))} speakers",
+                            flush=True,
+                        )
+                    return result
+
+                # If the result is empty, fall back to default method
+                if show_progress:
+                    print(
+                        f"[ASR] CustomDiarizer returned no results, falling back to traditional method",
+                        flush=True,
+                    )
+            except Exception as e:
+                if show_progress:
+                    print(
+                        f"[ASR] Error using CustomDiarizer: {str(e)}, falling back to traditional method",
+                        flush=True,
+                    )
+
+            # --- Original method as fallback starts here ---
+
             # Step 1: Enhanced VAD to identify speech segments
             vad_segments = self._enhanced_vad(audio_path, show_progress)
 
@@ -2282,13 +2336,34 @@ class ASRProcessor:
 
                     seg_audio = waveform[start_sample:end_sample]
 
-                    # Calculate spectral flatness and other features
+                    # Enhanced overlap detection
+                    # 1. Calculate spectral flatness
                     stft = np.abs(librosa.stft(seg_audio))
                     flatness = librosa.feature.spectral_flatness(S=stft)[0]
                     flatness_mean = np.mean(flatness)
 
-                    # Lower flatness often indicates overlapped speech
-                    if flatness_mean < 0.05:
+                    # 2. Calculate harmonic-percussive separation
+                    try:
+                        harmonic, percussive = librosa.effects.hpss(seg_audio)
+                        hp_ratio = np.mean(np.abs(harmonic)) / (
+                            np.mean(np.abs(percussive)) + 1e-8
+                        )
+                    except:
+                        hp_ratio = 1.0
+
+                    # 3. Spectral centroid variation (high variation can indicate multiple speakers)
+                    centroid = librosa.feature.spectral_centroid(
+                        y=seg_audio, sr=sample_rate
+                    )[0]
+                    centroid_std = np.std(centroid)
+
+                    # Compute "complexity score" - higher means more likely to be overlap
+                    complexity_score = (
+                        (centroid_std / 1000) * (1 - flatness_mean) * (1 + hp_ratio)
+                    )
+
+                    # Improved overlap detection condition
+                    if flatness_mean < 0.07 and complexity_score > 0.4:
                         # Check neighbors for different speakers
                         prev_speaker = None
                         next_speaker = None
@@ -2301,11 +2376,9 @@ class ASRProcessor:
 
                         # If neighbors have different speakers, this might be an overlap
                         if (
-                            prev_speaker
-                            and next_speaker
+                            prev_speaker is not None
+                            and next_speaker is not None
                             and prev_speaker != next_speaker
-                            and prev_speaker != speaker_mapping[i]
-                            and next_speaker != speaker_mapping[i]
                         ):
                             # Mark as potentially overlapped with both speakers
                             if show_progress:
@@ -2313,7 +2386,7 @@ class ASRProcessor:
                                     f"[ASR] Detected potential overlap at {segment['start']:.2f}-{segment['end']:.2f}"
                                 )
 
-                            # For now, we'll keep the assigned speaker
+                            # Mark the segment as overlap
                             segment["is_overlap"] = True
                             segment["overlap_speakers"] = [prev_speaker, next_speaker]
             except Exception as e:
@@ -2344,13 +2417,41 @@ class ASRProcessor:
 
                 result.append(diarize_segment)
 
+            # Step 8: Merge very short segments with the same speaker
+            merged_result = []
+            if result:
+                current = result[0].copy()
+                for next_seg in result[1:]:
+                    # If same speaker and short gap
+                    if (
+                        next_seg["speaker"] == current["speaker"]
+                        and next_seg["start"] - current["end"] < 0.3
+                        and next_seg["start"] - current["end"] >= 0
+                    ):
+                        # Merge them
+                        current["end"] = next_seg["end"]
+                        # Preserve overlap info
+                        if "overlap" in next_seg:
+                            current["overlap"] = next_seg["overlap"]
+                            if "overlap_speakers" in next_seg:
+                                current["overlap_speakers"] = next_seg[
+                                    "overlap_speakers"
+                                ]
+                    else:
+                        # Add current segment to results and start new one
+                        merged_result.append(current)
+                        current = next_seg.copy()
+
+                # Add the last segment
+                merged_result.append(current)
+
             if show_progress:
                 print(
-                    f"[ASR] Enhanced diarization complete with {len(set(s['speaker'] for s in result))} speakers",
+                    f"[ASR] Enhanced diarization complete with {len(set(s['speaker'] for s in merged_result))} speakers",
                     flush=True,
                 )
 
-            return result
+            return merged_result
 
         except Exception as e:
             print(f"[ASR] Enhanced diarization failed with error: {str(e)}")
@@ -2407,6 +2508,8 @@ class ASRProcessor:
             )
 
             embeddings = []
+            ecapa_embeddings = []
+            wavlm_embeddings = []
 
             # Check if we have a speech embedding model from diarization
             has_embedding_extractor = (
@@ -2414,6 +2517,9 @@ class ASRProcessor:
                 and self.diarize_model is not None
                 and hasattr(self.diarize_model, "get_embeddings")
             )
+
+            # Track if we have ECAPA-TDNN model
+            has_ecapa_model = False
 
             # Set up progress tracking
             total_segments = len(segments)
@@ -2432,8 +2538,9 @@ class ASRProcessor:
                             pbar.update(1)
                         continue
 
+                    # 1. Try to get embeddings from diarization model
+                    model_embedding = None
                     if has_embedding_extractor:
-                        # Use the embedding extractor from the diarization model
                         try:
                             # Extract the segment audio
                             start_sample = int(start_time * sample_rate)
@@ -2441,7 +2548,8 @@ class ASRProcessor:
 
                             if end_sample - start_sample < 0.1 * sample_rate:
                                 # Skip too short segments
-                                embeddings.append(None)
+                                if show_progress and total_segments > 1:
+                                    pbar.update(1)
                                 continue
 
                             segment_audio = waveform[start_sample:end_sample]
@@ -2451,7 +2559,7 @@ class ASRProcessor:
                                 segment_tensor = (
                                     torch.tensor(segment_audio).unsqueeze(0).to(device)
                                 )
-                                embedding = self.diarize_model.get_embeddings(
+                                model_embedding = self.diarize_model.get_embeddings(
                                     {
                                         "waveform": segment_tensor,
                                         "sample_rate": sample_rate,
@@ -2459,86 +2567,103 @@ class ASRProcessor:
                                 )
 
                                 # Convert to numpy array
-                                embedding = embedding.squeeze().cpu().numpy()
-                                embeddings.append(embedding)
+                                model_embedding = (
+                                    model_embedding.squeeze().cpu().numpy()
+                                )
+                                wavlm_embeddings.append(model_embedding)
                         except Exception as e:
-                            print(
-                                f"[ASR] Error extracting embedding with model: {str(e)}"
-                            )
-                            # Try fallback method
-                            embeddings.append(None)
-                    else:
-                        # Fallback: Use SpeechBrain ECAPA-TDNN model if available
-                        try:
-                            import speechbrain as sb
+                            model_embedding = None
 
-                            # Check if we already have the embedding model
-                            if (
-                                not hasattr(self, "embed_model")
-                                or self.embed_model is None
-                            ):
-                                # Load the ECAPA-TDNN model
-                                self.embed_model = sb.pretrained.EncoderClassifier.from_hparams(
+                    # 2. Try SpeechBrain ECAPA-TDNN (superior speaker embeddings)
+                    ecapa_embedding = None
+                    try:
+                        import speechbrain as sb
+
+                        # Check if we already have the embedding model
+                        if not hasattr(self, "embed_model") or self.embed_model is None:
+                            # Load the ECAPA-TDNN model
+                            self.embed_model = (
+                                sb.pretrained.EncoderClassifier.from_hparams(
                                     source="speechbrain/spkrec-ecapa-voxceleb",
                                     savedir="pretrained_models/spkrec-ecapa-voxceleb",
                                     run_opts={"device": device},
                                 )
+                            )
+                            has_ecapa_model = True
 
-                            # Extract the segment
-                            audio_obj = AudioSegment.from_file(audio_path)
-                            start_ms = int(start_time * 1000)
-                            end_ms = int(end_time * 1000)
-                            segment_audio = audio_obj[start_ms:end_ms]
+                        # Extract the segment
+                        audio_obj = AudioSegment.from_file(audio_path)
+                        start_ms = int(start_time * 1000)
+                        end_ms = int(end_time * 1000)
+                        segment_audio = audio_obj[start_ms:end_ms]
 
-                            # Save to temporary file
-                            with tempfile.NamedTemporaryFile(
-                                suffix=".wav", delete=False
-                            ) as tmp_file:
-                                temp_path = tmp_file.name
+                        # Save to temporary file
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".wav", delete=False
+                        ) as tmp_file:
+                            temp_path = tmp_file.name
 
-                            segment_audio.export(temp_path, format="wav")
+                        segment_audio.export(temp_path, format="wav")
 
-                            try:
-                                # Extract embedding with SpeechBrain
-                                with torch.no_grad():
-                                    signal, fs = self.embed_model.load_audio(temp_path)
-                                    batch = signal.unsqueeze(0).to(device)
-                                    embedding = self.embed_model.encode_batch(batch)
-                                    embedding = embedding.squeeze().cpu().numpy()
-                                    embeddings.append(embedding)
-                            finally:
-                                # Clean up temp file
-                                if os.path.exists(temp_path):
-                                    os.unlink(temp_path)
-                        except Exception as e:
-                            print(
-                                f"[ASR] Error with SpeechBrain embedding extraction: {str(e)}"
+                        try:
+                            # Extract embedding with SpeechBrain
+                            with torch.no_grad():
+                                signal, fs = self.embed_model.load_audio(temp_path)
+                                batch = signal.unsqueeze(0).to(device)
+                                ecapa_embedding = self.embed_model.encode_batch(batch)
+                                ecapa_embedding = (
+                                    ecapa_embedding.squeeze().cpu().numpy()
+                                )
+                                ecapa_embeddings.append(ecapa_embedding)
+                        finally:
+                            # Clean up temp file
+                            if os.path.exists(temp_path):
+                                os.unlink(temp_path)
+                    except Exception as e:
+                        ecapa_embedding = None
+
+                    # Decide which embedding to use (prefer ECAPA-TDNN if available)
+                    if ecapa_embedding is not None:
+                        embeddings.append(ecapa_embedding)
+                    elif model_embedding is not None:
+                        embeddings.append(model_embedding)
+                    else:
+                        # Last resort: Use MFCC features if everything else fails
+                        try:
+                            start_sample = int(start_time * sample_rate)
+                            end_sample = min(len(waveform), int(end_time * sample_rate))
+                            segment_audio = waveform[start_sample:end_sample]
+
+                            # Extract enhanced MFCC features with spectral contrast
+                            mfccs = librosa.feature.mfcc(
+                                y=segment_audio, sr=sample_rate, n_mfcc=24
+                            )
+                            contrast = librosa.feature.spectral_contrast(
+                                y=segment_audio, sr=sample_rate
+                            )
+                            # Create a feature vector
+                            features = np.concatenate(
+                                [
+                                    np.mean(mfccs, axis=1),
+                                    np.std(mfccs, axis=1),
+                                    np.mean(contrast, axis=1),
+                                ]
                             )
 
-                            # Last resort: Use MFCC features if everything else fails
-                            try:
-                                start_sample = int(start_time * sample_rate)
-                                end_sample = min(
-                                    len(waveform), int(end_time * sample_rate)
-                                )
-                                segment_audio = waveform[start_sample:end_sample]
-
-                                # Extract MFCC features
-                                mfccs = librosa.feature.mfcc(
-                                    y=segment_audio, sr=sample_rate, n_mfcc=20
-                                )
-                                # Use mean of MFCCs as a simple embedding
-                                embedding = np.mean(mfccs, axis=1)
-                                embeddings.append(embedding)
-                            except Exception as mfcc_error:
-                                print(
-                                    f"[ASR] Failed to extract MFCC features: {str(mfcc_error)}"
-                                )
-                                # If all methods fail, append None
-                                embeddings.append(None)
+                            embeddings.append(features)
+                        except Exception as mfcc_error:
+                            print(
+                                f"[ASR] Failed to extract any features: {str(mfcc_error)}"
+                            )
+                            # If all methods fail, skip this segment
+                            if show_progress and total_segments > 1:
+                                pbar.update(1)
+                            continue
                 except Exception as segment_error:
                     print(f"[ASR] Error processing segment {i}: {str(segment_error)}")
-                    embeddings.append(None)
+                    if show_progress and total_segments > 1:
+                        pbar.update(1)
+                    continue
 
                 # Update progress bar
                 if show_progress and total_segments > 1:
@@ -2548,12 +2673,18 @@ class ASRProcessor:
             if show_progress and total_segments > 1:
                 pbar.close()
 
-            # Filter out None values
-            embeddings = [e for e in embeddings if e is not None]
-
-            if len(embeddings) == 0:
-                print("[ASR] Failed to extract any valid embeddings")
-                return []
+            # Provide information about which embeddings we're using
+            if ecapa_embeddings and len(ecapa_embeddings) == len(embeddings):
+                if show_progress:
+                    print(
+                        f"[ASR] Using ECAPA-TDNN embeddings ({len(embeddings)} segments)"
+                    )
+            elif wavlm_embeddings and len(wavlm_embeddings) == len(embeddings):
+                if show_progress:
+                    print(f"[ASR] Using WavLM embeddings ({len(embeddings)} segments)")
+            else:
+                if show_progress:
+                    print(f"[ASR] Using mixed embeddings ({len(embeddings)} segments)")
 
             return embeddings
 
@@ -2587,97 +2718,174 @@ class ASRProcessor:
             Dictionary mapping segment indices to speaker IDs
         """
         import numpy as np
-        from sklearn.cluster import AgglomerativeClustering
+        from sklearn.cluster import AgglomerativeClustering, SpectralClustering
         from sklearn.metrics import silhouette_score
 
         # Handle edge cases
         if len(embeddings) <= 1:
-            return {0: 0} if len(embeddings) == 1 else {}
+            return {0: "SPEAKER_00"} if len(embeddings) == 1 else {}
 
-        # Convert embeddings to numpy array
+        # Convert embeddings to numpy array if needed
         X = np.array(embeddings)
 
-        # Normalize embeddings
+        # Normalize embeddings for more robust clustering
         norm = np.linalg.norm(X, axis=1, keepdims=True)
         norm[norm == 0] = 1e-10  # Avoid division by zero
         X = X / norm
 
         # If number of speakers is provided, use it directly
         if num_speakers is not None:
-            n_clusters = min(num_speakers, len(X))
-            clustering = AgglomerativeClustering(
-                n_clusters=n_clusters, affinity="cosine", linkage="average"
-            )
-            labels = clustering.fit_predict(X)
-
-            mapping = {i: label for i, label in enumerate(labels)}
-            return mapping
-
-        # Auto-determine number of speakers using silhouette score
-        min_speakers = min_speakers or 2
-        max_speakers = max_speakers or min(10, len(X) - 1)
-
-        # Adjust bounds based on number of embeddings
-        min_speakers = min(min_speakers, len(X) - 1)
-        max_speakers = min(max_speakers, len(X) - 1)
-
-        # Ensure valid range
-        if min_speakers > max_speakers or min_speakers < 2:
-            min_speakers = 2
-            max_speakers = min(max_speakers, len(X) - 1)
-
-        if max_speakers < 2:
-            # Not enough data for meaningful clustering
-            return {i: 0 for i in range(len(embeddings))}
-
-        best_score = -1
-        best_n_clusters = min_speakers
-        best_labels = None
-
-        # Try different numbers of clusters
-        for n_clusters in range(min_speakers, max_speakers + 1):
-            if n_clusters >= len(X):
-                continue
-
-            clustering = AgglomerativeClustering(
-                n_clusters=n_clusters, affinity="cosine", linkage="average"
-            )
-            labels = clustering.fit_predict(X)
-
-            if len(set(labels)) <= 1:
-                continue
-
+            n_clusters = min(num_speakers, len(X) - 1)
+            n_clusters = max(2, n_clusters)  # At least 2 speakers
+        else:
+            # Auto-determine number of speakers with eigenvalue analysis
             try:
-                score = silhouette_score(X, labels, metric="cosine")
+                from scipy.spatial.distance import cosine
 
-                if score > best_score:
-                    best_score = score
-                    best_n_clusters = n_clusters
-                    best_labels = labels
+                # Compute similarity matrix
+                similarity_matrix = 1 - np.array(
+                    [[cosine(emb1, emb2) for emb2 in X] for emb1 in X]
+                )
+
+                # Apply adaptive threshold to create affinity matrix
+                threshold = np.mean(similarity_matrix) * 0.5
+                affinity_matrix = (similarity_matrix > threshold).astype(float)
+
+                # Compute Laplacian
+                from scipy import sparse
+
+                if not sparse.issparse(affinity_matrix):
+                    affinity_matrix = sparse.csr_matrix(affinity_matrix)
+
+                # Get the Laplacian from SpectralClustering
+                from sklearn.cluster._spectral import spectral_embedding
+
+                eigenvalues = spectral_embedding(
+                    affinity_matrix,
+                    n_components=min(10, affinity_matrix.shape[0] - 1),
+                    eigen_solver="arpack",
+                    drop_first=True,
+                    return_eigenvalues=True,
+                )[1]
+
+                # Find the elbow point in eigenvalues
+                eigenvalues = sorted(eigenvalues)
+                diffs = np.diff(eigenvalues)
+
+                # Find largest gap in eigenvalues
+                largest_gap_idx = np.argmax(diffs) + 1
+
+                # Estimate is the index of largest gap + 1
+                estimated_speakers = largest_gap_idx + 1
+
+                # Adjust with min/max constraints
+                if min_speakers is not None:
+                    estimated_speakers = max(min_speakers, estimated_speakers)
+                if max_speakers is not None:
+                    estimated_speakers = min(max_speakers, estimated_speakers)
+
+                # Ensure reasonable bounds
+                n_clusters = max(2, min(8, estimated_speakers))
 
                 if show_progress:
                     print(
-                        f"[ASR] Tried {n_clusters} speakers, silhouette score: {score:.4f}"
+                        f"[ASR] Estimated {n_clusters} speakers using eigenvalue analysis"
                     )
+
             except Exception as e:
                 if show_progress:
-                    print(
-                        f"[ASR] Error computing silhouette score for {n_clusters} clusters: {str(e)}"
+                    print(f"[ASR] Error estimating speaker count: {str(e)}")
+
+                # Fallback estimation based on heuristics
+                min_speakers = min_speakers or 2
+                max_speakers = max_speakers or min(8, len(X) - 1)
+
+                # Default estimate based on audio length (as approximated by segment count)
+                n_clusters = max(
+                    min_speakers, min(max_speakers, int(np.sqrt(len(X)) / 2))
+                )
+
+        # Try multiple clustering algorithms for better results
+        methods = [
+            {
+                "name": "Agglomerative (cosine)",
+                "method": AgglomerativeClustering(
+                    n_clusters=n_clusters, affinity="cosine", linkage="average"
+                ),
+            },
+            {
+                "name": "Spectral",
+                "method": SpectralClustering(
+                    n_clusters=n_clusters,
+                    affinity="nearest_neighbors",
+                    n_neighbors=min(len(X) // 3, 10),
+                    random_state=42,
+                ),
+            },
+            {
+                "name": "Agglomerative (ward)",
+                "method": AgglomerativeClustering(
+                    n_clusters=n_clusters, linkage="ward"
+                ),
+            },
+        ]
+
+        best_score = -1
+        best_labels = None
+        best_method = None
+
+        # Try each clustering method and evaluate results
+        for method_info in methods:
+            try:
+                labels = method_info["method"].fit_predict(X)
+
+                # Skip if only one cluster was found
+                if len(set(labels)) <= 1:
+                    continue
+
+                # Evaluate clustering quality
+                try:
+                    from sklearn.metrics import (
+                        silhouette_score,
+                        calinski_harabasz_score,
                     )
 
+                    # Silhouette score measures how well-separated the clusters are
+                    sil_score = silhouette_score(X, labels, metric="cosine")
+
+                    # Calinski-Harabasz measures the ratio of between-cluster to within-cluster dispersion
+                    ch_score = calinski_harabasz_score(X, labels)
+
+                    # Combined score (weighted average)
+                    combined_score = (0.7 * sil_score) + (0.3 * (ch_score / 10000))
+
+                    if show_progress:
+                        print(
+                            f"[ASR] {method_info['name']}: silhouette={sil_score:.4f}, CH={ch_score:.2f}"
+                        )
+
+                    if combined_score > best_score:
+                        best_score = combined_score
+                        best_labels = labels
+                        best_method = method_info["name"]
+                except Exception as e:
+                    # If evaluation fails, use these labels if we don't have any yet
+                    if best_labels is None:
+                        best_labels = labels
+                        best_method = method_info["name"]
+            except Exception as e:
+                if show_progress:
+                    print(f"[ASR] Error with {method_info['name']}: {str(e)}")
+
+        # If all methods failed, use simple agglomerative clustering
         if best_labels is None:
-            # Fallback if clustering failed
-            n_clusters = min(min_speakers, len(X))
-            clustering = AgglomerativeClustering(
-                n_clusters=n_clusters, affinity="cosine", linkage="average"
-            )
+            clustering = AgglomerativeClustering(n_clusters=n_clusters)
             best_labels = clustering.fit_predict(X)
+            best_method = "Fallback Agglomerative"
 
         if show_progress:
-            print(
-                f"[ASR] Selected {best_n_clusters} speakers based on clustering analysis"
-            )
+            print(f"[ASR] Selected {best_method} with {len(set(best_labels))} speakers")
 
-        # Create mapping from segment index to speaker ID
-        mapping = {i: label for i, label in enumerate(best_labels)}
+        # Format speaker labels with SPEAKER_XX format
+        mapping = {i: f"SPEAKER_{label:02d}" for i, label in enumerate(best_labels)}
         return mapping
