@@ -67,6 +67,13 @@ def parse_args():
         help="Save formatted transcript to text file (default: input_name.txt)",
     )
     parser.add_argument(
+        "--format",
+        nargs="?",
+        const=FORMAT_DEFAULT,
+        choices=[FORMAT_CONCISE, FORMAT_DEFAULT, FORMAT_EXTENDED],
+        help=f"Save formatted transcript with specified format (default: {FORMAT_DEFAULT})",
+    )
+    parser.add_argument(
         "--preprocess",
         action="store_true",
         help="Preprocess audio (convert format and trim silence)",
@@ -156,6 +163,9 @@ def show_usage_and_exit():
         "  --text-output            Save transcript to text file (defaults to input_name.txt)"
     )
     print(
+        "  --format [TYPE]          Save formatted transcript (concise, default, extended)"
+    )
+    print(
         "  --diarize               Enable speaker diarization to identify different speakers"
     )
     print("\nDiarization options:")
@@ -167,6 +177,7 @@ def show_usage_and_exit():
     print("  sonata-asr input.wav -o transcript.json")
     print("  sonata-asr input.wav -d cuda --preprocess")
     print("  sonata-asr input.wav --text-output")
+    print("  sonata-asr input.wav --format concise")
     print("  sonata-asr input.wav --diarize")
     print("  sonata-asr input.wav --diarize --num-speakers 3")
     sys.exit(1)
@@ -294,6 +305,10 @@ def process_file(transcriber, input_path, output_path, args):
     base_name = os.path.splitext(output_path)[0]
     text_output = f"{base_name}.txt"
 
+    # For --format option, use a different filename
+    if args.format:
+        text_output = f"{base_name}_formatted.txt"
+
     # Handle splitting if requested
     if args.split:
         print(f"Splitting audio into {args.split_length}s segments...")
@@ -338,6 +353,15 @@ def process_file(transcriber, input_path, output_path, args):
                 f.write(text_content)
             print(f"Formatted transcript saved to: {text_output}")
 
+        # Save formatted text if requested
+        if args.format:
+            formatted_text = transcriber.get_formatted_transcript(
+                merged_result, args.format
+            )
+            with open(text_output, "w", encoding="utf-8") as f:
+                f.write(formatted_text)
+            print(f"Formatted transcript saved to: {text_output}")
+
         print(f"Merged transcript saved to: {output_path}")
     else:
         # Process the entire file
@@ -358,6 +382,13 @@ def process_file(transcriber, input_path, output_path, args):
             text_content = transcriber.get_plain_transcript(result)
             with open(text_output, "w", encoding="utf-8") as f:
                 f.write(text_content)
+            print(f"Formatted transcript saved to: {text_output}")
+
+        # Save formatted text if requested
+        if args.format:
+            formatted_text = transcriber.get_formatted_transcript(result, args.format)
+            with open(text_output, "w", encoding="utf-8") as f:
+                f.write(formatted_text)
             print(f"Formatted transcript saved to: {text_output}")
 
 
