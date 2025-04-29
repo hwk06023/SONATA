@@ -63,9 +63,12 @@ def main():
 
         # Save results if output path is specified
         if args.output:
-            with open(args.output, "w") as f:
-                json.dump(result, f, indent=2)
-            print(f"\nResults saved to {args.output}")
+            try:
+                with open(args.output, "w") as f:
+                    json.dump(result, f, indent=2)
+                print(f"\nResults saved to {args.output}")
+            except (IOError, OSError) as e:
+                print(f"Error saving results to {args.output}: {e}")
 
     # Option 2: Use integrated transcriber with diarization
     else:
