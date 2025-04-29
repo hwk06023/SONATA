@@ -467,8 +467,9 @@ class IntegratedTranscriber:
 
         # Concise format: all text in one line with speaker markers and audio events
         if format_type == "concise":
-            output = []
+            formatted_lines = []
             current_speaker = None
+            current_line = []
             all_items = []
 
             # Combine words and audio events and sort by time
@@ -498,15 +499,26 @@ class IntegratedTranscriber:
             # Process all items in time order
             for item in all_items:
                 if item["type"] == "word":
+                    # If speaker changes, start a new line
                     if item["speaker"] != current_speaker:
+                        # Add current line to output if it exists
+                        if current_line:
+                            formatted_lines.append(" ".join(current_line))
+                            current_line = []
+
                         current_speaker = item["speaker"]
                         if current_speaker:
-                            output.append(f"[{current_speaker}]")
-                    output.append(item["content"])
-                else:  # audio event
-                    output.append(f"[{item['content']}]")
+                            current_line.append(f"[{current_speaker}]")
 
-            return " ".join(output)
+                    current_line.append(item["content"])
+                else:  # audio event
+                    current_line.append(f"[{item['content']}]")
+
+            # Add the last line if it exists
+            if current_line:
+                formatted_lines.append(" ".join(current_line))
+
+            return "\n".join(formatted_lines)
 
         # Default format: Group by speaker with timestamps
         elif format_type == "default":
