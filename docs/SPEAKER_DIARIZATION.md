@@ -26,6 +26,13 @@ SONATA uses [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) (speci
 
 WavLM is Microsoft's state-of-the-art model for audio and speech understanding, and the speaker verification variant is specifically optimized for tasks like speaker diarization.
 
+### Speaker Change Detection
+
+SONATA implements advanced change-point detection algorithms for improved speaker segmentation:
+1. **BIC-based Change Detection**: Uses Bayesian Information Criterion to identify statistical changes in audio features
+2. **Embedding-based Change Detection**: Analyzes changes in speaker embedding vectors across sliding windows
+3. **Feature-based Analysis**: Utilizes MFCCs, delta features and spectral contrast for robust change detection
+
 ### Speaker Clustering
 
 The extracted embeddings are clustered using hierarchical clustering algorithms (specifically Agglomerative Clustering) to group speech segments by speaker identity. If the number of speakers is known in advance, this can be specified; otherwise, SONATA will attempt to estimate the optimal number of speakers using silhouette analysis.
@@ -122,11 +129,16 @@ The speaker diarization output is integrated into SONATA's transcription results
 - For optimal results, use high-quality audio with minimal background noise.
 - GPU acceleration is recommended for processing longer recordings.
 
+## Advanced Features
+
+- **Overlapped Speech Detection**: SONATA can identify segments where multiple speakers are talking simultaneously
+- **Automatic Speaker Number Estimation**: When the number of speakers is not known, SONATA can estimate it
+- **Embedding Fusion**: Uses multiple embedding models (WavLM and optionally ECAPA-TDNN) for improved speaker discrimination
+
 ## Limitations
 
 - Speaker identities are assigned arbitrary labels (SPEAKER_1, SPEAKER_2, etc.) rather than actual names.
 - Very short utterances (less than 1-2 seconds) may be difficult to assign to the correct speaker.
-- Overlapping speech presents challenges and may be assigned to the dominant speaker.
 - Performance may vary based on audio quality, background noise, and the number of speakers.
 
 ## Advanced Configuration
