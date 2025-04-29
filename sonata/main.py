@@ -65,12 +65,13 @@ def parse_args():
         "--format",
         type=str,
         choices=[format_type.value for format_type in FormatType],
-        default=FORMAT_DEFAULT,
+        default=None,
         help=(
-            "Format for text output: "
+            "Format for text output (optional): "
             "concise (simple text with audio event tags), "
             "default (text with timestamps), "
-            "extended (with confidence scores)"
+            "extended (with confidence scores). "
+            "If not specified, a detailed word-by-word transcript will be used."
         ),
     )
     parser.add_argument(
@@ -348,11 +349,19 @@ def process_file(transcriber, input_path, output_path, args):
         merged_result = merge_segment_results(results)
         transcriber.save_result(merged_result, output_path)
 
-        # Save text output
-        text_content = transcriber.get_formatted_transcript(merged_result, args.format)
-        with open(text_output, "w", encoding="utf-8") as f:
-            f.write(text_content)
-        print(f"Formatted transcript saved to: {text_output}")
+        # Save text output if requested
+        if args.text_output:
+            # Use plain transcript format if only --text-output is specified (no --format)
+            if not hasattr(args, "format") or args.format is None:
+                text_content = transcriber.get_plain_transcript(merged_result)
+            else:
+                text_content = transcriber.get_formatted_transcript(
+                    merged_result, args.format
+                )
+
+            with open(text_output, "w", encoding="utf-8") as f:
+                f.write(text_content)
+            print(f"Formatted transcript saved to: {text_output}")
 
         print(f"Merged transcript saved to: {output_path}")
     else:
@@ -369,11 +378,17 @@ def process_file(transcriber, input_path, output_path, args):
         transcriber.save_result(result, output_path)
         print(f"Transcript saved to: {output_path}")
 
-        # Save text output
-        text_content = transcriber.get_formatted_transcript(result, args.format)
-        with open(text_output, "w", encoding="utf-8") as f:
-            f.write(text_content)
-        print(f"Formatted transcript saved to: {text_output}")
+        # Save text output if requested
+        if args.text_output:
+            # Use plain transcript format if only --text-output is specified (no --format)
+            if not hasattr(args, "format") or args.format is None:
+                text_content = transcriber.get_plain_transcript(result)
+            else:
+                text_content = transcriber.get_formatted_transcript(result, args.format)
+
+            with open(text_output, "w", encoding="utf-8") as f:
+                f.write(text_content)
+            print(f"Formatted transcript saved to: {text_output}")
 
 
 def merge_segment_results(segment_results):

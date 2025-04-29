@@ -567,3 +567,83 @@ class IntegratedTranscriber:
         minutes = int(seconds // 60)
         seconds_remainder = seconds % 60
         return f"{minutes:02d}:{seconds_remainder:06.3f}"
+
+    def get_plain_transcript(self, result: Dict) -> str:
+        """Get a plain transcript with word-level details and audio events.
+
+        Format:
+        - Word: 'text' (SPEAKER) at start_times to end_times
+        - Audio event: [event_type] at start_times to end_times
+
+        Args:
+            result: The transcription result
+
+        Returns:
+            Plain transcript with word-level details
+        """
+        if not result:
+            return "No transcript available."
+
+        # Collect all words with timestamps and speakers
+        words = []
+        for segment in result.get("segments", []):
+            if "words" in segment:
+                for word in segment.get("words", []):
+                    words.append(
+                        {
+                            "word": word.get("word", ""),
+                            "start": word.get("start", 0),
+                            "end": word.get("end", 0),
+                            "speaker": word.get("speaker", "UNKNOWN"),
+                        }
+                    )
+
+        # Collect all audio events
+        audio_events = []
+        for event in result.get("audio_events", []):
+            audio_events.append(
+                {
+                    "type": event.get("type", "unknown"),
+                    "start": event.get("start", 0),
+                    "end": event.get("end", 0),
+                }
+            )
+
+        # Sort everything by start time
+        all_items = []
+
+        for word in words:
+            all_items.append(
+                {
+                    "type": "word",
+                    "content": word["word"],
+                    "speaker": word["speaker"],
+                    "start": word["start"],
+                    "end": word["end"],
+                }
+            )
+
+        for event in audio_events:
+            all_items.append(
+                {
+                    "type": "audio_event",
+                    "content": event["type"],
+                    "start": event["start"],
+                    "end": event["end"],
+                }
+            )
+
+        all_items.sort(key=lambda x: x["start"])
+
+        # Format output
+        output_lines = []
+
+        for item in all_items:
+            if item["type"] == "word":
+                line = f"- Word: '{item['content']}' ({item['speaker']}) at {item['start']:.3f}s to {item['end']:.3f}s"
+                output_lines.append(line)
+            else:  # audio_event
+                line = f"- Audio event: [{item['content']}] at {item['start']:.3f}s to {item['end']:.3f}s"
+                output_lines.append(line)
+
+        return "\n".join(output_lines)
