@@ -427,7 +427,7 @@ class IntegratedTranscriber:
             format_type: The format type ('concise', 'default', or 'extended')
                 - concise: Text with speaker markers and audio event tags in one line
                 - default: Text grouped by speaker with timestamps
-                - extended: Default format with confidence scores
+                - extended: Default format with confidence/score values
 
         Returns:
             A formatted transcript string
@@ -445,7 +445,7 @@ class IntegratedTranscriber:
                         "start": word.get("start", 0),
                         "end": word.get("end", 0),
                         "speaker": word.get("speaker", None),
-                        "confidence": word.get("confidence", 0.5),
+                        "score": word.get("score", 0.5),  # Use score directly from ASR
                     }
                     word_timestamps.append(word_data)
 
@@ -520,83 +520,86 @@ class IntegratedTranscriber:
 
             return "\n".join(formatted_lines)
 
-        # Default format: Group by speaker with timestamps
-        elif format_type == "default":
+        # Default and Extended formats: Chronologically ordered events with timestamps
+        elif format_type in ["default", "extended"]:
+            # Merge words and audio events into a single timeline
+            all_events = []
+
+            # Add words
+            for word in word_timestamps:
+                all_events.append(
+                    {
+                        "type": "word",
+                        "start": word["start"],
+                        "content": word["word"],
+                        "speaker": word["speaker"],
+                        "score": word["score"],
+                    }
+                )
+
+            # Add audio events
+            for event in audio_events:
+                all_events.append(
+                    {
+                        "type": "audio",
+                        "start": event["start"],
+                        "content": event["type"],
+                        "confidence": event["confidence"],
+                    }
+                )
+
+            # Sort all events chronologically
+            all_events.sort(key=lambda x: x["start"])
+
             formatted_lines = []
             current_speaker = None
 
-            # Process words grouped by speaker
-            for word in word_timestamps:
-                start_time = self._format_time(word["start"])
-                content = word["word"]
-                speaker = word.get("speaker")
+            # Process all events in chronological order
+            for event in all_events:
+                start_time = self._format_time(event["start"])
 
-                # Check for speaker change
-                if speaker != current_speaker:
-                    if formatted_lines:  # Add a blank line between speakers
-                        formatted_lines.append("")
-                    current_speaker = speaker
-                    if speaker:
-                        formatted_lines.append(f"[{speaker}]")
+                if event["type"] == "word":
+                    # Check for speaker change
+                    if event["speaker"] != current_speaker:
+                        if formatted_lines:  # Add a blank line between speakers
+                            formatted_lines.append("")
+                        current_speaker = event["speaker"]
+                        if current_speaker:
+                            formatted_lines.append(f"[{current_speaker}]")
 
-                # Add word with timestamp
-                formatted_lines.append(f"[{start_time}] {content}")
+                    # Add word with timestamp (and score for extended format)
+                    if format_type == "extended":
+                        score_str = (
+                            f"{event['score']:.2f}"
+                            if isinstance(event["score"], float)
+                            else event["score"]
+                        )
+                        formatted_lines.append(
+                            f"[{start_time}] {event['content']} (score: {score_str})"
+                        )
+                    else:
+                        formatted_lines.append(f"[{start_time}] {event['content']}")
 
-            # Add audio events under [AUDIO] section
-            if audio_events:
-                if formatted_lines:
-                    formatted_lines.append("")
-                formatted_lines.append("[AUDIO]")
-                for event in audio_events:
-                    start_time = self._format_time(event["start"])
-                    formatted_lines.append(f"[{start_time}] [{event['type']}]")
+                else:  # audio event
+                    # Check for speaker change to AUDIO
+                    if current_speaker != "AUDIO":
+                        if formatted_lines:  # Add a blank line between speakers
+                            formatted_lines.append("")
+                        current_speaker = "AUDIO"
+                        formatted_lines.append(f"[{current_speaker}]")
 
-            return "\n".join(formatted_lines)
-
-        # Extended format: with confidence scores
-        elif format_type == "extended":
-            formatted_lines = []
-            current_speaker = None
-
-            # Process words grouped by speaker with confidence scores
-            for word in word_timestamps:
-                start_time = self._format_time(word["start"])
-                content = word["word"]
-                speaker = word.get("speaker")
-                confidence = word.get("confidence", 0.5)
-                confidence_str = (
-                    f"{confidence:.2f}" if isinstance(confidence, float) else confidence
-                )
-
-                # Check for speaker change
-                if speaker != current_speaker:
-                    if formatted_lines:  # Add a blank line between speakers
-                        formatted_lines.append("")
-                    current_speaker = speaker
-                    if speaker:
-                        formatted_lines.append(f"[{speaker}]")
-
-                # Add word with timestamp and confidence
-                formatted_lines.append(
-                    f"[{start_time}] {content} (confidence: {confidence_str})"
-                )
-
-            # Add audio events under [AUDIO] section with confidence
-            if audio_events:
-                if formatted_lines:
-                    formatted_lines.append("")
-                formatted_lines.append("[AUDIO]")
-                for event in audio_events:
-                    start_time = self._format_time(event["start"])
-                    confidence = event.get("confidence", 0.5)
-                    confidence_str = (
-                        f"{confidence:.2f}"
-                        if isinstance(confidence, float)
-                        else confidence
-                    )
-                    formatted_lines.append(
-                        f"[{start_time}] [{event['type']}] (confidence: {confidence_str})"
-                    )
+                    # Add audio event with timestamp (and confidence for extended format)
+                    if format_type == "extended":
+                        confidence_str = (
+                            f"{event['confidence']:.2f}"
+                            if isinstance(event["confidence"], float)
+                            else event["confidence"]
+                        )
+                        formatted_lines.append(
+                            f"[{start_time}] [{event['content']}] (confidence: {confidence_str})"
+                        )
+                    else:
+                        formatted_lines.append(f"[{start_time}] [{event['content']}]")
 
             return "\n".join(formatted_lines)
 
