@@ -307,7 +307,7 @@ def process_file(transcriber, input_path, output_path, args):
 
     # For --format option, use a different filename
     if args.format:
-        text_output = f"{base_name}_formatted.txt"
+        text_output = f"formatted_{base_name}.txt"
 
     # Handle splitting if requested
     if args.split:
