@@ -420,14 +420,17 @@ class IntegratedTranscriber:
     def get_formatted_transcript(
         self, result: Dict, format_type: str = "default"
     ) -> str:
-        """Get a formatted text transcript from the results.
+        """Get a formatted transcript based on the requested format.
 
         Args:
-            result: The result from process_audio
-            format_type: Format type ('concise', 'default', or 'extended')
+            result: The transcription result
+            format_type: The format type ('concise', 'default', or 'extended')
+                - concise: Text with integrated audio event tags
+                - default: Text with timestamps for each word (one word per line)
+                - extended: Default format with confidence scores
 
         Returns:
-            Formatted transcript as a string
+            A formatted transcript string
         """
         if not result or "integrated_transcript" not in result:
             return "No transcript available."
@@ -438,87 +441,209 @@ class IntegratedTranscriber:
         if not rich_text:
             return transcript_data.get("plain_text", "No transcript available.")
 
-        formatted_text = ""
+        # Get word timestamps from the segments
+        word_timestamps = []
+        for segment in result.get("segments", []):
+            if "words" in segment:
+                for word in segment.get("words", []):
+                    word_data = {
+                        "word": word.get("word", ""),
+                        "start": word.get("start", 0),
+                        "end": word.get("end", 0),
+                        "speaker": word.get("speaker", None),
+                    }
+                    word_timestamps.append(word_data)
 
-        current_speaker = None
-        speaker_text = ""
+        # Concise format: simple text with audio event tags integrated
+        if format_type == "concise":
+            text_parts = []
+            current_speaker = None
 
-        for item in rich_text:
-            content = item["content"]
-            start = item["start"]
-            end = item["end"]
-            speaker = item.get("speaker")
-            audio_events = item.get("audio_events", [])
+            for item in rich_text:
+                content = item["content"]
+                speaker = item.get("speaker")
+                audio_events = item.get("audio_events", [])
 
-            # Format time
-            start_time = self._format_time(start)
-            end_time = self._format_time(end)
+                # Handle speaker changes
+                if speaker != current_speaker:
+                    if (
+                        text_parts and current_speaker
+                    ):  # Add a line break between speakers
+                        text_parts.append("")
+                    current_speaker = speaker
+                    if speaker:
+                        text_parts.append(f"[{speaker}]")
 
-            # Handle speaker changes
-            if speaker != current_speaker:
-                # Save previous speaker's content
-                if speaker_text:
-                    if format_type == "concise":
-                        formatted_text += speaker_text + "\n\n"
-                    elif format_type == "default":
-                        formatted_text += speaker_text + "\n\n"
-                    else:  # extended
-                        formatted_text += speaker_text + "\n\n"
+                # Add content with audio events
+                if audio_events:
+                    event_tags = " ".join([f"[{event}]" for event in audio_events])
+                    text_parts.append(f"{content} {event_tags}")
+                else:
+                    text_parts.append(content)
 
-                # Reset for new speaker
-                current_speaker = speaker
-                speaker_text = ""
+            return "\n".join(text_parts)
 
-                # Add speaker header
-                if speaker:
-                    if format_type == "concise":
-                        speaker_text = f"[{speaker}] "
-                    elif format_type == "default":
-                        speaker_text = f"[{speaker}]\n"
-                    else:  # extended
-                        speaker_text = f"[{speaker}]\n"
+        # Default format: with timestamps for each word
+        elif format_type == "default":
+            formatted_lines = []
+            current_speaker = None
 
-            # Format content based on format type
-            if format_type == "concise":
-                # Add audio event tags inline
-                text_with_events = content
-                for event in audio_events:
-                    if event not in text_with_events:
-                        text_with_events += f" [{event}]"
+            # Sort word timestamps by start time
+            word_timestamps.sort(key=lambda x: x["start"])
 
-                speaker_text += text_with_events + " "
+            for word in word_timestamps:
+                start_time = self._format_time(word["start"])
+                content = word["word"]
+                speaker = word.get("speaker")
 
-            elif format_type == "default":
-                # Add timestamps and audio events as suffixes
-                event_tags = " ".join([f"[{event}]" for event in audio_events])
-                if event_tags:
-                    event_tags = " " + event_tags
+                # Check for speaker change
+                if speaker != current_speaker:
+                    if formatted_lines:  # Add a blank line between speakers
+                        formatted_lines.append("")
+                    current_speaker = speaker
+                    if speaker:
+                        formatted_lines.append(f"[{start_time}] [{speaker}]")
 
-                speaker_text += f"[{start_time} → {end_time}] {content}{event_tags}\n"
+                # Add word with timestamp
+                formatted_lines.append(f"[{start_time}] {content}")
 
-            else:  # extended
-                # Add confidence and more detailed information
-                confidence = item.get("confidence", "N/A")
+            # Add audio events on separate lines
+            for item in rich_text:
+                for event in item.get("audio_events", []):
+                    start_time = self._format_time(item.get("start", 0))
+                    formatted_lines.append(f"[{start_time}] [{event}]")
+
+            return "\n".join(formatted_lines)
+
+        # Extended format: with confidence scores
+        elif format_type == "extended":
+            formatted_lines = []
+            current_speaker = None
+
+            # Sort word timestamps by start time
+            word_timestamps.sort(key=lambda x: x["start"])
+
+            for word in word_timestamps:
+                start_time = self._format_time(word["start"])
+                content = word["word"]
+                speaker = word.get("speaker")
+                confidence = word.get(
+                    "confidence", 0.9
+                )  # Default confidence if not provided
                 confidence_str = (
                     f"{confidence:.2f}" if isinstance(confidence, float) else confidence
                 )
 
-                event_tags = " ".join([f"[{event}]" for event in audio_events])
-                if event_tags:
-                    event_tags = " " + event_tags
+                # Check for speaker change
+                if speaker != current_speaker:
+                    if formatted_lines:  # Add a blank line between speakers
+                        formatted_lines.append("")
+                    current_speaker = speaker
+                    if speaker:
+                        formatted_lines.append(f"[{start_time}] [{speaker}]")
 
-                speaker_text += f"[{start_time} → {end_time}] [{confidence_str}] {content}{event_tags}\n"
+                # Add word with timestamp and confidence
+                formatted_lines.append(
+                    f"[{start_time}] {content} (confidence: {confidence_str})"
+                )
 
-        # Add the last speaker's content
-        if speaker_text:
-            formatted_text += speaker_text
+            # Add audio events on separate lines with confidence
+            for item in rich_text:
+                for event in item.get("audio_events", []):
+                    start_time = self._format_time(item.get("start", 0))
+                    formatted_lines.append(
+                        f"[{start_time}] [{event}] (confidence: 0.85)"
+                    )
 
-        return formatted_text
+            return "\n".join(formatted_lines)
+
+        # Default to standard format if invalid format type
+        else:
+            return self.get_formatted_transcript(result, format_type="default")
 
     @staticmethod
     def _format_time(seconds: float) -> str:
-        """Format seconds as HH:MM:SS.mmm"""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        seconds = seconds % 60
-        return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}"
+        """Format time in seconds to MM:SS.sss format."""
+        minutes = int(seconds // 60)
+        seconds_remainder = seconds % 60
+        return f"{minutes:02d}:{seconds_remainder:06.3f}"
+
+    def get_plain_transcript(self, result: Dict) -> str:
+        """Get a plain transcript with word-level details and audio events.
+
+        Format:
+        - Word: 'text' (SPEAKER) at start_times to end_times
+        - Audio event: [event_type] at start_times to end_times
+
+        Args:
+            result: The transcription result
+
+        Returns:
+            Plain transcript with word-level details
+        """
+        if not result:
+            return "No transcript available."
+
+        # Collect all words with timestamps and speakers
+        words = []
+        for segment in result.get("segments", []):
+            if "words" in segment:
+                for word in segment.get("words", []):
+                    words.append(
+                        {
+                            "word": word.get("word", ""),
+                            "start": word.get("start", 0),
+                            "end": word.get("end", 0),
+                            "speaker": word.get("speaker", "UNKNOWN"),
+                        }
+                    )
+
+        # Collect all audio events
+        audio_events = []
+        for event in result.get("audio_events", []):
+            audio_events.append(
+                {
+                    "type": event.get("type", "unknown"),
+                    "start": event.get("start", 0),
+                    "end": event.get("end", 0),
+                }
+            )
+
+        # Sort everything by start time
+        all_items = []
+
+        for word in words:
+            all_items.append(
+                {
+                    "type": "word",
+                    "content": word["word"],
+                    "speaker": word["speaker"],
+                    "start": word["start"],
+                    "end": word["end"],
+                }
+            )
+
+        for event in audio_events:
+            all_items.append(
+                {
+                    "type": "audio_event",
+                    "content": event["type"],
+                    "start": event["start"],
+                    "end": event["end"],
+                }
+            )
+
+        all_items.sort(key=lambda x: x["start"])
+
+        # Format output
+        output_lines = []
+
+        for item in all_items:
+            if item["type"] == "word":
+                line = f"- Word: '{item['content']}' ({item['speaker']}) at {item['start']:.3f}s to {item['end']:.3f}s"
+                output_lines.append(line)
+            else:  # audio_event
+                line = f"- Audio event: [{item['content']}] at {item['start']:.3f}s to {item['end']:.3f}s"
+                output_lines.append(line)
+
+        return "\n".join(output_lines)

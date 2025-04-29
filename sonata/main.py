@@ -62,22 +62,9 @@ def parse_args():
         help="Path to JSON file with custom audio event thresholds",
     )
     parser.add_argument(
-        "--format",
-        type=str,
-        choices=[format_type.value for format_type in FormatType],
-        default=FORMAT_DEFAULT,
-        help=(
-            "Format for text output: "
-            "concise (simple text with audio event tags), "
-            "default (text with timestamps), "
-            "extended (with confidence scores)"
-        ),
-    )
-    parser.add_argument(
         "--text-output",
-        type=str,
-        help="Path to save formatted transcript text file",
-        default=None,
+        action="store_true",
+        help="Save formatted transcript to text file (default: input_name.txt)",
     )
     parser.add_argument(
         "--preprocess",
@@ -165,11 +152,9 @@ def show_usage_and_exit():
         f"  -l, --language [LANG]   Specify language code (default: {DEFAULT_LANGUAGE})"
     )
     print("  --preprocess            Convert and trim silence before processing")
-    print("  --format [TYPE]         Choose transcript format:")
-    print("                           - concise: Text with integrated audio event tags")
-    print("                           - default: Text with timestamps")
-    print("                           - extended: Includes confidence scores")
-    print("  --text-output [FILE]    Save formatted transcript to specified text file")
+    print(
+        "  --text-output            Save transcript to text file (defaults to input_name.txt)"
+    )
     print(
         "  --diarize               Enable speaker diarization to identify different speakers"
     )
@@ -181,7 +166,7 @@ def show_usage_and_exit():
     print("  sonata-asr input.wav")
     print("  sonata-asr input.wav -o transcript.json")
     print("  sonata-asr input.wav -d cuda --preprocess")
-    print("  sonata-asr input.wav --format concise --text-output transcript.txt")
+    print("  sonata-asr input.wav --text-output")
     print("  sonata-asr input.wav --diarize")
     print("  sonata-asr input.wav --diarize --num-speakers 3")
     sys.exit(1)
@@ -305,6 +290,10 @@ def process_file(transcriber, input_path, output_path, args):
         processed_path = trim_silence(wav_path)
         print(f"Preprocessed audio saved to: {processed_path}")
 
+    # Set default text output path
+    base_name = os.path.splitext(output_path)[0]
+    text_output = f"{base_name}.txt"
+
     # Handle splitting if requested
     if args.split:
         print(f"Splitting audio into {args.split_length}s segments...")
@@ -344,11 +333,10 @@ def process_file(transcriber, input_path, output_path, args):
 
         # Save text output if requested
         if args.text_output:
-            text_content = transcriber.get_formatted_transcript(
-                merged_result, args.format
-            )
-            with open(args.text_output, "w", encoding="utf-8") as f:
+            text_content = transcriber.get_plain_transcript(merged_result)
+            with open(text_output, "w", encoding="utf-8") as f:
                 f.write(text_content)
+            print(f"Formatted transcript saved to: {text_output}")
 
         print(f"Merged transcript saved to: {output_path}")
     else:
@@ -367,10 +355,10 @@ def process_file(transcriber, input_path, output_path, args):
 
         # Save text output if requested
         if args.text_output:
-            text_content = transcriber.get_formatted_transcript(result, args.format)
-            with open(args.text_output, "w", encoding="utf-8") as f:
+            text_content = transcriber.get_plain_transcript(result)
+            with open(text_output, "w", encoding="utf-8") as f:
                 f.write(text_content)
-            print(f"Formatted transcript saved to: {args.text_output}")
+            print(f"Formatted transcript saved to: {text_output}")
 
 
 def merge_segment_results(segment_results):

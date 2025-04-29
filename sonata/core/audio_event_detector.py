@@ -848,12 +848,8 @@ class AudioEventDetector(AudiosetClassifier):
                     cls_idx
                 )  # Convert string indices to integers if needed
 
-                # Get appropriate threshold for this event type
-                event_threshold = self.threshold
-                if use_lower_thresholds and event_type in self.class_thresholds:
-                    event_threshold = self.class_thresholds.get(
-                        event_type, self.threshold
-                    )
+                # Always check for custom thresholds regardless of use_lower_thresholds flag
+                event_threshold = self.class_thresholds.get(event_type, self.threshold)
 
                 # Check if we have enough dimensions and indices in bounds
                 if len(probs.shape) > 1 and cls_idx_int < probs.shape[1]:
