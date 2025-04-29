@@ -2179,14 +2179,12 @@ class ASRProcessor:
         try:
             # Try to use the custom diarizer for better performance
             try:
-                from sonata.core.custom_diarization import CustomDiarizer
+                from sonata.core.speaker_diarization import SpeakerDiarizer
 
-                custom_diarizer = CustomDiarizer(
-                    device=self.device if hasattr(self, "device") else "cpu"
-                )
+                speaker_diarizer = SpeakerDiarizer(device=self.device)
 
-                # Use the enhanced custom diarizer
-                speaker_segments = custom_diarizer.diarize(
+                # Use the enhanced speaker diarizer
+                speaker_segments = speaker_diarizer.diarize(
                     audio_path=audio_path,
                     num_speakers=num_speakers,
                     show_progress=show_progress,
@@ -2211,21 +2209,21 @@ class ASRProcessor:
                 if result:
                     if show_progress:
                         print(
-                            f"[ASR] Enhanced diarization using CustomDiarizer completed successfully with {len(set(s['speaker'] for s in result))} speakers",
+                            f"[ASR] Enhanced diarization using SpeakerDiarizer completed successfully with {len(set(s['speaker'] for s in result))} speakers",
                             flush=True,
                         )
                     return result
+                else:
+                    if show_progress:
+                        print(
+                            f"[ASR] SpeakerDiarizer returned no results, falling back to traditional method",
+                            flush=True,
+                        )
 
-                # If the result is empty, fall back to default method
-                if show_progress:
-                    print(
-                        f"[ASR] CustomDiarizer returned no results, falling back to traditional method",
-                        flush=True,
-                    )
             except Exception as e:
                 if show_progress:
                     print(
-                        f"[ASR] Error using CustomDiarizer: {str(e)}, falling back to traditional method",
+                        f"[ASR] Error using SpeakerDiarizer: {str(e)}, falling back to traditional method",
                         flush=True,
                     )
 
