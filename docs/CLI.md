@@ -15,7 +15,7 @@ SONATA provides a powerful command-line interface for quick and efficient audio 
 sonata-asr <audio_file>
 ```
 
-This will transcribe the audio file using default settings and save the results to `<filename>_transcript.json` and `<filename>_transcript.txt`.
+This will transcribe the audio file using default settings and save the results to `<filename>.json`.
 
 ## Command Line Options
 
@@ -24,8 +24,8 @@ This will transcribe the audio file using default settings and save the results 
 | Option | Description |
 |--------|-------------|
 | `<audio_file>` | Path to the input audio file |
-| `-o, --output FILE` | Path to save JSON output (default: `<filename>_transcript.json`) |
-| `--text-output FILE` | Path to save formatted text transcript (default: `<filename>_transcript.txt`) |
+| `-o, --output FILE` | Path to save JSON output (default: `<filename>.json`) |
+| `--text-output` | Save transcript to text file (default: `<filename>.txt`) |
 
 ### Model Options
 
@@ -65,24 +65,12 @@ This will transcribe the audio file using default settings and save the results 
 
 > **Important**: Speaker diarization requires access permissions to both `pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0` models on HuggingFace. You must accept the terms of use for both models before using this feature.
 
-### Output Format Options
-
-| Option | Description |
-|--------|-------------|
-| `--format FORMAT` | Format for text output: concise, default, extended (default: default) |
-
 ### Miscellaneous
 
 | Option | Description |
 |--------|-------------|
 | `--version` | Show SONATA version and exit |
 | `--help` | Show help message and exit |
-
-## Format Types
-
-- **concise**: Simple text with integrated audio event tags and speaker labels
-- **default**: Text with timestamps
-- **extended**: Text with timestamps and confidence scores
 
 ## Examples
 
@@ -119,7 +107,7 @@ sonata-asr long_podcast.mp3 --preprocess --split --split-length 60 --split-overl
 ### Customizing Output
 
 ```bash
-sonata-asr meeting.wav --output meeting_data.json --text-output meeting_transcript.txt --format concise
+sonata-asr meeting.wav --output meeting_data.json --text-output
 ```
 
 ### Adjusting Detection Sensitivity
@@ -152,8 +140,7 @@ Lower threshold values will detect more audio events but may increase false posi
 | `-e`, `--audio-model` | (None) | Path to custom audio event detection model |
 | `-t`, `--threshold` | 0.5 | Threshold for audio event detection |
 | `--custom-thresholds` | (None) | Path to JSON file with custom audio event thresholds |
-| `--format` | default | Format for text output (concise/default/extended) |
-| `--text-output` | (None) | Path to save formatted transcript text file |
+| `--text-output` | (False) | Save transcript to text file (default: `<filename>.txt`) |
 | `--preprocess` | (False) | Preprocess audio (convert format and trim silence) |
 
 # Advanced Examples

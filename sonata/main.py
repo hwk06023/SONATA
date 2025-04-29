@@ -62,19 +62,6 @@ def parse_args():
         help="Path to JSON file with custom audio event thresholds",
     )
     parser.add_argument(
-        "--format",
-        type=str,
-        choices=[format_type.value for format_type in FormatType],
-        default=None,
-        help=(
-            "Format for text output (optional): "
-            "concise (simple text with audio event tags), "
-            "default (text with timestamps), "
-            "extended (with confidence scores). "
-            "If not specified, a detailed word-by-word transcript will be used."
-        ),
-    )
-    parser.add_argument(
         "--text-output",
         action="store_true",
         help="Save formatted transcript to text file (default: input_name.txt)",
@@ -165,10 +152,6 @@ def show_usage_and_exit():
         f"  -l, --language [LANG]   Specify language code (default: {DEFAULT_LANGUAGE})"
     )
     print("  --preprocess            Convert and trim silence before processing")
-    print("  --format [TYPE]         Choose transcript format:")
-    print("                           - concise: Text with integrated audio event tags")
-    print("                           - default: Text with timestamps")
-    print("                           - extended: Includes confidence scores")
     print(
         "  --text-output            Save transcript to text file (defaults to input_name.txt)"
     )
@@ -183,7 +166,7 @@ def show_usage_and_exit():
     print("  sonata-asr input.wav")
     print("  sonata-asr input.wav -o transcript.json")
     print("  sonata-asr input.wav -d cuda --preprocess")
-    print("  sonata-asr input.wav --format concise --text-output transcript.txt")
+    print("  sonata-asr input.wav --text-output")
     print("  sonata-asr input.wav --diarize")
     print("  sonata-asr input.wav --diarize --num-speakers 3")
     sys.exit(1)
@@ -350,14 +333,7 @@ def process_file(transcriber, input_path, output_path, args):
 
         # Save text output if requested
         if args.text_output:
-            # Use plain transcript format if only --text-output is specified (no --format)
-            if not hasattr(args, "format") or args.format is None:
-                text_content = transcriber.get_plain_transcript(merged_result)
-            else:
-                text_content = transcriber.get_formatted_transcript(
-                    merged_result, args.format
-                )
-
+            text_content = transcriber.get_plain_transcript(merged_result)
             with open(text_output, "w", encoding="utf-8") as f:
                 f.write(text_content)
             print(f"Formatted transcript saved to: {text_output}")
@@ -379,12 +355,7 @@ def process_file(transcriber, input_path, output_path, args):
 
         # Save text output if requested
         if args.text_output:
-            # Use plain transcript format if only --text-output is specified (no --format)
-            if not hasattr(args, "format") or args.format is None:
-                text_content = transcriber.get_plain_transcript(result)
-            else:
-                text_content = transcriber.get_formatted_transcript(result, args.format)
-
+            text_content = transcriber.get_plain_transcript(result)
             with open(text_output, "w", encoding="utf-8") as f:
                 f.write(text_content)
             print(f"Formatted transcript saved to: {text_output}")

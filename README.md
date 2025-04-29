@@ -77,8 +77,7 @@ General:
   -l, --language LANG         Language code (en, ko, zh, ja, fr, de, es, it, pt, ru)
   -m, --model NAME            WhisperX model size (tiny, small, medium, large-v3, etc.)
   -d, --device DEVICE         Device to run models on (cpu, cuda)
-  --text-output FILE          Save formatted transcript to specified text file
-  --format TYPE               Output format: concise, default, or extended
+  --text-output               Save transcript to text file (defaults to input_name.txt)
   --preprocess                Preprocess audio (convert format and trim silence)
 
 Diarization:
