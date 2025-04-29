@@ -65,13 +65,11 @@ print(result["integrated_transcript"]["plain_text"])
 sonata-asr path/to/audio.wav
 
 # 화자 분할 기능 사용
-sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
+sonata-asr path/to/audio.wav --diarize
 
-# 오프라인 화자 분할 사용 (설정 후 토큰 불필요)
-sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.sonata/models/offline_config.yaml
+# 화자 수를 알고 있는 경우 설정
+sonata-asr path/to/audio.wav --diarize --num-speakers 3
 ```
-
-> **참고:** 온라인 화자 분할을 위해서는 [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)과 [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) 모델 모두에 대한 접근 권한이 필요합니다. 두 모델 페이지를 방문하여 각각 사용 약관에 동의하고 접근 권한을 얻으세요.
 
 #### 주요 CLI 옵션:
 
@@ -81,18 +79,12 @@ sonata-asr path/to/audio.wav --diarize --offline-diarize --offline-config ~/.son
   -l, --language LANG         언어 코드 (en, ko, zh, ja, fr, de, es, it, pt, ru)
   -m, --model NAME            WhisperX 모델 크기 (tiny, small, medium, large-v3 등)
   -d, --device DEVICE         모델 실행 장치 (cpu, cuda)
-  --text-output FILE          지정된 텍스트 파일에 형식화된 전사 결과 저장
-  --format TYPE               출력 형식: concise, default, extended
+  --text-output               텍스트 파일에 전사 결과 저장 (기본값: input_name.txt)
   --preprocess                오디오 전처리 (포맷 변환 및 무음 제거)
 
 다이어리제이션:
-  --diarize                   화자 다이어리제이션 활성화
-  --hf-token TOKEN            HuggingFace 토큰 (온라인 다이어리제이션용)
-  --min-speakers NUM          최소 화자 수 설정
-  --max-speakers NUM          최대 화자 수 설정
-  --offline-diarize           오프라인 다이어리제이션 사용 (설정 후 토큰 불필요)
-  --offline-config PATH       오프라인 다이어리제이션 설정 파일 경로
-  --setup-offline             오프라인 다이어리제이션 모델 다운로드 및 설정
+  --diarize                   Silero VAD와 WavLM을 사용한 SOTA 화자 다이어리제이션 활성화
+  --num-speakers NUM          정확한 화자 수 설정 (선택 사항)
 
 오디오 이벤트:
   --threshold VALUE           오디오 이벤트 감지 임계값 (0.0-1.0)
@@ -142,6 +134,7 @@ Contribution은 언제나 환영합니다! 풀 리퀘스트를 자유롭게 제�
 - [WhisperX](https://github.com/m-bain/whisperX) - 빠른 음성 인식
 - [AudioSet AST](https://github.com/YuanGongND/ast) - 오디오 이벤트 감지
   - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - 오디오 이벤트 분류를 위한 사전 훈련된 모델
-- [PyAnnote Audio](https://github.com/pyannote/pyannote-audio) - speaker diarization
-  - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) - 화자 다이어리제이션 파이프라인
+- [Silero VAD](https://github.com/snakers4/silero-vad) - 음성 활동 감지
+- [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) - Microsoft의 고급 오디오 이해 모델
+  - [microsoft/wavlm-base-plus-sv](https://huggingface.co/microsoft/wavlm-base-plus-sv) - 화자 검증 모델
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP 도구 

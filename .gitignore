@@ -45,6 +45,7 @@ Thumbs.db
 data/
 models/
 result/
+pretrained_models/
 *.log
 .env 
 

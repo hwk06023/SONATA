@@ -62,22 +62,9 @@ def parse_args():
         help="Path to JSON file with custom audio event thresholds",
     )
     parser.add_argument(
-        "--format",
-        type=str,
-        choices=[format_type.value for format_type in FormatType],
-        default=FORMAT_DEFAULT,
-        help=(
-            "Format for text output: "
-            "concise (simple text with audio event tags), "
-            "default (text with timestamps), "
-            "extended (with confidence scores)"
-        ),
-    )
-    parser.add_argument(
         "--text-output",
-        type=str,
-        help="Path to save formatted transcript text file",
-        default=None,
+        action="store_true",
+        help="Save formatted transcript to text file (default: input_name.txt)",
     )
     parser.add_argument(
         "--preprocess",
@@ -102,45 +89,17 @@ def parse_args():
     parser.add_argument(
         "--version", action="store_true", help="Show SONATA version and exit"
     )
-    # Speaker diarization options
+
+    # Updated diarization options
     parser.add_argument(
         "--diarize",
         action="store_true",
-        help="Enable speaker diarization to identify different speakers",
-    )
-    parser.add_argument(
-        "--min-speakers", type=int, help="Minimum number of speakers for diarization"
-    )
-    parser.add_argument(
-        "--max-speakers", type=int, help="Maximum number of speakers for diarization"
+        help="Enable SOTA speaker diarization using Silero VAD and WavLM embeddings",
     )
     parser.add_argument(
         "--num-speakers",
         type=int,
-        help="Number of speakers if known (disables min/max speakers)",
-    )
-    parser.add_argument(
-        "--hf-token",
-        type=str,
-        help="HuggingFace token for accessing diarization models (required for online diarization)",
-    )
-
-    # Offline diarization options
-    parser.add_argument(
-        "--offline-diarize",
-        action="store_true",
-        help="Use offline diarization (no HuggingFace token required after setup)",
-    )
-    parser.add_argument(
-        "--offline-config",
-        type=str,
-        help="Path to offline diarization config file",
-        default="~/.sonata/models/offline_config.yaml",
-    )
-    parser.add_argument(
-        "--setup-offline",
-        action="store_true",
-        help="Download and setup offline diarization models",
+        help="Number of speakers if known (estimated automatically if not provided)",
     )
 
     # Deep detection option
@@ -193,31 +152,23 @@ def show_usage_and_exit():
         f"  -l, --language [LANG]   Specify language code (default: {DEFAULT_LANGUAGE})"
     )
     print("  --preprocess            Convert and trim silence before processing")
-    print("  --format [TYPE]         Choose transcript format:")
-    print("                           - concise: Text with integrated audio event tags")
-    print("                           - default: Text with timestamps")
-    print("                           - extended: Includes confidence scores")
-    print("  --text-output [FILE]    Save formatted transcript to specified text file")
+    print(
+        "  --text-output            Save transcript to text file (defaults to input_name.txt)"
+    )
     print(
         "  --diarize               Enable speaker diarization to identify different speakers"
     )
     print("\nDiarization options:")
-    print("  --hf-token TOKEN        HuggingFace token (for online diarization)")
-    print(
-        "  --offline-diarize       Use offline diarization (no token needed after setup)"
-    )
-    print(
-        "  --setup-offline         Download and set up offline diarization models (one-time setup)"
-    )
+    print("  --num-speakers [NUM]    Set exact number of speakers (optional)")
     print("\nFor more options:")
     print("  sonata-asr --help")
     print("\nExamples:")
     print("  sonata-asr input.wav")
     print("  sonata-asr input.wav -o transcript.json")
     print("  sonata-asr input.wav -d cuda --preprocess")
-    print("  sonata-asr input.wav --format concise --text-output transcript.txt")
-    print("  sonata-asr input.wav --diarize --hf-token YOUR_HF_TOKEN")
-    print("  sonata-asr input.wav --diarize --offline-diarize")
+    print("  sonata-asr input.wav --text-output")
+    print("  sonata-asr input.wav --diarize")
+    print("  sonata-asr input.wav --diarize --num-speakers 3")
     sys.exit(1)
 
 
@@ -234,249 +185,246 @@ def main():
     if args.deep_detect_parallel:
         args.deep_detect = True
 
-    # Handle offline diarization setup
-    if args.setup_offline:
-        if not args.hf_token:
-            print(
-                "Error: HuggingFace token is required for initial setup of offline diarization"
-            )
-            print("Please provide a token with the --hf-token option")
-            sys.exit(1)
-
-        try:
-            from sonata.core.offline_diarization import download_diarization_models
-
-            print("Setting up offline diarization models...")
-            save_dir = os.path.expanduser("~/.sonata/models")
-            result = download_diarization_models(args.hf_token, save_dir)
-
-            print(f"Offline diarization models setup complete!")
-            print(f"Configuration saved to: {result['config_path']}")
-            print(f"Model saved to: {result['model_path']}")
-            print("\nTo use offline diarization, run with:")
-            print(f"  sonata-asr path/to/audio.wav --diarize --offline-diarize")
-            sys.exit(0)
-        except Exception as e:
-            print(f"Error setting up offline diarization models: {str(e)}")
-            sys.exit(1)
-
-    # If no input file is provided, show usage and exit
+    # Show usage if no input file is provided
     if not args.input:
         show_usage_and_exit()
 
-    # Verify input file exists
-    if not os.path.exists(args.input):
-        print(f"Error: Input file '{args.input}' does not exist.")
-        show_usage_and_exit()
+    # Set up deep detect parameters
+    deep_detect_params = {}
+    if args.deep_detect:
+        deep_detect_params = {
+            "window_sizes": [
+                float(x.strip()) for x in args.deep_detect_window_sizes.split(",")
+            ],
+            "hop_sizes": [
+                float(x.strip()) for x in args.deep_detect_hop_sizes.split(",")
+            ],
+            "parallel": args.deep_detect_parallel,
+            "show_progress": args.deep_detect_progress,
+        }
 
-    # Check diarization token requirements
-    if args.diarize and not args.offline_diarize and not args.hf_token:
-        print("Error: Speaker diarization requires either:")
-        print("  - A HuggingFace token (--hf-token) for online mode")
-        print("  - Offline mode (--offline-diarize) with pre-configured models")
-        print(
-            "To set up offline mode, run: sonata-asr --setup-offline --hf-token YOUR_HF_TOKEN"
-        )
-        sys.exit(1)
-
-    # Verify offline configuration if requested
-    if args.offline_diarize:
-        if not os.path.exists(os.path.expanduser(args.offline_config)):
-            print(f"Error: Offline configuration file {args.offline_config} not found")
-            print("Please run: sonata-asr --setup-offline --hf-token YOUR_HF_TOKEN")
-            sys.exit(1)
-
-    # Create output filenames if not specified
-    input_basename = os.path.splitext(os.path.basename(args.input))[0]
-    if not args.output:
-        args.output = f"{input_basename}_transcript.json"
-
-    # Set up text output path
-    text_output = args.text_output
-    if text_output is None:
-        text_output = f"{input_basename}_transcript.txt"
-
-    # Create output directory if it doesn't exist
-    output_dir = os.path.dirname(args.output)
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    # Preprocess audio if requested
-    input_file = args.input
-    if args.preprocess:
-        print("Preprocessing audio...")
-        # Convert to WAV format
-        temp_wav = f"{input_basename}_temp.wav"
-        convert_audio_file(input_file, temp_wav)
-
-        # Trim silence
-        input_file = trim_silence(temp_wav)
-        print(f"Preprocessed audio saved to {input_file}")
-
-    # Load custom thresholds if specified
+    # Custom audio event thresholds
     custom_thresholds = None
     if args.custom_thresholds:
-        if not os.path.exists(args.custom_thresholds):
-            print(
-                f"Error: Custom thresholds file '{args.custom_thresholds}' does not exist."
-            )
-            sys.exit(1)
-
         try:
             with open(args.custom_thresholds, "r") as f:
                 custom_thresholds = json.load(f)
-            print(f"Loaded custom thresholds for {len(custom_thresholds)} event types")
+            print(
+                f"Loaded custom thresholds for {len(custom_thresholds)} audio event types"
+            )
         except Exception as e:
             print(f"Error loading custom thresholds: {str(e)}")
             sys.exit(1)
 
     # Initialize the transcriber
-    print(f"Initializing transcriber with {args.model} model on {args.device}...")
-
-    # Process deep detection parameters if provided
-    deep_detect_params = None
-    if args.deep_detect:
-        window_sizes = [float(x) for x in args.deep_detect_window_sizes.split(",")]
-        hop_sizes = [float(x) for x in args.deep_detect_hop_sizes.split(",")]
-
-        # Limit to the specified number of scales
-        if args.deep_detect_scales < len(window_sizes):
-            window_sizes = window_sizes[: args.deep_detect_scales]
-            hop_sizes = hop_sizes[: args.deep_detect_scales]
-
-        deep_detect_params = {
-            "window_sizes": window_sizes,
-            "hop_sizes": hop_sizes,
-            "parallel": args.deep_detect_parallel,
-            "show_progress": args.deep_detect_progress,
-        }
-
     transcriber = IntegratedTranscriber(
         asr_model=args.model,
         audio_model_path=args.audio_model,
         device=args.device,
-        offline_diarization=args.offline_diarize,
-        offline_config_path=args.offline_config if args.offline_diarize else None,
-        custom_audio_thresholds=custom_thresholds
-        if custom_thresholds is not None
-        else None,
+        custom_audio_thresholds=custom_thresholds,
         deep_detect=args.deep_detect,
         deep_detect_params=deep_detect_params,
     )
 
-    # Process audio
-    if args.split and os.path.getsize(input_file) > 10 * 1024 * 1024:  # If file > 10MB
-        print("Splitting large audio file...")
-        split_dir = f"{input_basename}_splits"
-        segments = split_audio(
-            input_file,
-            split_dir,
-            segment_length=args.split_length,
-            overlap=args.split_overlap,
+    # Process file or directory
+    if os.path.isdir(args.input):
+        print(f"Processing directory: {args.input}")
+
+        if args.output and not os.path.isdir(args.output):
+            os.makedirs(args.output, exist_ok=True)
+
+        for root, _, files in os.walk(args.input):
+            for file in files:
+                if file.endswith((".wav", ".mp3", ".ogg", ".flac", ".m4a")):
+                    input_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(input_path, args.input)
+                    base_name = os.path.splitext(rel_path)[0]
+
+                    if args.output:
+                        output_path = os.path.join(args.output, f"{base_name}.json")
+                        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                    else:
+                        output_dir = os.path.dirname(input_path)
+                        output_path = os.path.join(
+                            output_dir, f"{os.path.basename(base_name)}.json"
+                        )
+
+                    process_file(
+                        transcriber,
+                        input_path,
+                        output_path,
+                        args,
+                    )
+    else:
+        # Process a single file
+        if not os.path.exists(args.input):
+            print(f"Error: Input file not found: {args.input}")
+            sys.exit(1)
+
+        # Set default output path if not provided
+        output_path = args.output
+        if not output_path:
+            base_name = os.path.splitext(args.input)[0]
+            output_path = f"{base_name}.json"
+
+        # Process the audio file
+        process_file(
+            transcriber,
+            args.input,
+            output_path,
+            args,
         )
 
-        # Process each segment
-        print(f"Processing {len(segments)} segments...")
-        all_results = []
 
-        for i, segment in enumerate(segments):
-            print(f"Processing segment {i+1}/{len(segments)}...")
+def process_file(transcriber, input_path, output_path, args):
+    """Process a single audio file"""
+    print(f"Processing: {input_path}")
+
+    # Preprocessing if requested
+    processed_path = input_path
+    if args.preprocess:
+        print("Preprocessing audio...")
+        # Convert to WAV
+        wav_path = convert_audio_file(input_path)
+        # Trim silence
+        processed_path = trim_silence(wav_path)
+        print(f"Preprocessed audio saved to: {processed_path}")
+
+    # Set default text output path
+    base_name = os.path.splitext(output_path)[0]
+    text_output = f"{base_name}.txt"
+
+    # Handle splitting if requested
+    if args.split:
+        print(f"Splitting audio into {args.split_length}s segments...")
+        segments = split_audio(processed_path, args.split_length, args.split_overlap)
+
+        results = []
+        for i, segment_path in enumerate(segments):
+            print(f"Processing segment {i+1}/{len(segments)}: {segment_path}")
+
+            # Process each segment
             segment_result = transcriber.process_audio(
-                audio_path=segment["path"],
+                audio_path=segment_path,
                 language=args.language,
                 audio_threshold=args.threshold,
                 diarize=args.diarize,
                 num_speakers=args.num_speakers,
-                min_speakers=args.min_speakers,
-                max_speakers=args.max_speakers,
-                hf_token=args.hf_token,
             )
-            # Add segment info to result
-            segment_result["segment_info"] = {
+
+            # Add segment info
+            segment_result["segment"] = {
                 "index": i,
-                "start": segment["start"],
-                "end": segment["end"],
-                "overlap_start": segment["overlap_start"],
-                "overlap_end": segment["overlap_end"],
+                "path": segment_path,
+                "total_segments": len(segments),
             }
-            all_results.append(segment_result)
+
+            results.append(segment_result)
+
+        # Save segment results individually
+        base_path = os.path.splitext(output_path)[0]
+        for i, result in enumerate(results):
+            segment_output = f"{base_path}_segment_{i+1}.json"
+            transcriber.save_result(result, segment_output)
 
         # Merge results
-        merged_result = merge_segment_results(all_results)
-        result = merged_result
+        merged_result = merge_segment_results(results)
+        transcriber.save_result(merged_result, output_path)
+
+        # Save text output if requested
+        if args.text_output:
+            text_content = transcriber.get_plain_transcript(merged_result)
+            with open(text_output, "w", encoding="utf-8") as f:
+                f.write(text_content)
+            print(f"Formatted transcript saved to: {text_output}")
+
+        print(f"Merged transcript saved to: {output_path}")
     else:
-        print("Processing audio...")
+        # Process the entire file
         result = transcriber.process_audio(
-            audio_path=input_file,
+            audio_path=processed_path,
             language=args.language,
             audio_threshold=args.threshold,
             diarize=args.diarize,
             num_speakers=args.num_speakers,
-            min_speakers=args.min_speakers,
-            max_speakers=args.max_speakers,
-            hf_token=args.hf_token,
         )
 
-    # Save results
-    print(f"Saving transcript to {args.output}...")
-    transcriber.save_result(result, args.output)
+        # Save result
+        transcriber.save_result(result, output_path)
+        print(f"Transcript saved to: {output_path}")
 
-    # Save formatted text if requested
-    formatted_transcript = transcriber.get_formatted_transcript(result, args.format)
-    if args.text_output or text_output:
-        output_path = args.text_output or text_output
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(formatted_transcript)
-        print(f"Saved formatted transcript to {output_path}")
-
-    # Print a preview of the transcript
-    print("\nTranscript preview:")
-    plain_text = result["integrated_transcript"]["plain_text"]
-    print_preview = plain_text[:500] + "..." if len(plain_text) > 500 else plain_text
-    print(print_preview)
-
-    # Print completion message
-    print(f"\nProcessing complete. Full results saved to {args.output}")
-    if args.text_output or text_output:
-        print(f"Text transcript saved to {args.text_output or text_output}")
-
-    return None
+        # Save text output if requested
+        if args.text_output:
+            text_content = transcriber.get_plain_transcript(result)
+            with open(text_output, "w", encoding="utf-8") as f:
+                f.write(text_content)
+            print(f"Formatted transcript saved to: {text_output}")
 
 
 def merge_segment_results(segment_results):
-    """Merge results from multiple audio segments."""
+    """Merge results from multiple segments into a single output"""
     if not segment_results:
-        return None
+        return {
+            "segments": [],
+            "audio_events": [],
+            "integrated_transcript": {"plain_text": "", "rich_text": []},
+        }
 
     # Start with the first segment
-    merged_result = segment_results[0]
-
-    # Merge rich text from all segments
-    rich_text = merged_result["integrated_transcript"]["rich_text"]
-
-    for segment in segment_results[1:]:
-        rich_text.extend(segment["integrated_transcript"]["rich_text"])
-
-    # Sort by start time
-    rich_text.sort(key=lambda x: x["start"])
-
-    # Regenerate plain text
-    plain_text = " ".join([item["content"] for item in rich_text])
-
-    # Update merged result
-    merged_result["integrated_transcript"] = {
-        "plain_text": plain_text,
-        "rich_text": rich_text,
+    merged = {
+        "segments": [],
+        "audio_events": [],
+        "integrated_transcript": {"plain_text": "", "rich_text": []},
     }
 
-    # Merge audio events
-    all_audio_events = merged_result["audio_events"]
-    for segment in segment_results[1:]:
-        all_audio_events.extend(segment["audio_events"])
+    # Track time offset for each segment
+    time_offset = 0
 
-    merged_result["audio_events"] = all_audio_events
+    for result in segment_results:
+        # Adjust timestamps in segments
+        for segment in result.get("segments", []):
+            adjusted_segment = segment.copy()
+            adjusted_segment["start"] += time_offset
+            adjusted_segment["end"] += time_offset
 
-    return merged_result
+            if "words" in adjusted_segment:
+                for word in adjusted_segment["words"]:
+                    word["start"] += time_offset
+                    word["end"] += time_offset
+
+            merged["segments"].append(adjusted_segment)
+
+        # Adjust timestamps in audio events
+        for event in result.get("audio_events", []):
+            adjusted_event = event.copy()
+            adjusted_event["start"] += time_offset
+            adjusted_event["end"] += time_offset
+            merged["audio_events"].append(adjusted_event)
+
+        # Get the maximum time from this segment
+        max_time = 0
+        for segment in result.get("segments", []):
+            max_time = max(max_time, segment.get("end", 0))
+
+        for event in result.get("audio_events", []):
+            max_time = max(max_time, event.get("end", 0))
+
+        # Update offset for next segment (accounting for overlap)
+        time_offset += max_time
+
+        # Append to integrated transcript
+        if "integrated_transcript" in result:
+            if merged["integrated_transcript"]["plain_text"]:
+                merged["integrated_transcript"]["plain_text"] += " "
+            merged["integrated_transcript"]["plain_text"] += result[
+                "integrated_transcript"
+            ].get("plain_text", "")
+
+            merged["integrated_transcript"]["rich_text"].extend(
+                result["integrated_transcript"].get("rich_text", [])
+            )
+
+    return merged
 
 
 if __name__ == "__main__":
