@@ -9,7 +9,7 @@ from typing import Dict, List, Union, Tuple, Optional
 import concurrent.futures
 from sonata.core.asr import ASRProcessor
 from sonata.core.audio_event_detector import AudioEventDetector, AudioEvent
-from sonata.core.custom_diarization import CustomDiarizer, SpeakerSegment
+from sonata.core.speaker_diarization import SpeakerDiarizer, SpeakerSegment
 from sonata.constants import (
     AUDIO_EVENT_THRESHOLD,
     DEFAULT_MODEL,
@@ -184,9 +184,9 @@ class IntegratedTranscriber:
         if diarize:
             self.logger.info("Running speaker diarization...")
             try:
-                # Use the new custom diarizer
-                custom_diarizer = CustomDiarizer(device=self.device)
-                diarize_segments = custom_diarizer.diarize(
+                # Use the speaker diarizer
+                diarizer = SpeakerDiarizer(device=self.device)
+                diarize_segments = diarizer.diarize(
                     audio_path=audio_path, num_speakers=num_speakers, show_progress=True
                 )
 

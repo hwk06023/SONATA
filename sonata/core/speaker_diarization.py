@@ -29,7 +29,7 @@ class SpeakerSegment:
     overlap_speakers: List[str] = None
 
 
-class CustomDiarizer:
+class SpeakerDiarizer:
     def __init__(self, device="cpu"):
         self.device = device
         self.logger = logging.getLogger(__name__)

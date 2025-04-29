@@ -108,6 +108,12 @@ SONATA can detect over 500 different audio events, from laughter and applause to
 
 [🎵 See audio events documentation](https://github.com/hwk06023/SONATA/blob/main/docs/AUDIO_EVENTS.md)
 
+## 👥 Speaker Diarization
+
+SONATA provides state-of-the-art speaker diarization to identify and separate different speakers in recordings. The system uses Silero VAD for speech detection and WavLM embeddings for speaker identification, making it ideal for transcribing multi-speaker content like meetings, interviews, and podcasts.
+
+[🎙️ See speaker diarization documentation](https://github.com/hwk06023/SONATA/blob/main/docs/SPEAKER_DIARIZATION.md)
+
 ## 🚀 Next Steps
 
 - 🧠 Advanced ASR model diversity
@@ -131,7 +137,11 @@ This project is licensed under the GNU General Public License v3.0.
 - [WhisperX](https://github.com/m-bain/whisperX) - Fast speech recognition
 - [AudioSet AST](https://github.com/YuanGongND/ast) - Audio event detection
   - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - Pretrained model for audio event classification
-- [Silero VAD](https://github.com/snakers4/silero-vad) - Voice activity detection
+- [Silero VAD](https://github.com/snakers4/silero-vad) - Voice activity detection for speaker diarization
 - [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) - Microsoft's advanced audio understanding model
-  - [microsoft/wavlm-base-plus-sv](https://huggingface.co/microsoft/wavlm-base-plus-sv) - Speaker verification model
-- [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP tools
+  - [microsoft/wavlm-base-plus-sv](https://huggingface.co/microsoft/wavlm-base-plus-sv) - Speaker verification model for speaker embeddings
+- [SpeechBrain](https://github.com/speechbrain/speechbrain) - Speaker diarization and embedding extraction
+- [PyAnnote](https://github.com/pyannote) - Advanced speaker diarization toolkit
+  - [pyannote/segmentation](https://github.com/pyannote/pyannote-audio) - Speaker change detection
+  - [pyannote/clustering](https://github.com/pyannote/pyannote-audio) - Speaker clustering
+- [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP tools and transformer models
