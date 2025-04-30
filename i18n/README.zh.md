@@ -12,24 +12,24 @@
 <a href="README.ja.md">日本語</a>
 </div>
 
-**SOund and Narrative Advanced Transcription Assistant**
+**声音和叙事高级转录助手 (SOund and Narrative Advanced Transcription Assistant)**
 
-SONATA 是一个先进的 ASR(Automatic Speech Recognition) 系统，能够捕捉包括情感声音和非语言线索在内的人类表达。
+SONATA是一个先进的ASR（自动语音识别）系统，能够捕捉人类表达中的情感表现和非语言信号。
 
 ## ✨ Features
 
-- 🎙️ 使用 WhisperX 的高精度 speech-to-text 转换
-- 😀 识别 523+ 种 emotive sound 和 non-verbal cue
-- 🌍 支持 10 种语言
-- 👥 支持多说话人转录的 speaker diarization（在线和离线模式）
-- ⏱️ 单词级的精确 timestamp 信息
+- 🎙️ 使用WhisperX进行高精度 speech-to-text 转换
+- 😀 识别523+种 emotive sound 和 non-verbal cue
+- 🌍 支持99+种语言
+- 👥 多说话人转录的 speaker diarization（在线和离线模式）
+- ⏱️ 精确到单词级别的 timestamp 信息
 - 🔄 音频 preprocessing 功能
 
 [📚 查看详细功能文档](https://hwk06023.github.io/SONATA/FEATURES.html)
 
 ## 🚀 Installation
 
-从 PyPI 安装：
+通过PyPI安装软件包：
 
 ```bash
 pip install sonata-asr
@@ -58,78 +58,91 @@ result = transcriber.process_audio("path/to/audio.wav", language="zh")
 print(result["integrated_transcript"]["plain_text"])
 ```
 
-### 命令行使用
+### 使用 CLI
 
 ```bash
 # 基本用法
 sonata-asr path/to/audio.wav
 
-# 使用说话人分离
+# 使用 speaker diarization 功能
 sonata-asr path/to/audio.wav --diarize
 
-# 设置已知的说话人数量
+# 当知道说话人数量时设置
 sonata-asr path/to/audio.wav --diarize --num-speakers 3
 ```
 
-> **注意:** 在线说话人分离需要获得 [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) 和 [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) 两个模型的访问权限。请访问这两个模型页面并接受各自的使用条款以获取访问权限。
-
-#### 常用 CLI 选项:
+#### 主要 CLI 选项：
 
 ```
-一般选项:
-  -o, --output FILE           将转录结果保存到指定的 JSON 文件
-  -l, --language LANG         语言代码 (en, ko, zh, ja, fr, de, es, it, pt, ru)
-  -m, --model NAME            WhisperX 模型大小 (tiny, small, medium, large-v3 等)
-  -d, --device DEVICE         运行模型的设备 (cpu, cuda)
-  --text-output               将转录文本保存到文本文件 (默认: input_name.txt)
-  --preprocess                音频预处理 (格式转换和静音剪裁)
+通用：
+  -o, --output FILE           将转录结果保存到指定的JSON文件
+  -l, --language LANG         语言代码（en, ko, zh, ja, fr, de, es, it, pt, ru）
+  -m, --model NAME            WhisperX模型大小（tiny, small, medium, large-v3等）
+  -d, --device DEVICE         模型运行设备（cpu, cuda）
+  --text-output               将转录结果保存到文本文件（默认：input_name.txt）
+  --preprocess                音频 preprocessing（格式转换和静音移除）
 
-说话人分离:
-  --diarize                   使用 Silero VAD 和 WavLM 进行 SOTA 说话人分离
-  --num-speakers NUM          设置确切的说话人数量 (可选)
+Diarization：
+  --diarize                   启用使用Silero VAD和WavLM的SOTA speaker diarization
+  --num-speakers NUM          设置准确的说话人数量（可选）
 
-音频事件:
-  --threshold VALUE           音频事件检测阈值 (0.0-1.0)
-  --custom-thresholds FILE    自定义音频事件阈值的 JSON 文件路径
-  --deep-detect               启用多尺度音频事件检测以提高准确性
-  --deep-detect-scales NUM    深度检测的尺度数量 (1-3, 默认: 3)
-  --deep-detect-window-sizes  深度检测的自定义窗口大小 (用逗号分隔)
-  --deep-detect-hop-sizes     深度检测的自定义跳跃大小 (用逗号分隔)
+Audio Event：
+  --threshold VALUE           音频事件检测阈值（0.0-1.0）
+  --custom-thresholds FILE    包含自定义音频事件阈值的JSON文件路径
+  --deep-detect               启用多尺度音频事件检测（提高准确性）
+  --deep-detect-scales NUM    deep detection 的尺度数量（1-3，默认：3）
+  --deep-detect-window-sizes  deep detection 的自定义窗口大小（逗号分隔）
+  --deep-detect-hop-sizes     deep detection 的自定义跳跃大小（逗号分隔）
 ```
 
 [📚 查看完整使用文档](https://hwk06023.github.io/SONATA/USAGE.html)  
-[⌨️ 查看完整命令行文档](https://hwk06023.github.io/SONATA/CLI.html)  
-[🎤 查看离线说话人分离指南](https://hwk06023.github.io/SONATA/OFFLINE_DIARIZATION.html)
+[⌨️ 查看完整CLI文档](https://hwk06023.github.io/SONATA/CLI.html)  
+[🎤 查看离线 diarization 指南](https://hwk06023.github.io/SONATA/OFFLINE_DIARIZATION.html)
 
 ## 🗣️ Supported Languages
 
-SONATA 支持 10 种语言，包括英语、韩语、中文、日语、法语、德语、西班牙语、意大利语、葡萄牙语和俄语。
+SONATA利用Whisper large-v3支持99+种不同精度水平的语言。英语、西班牙语、法语、德语和日语等展示出优秀的转录性能（5-12%的错误率），其他语言也提供从良好到中等的精度。
 
-[🌐 查看语言文档](https://hwk06023.github.io/SONATA/LANGUAGES.html)
+SONATA的主要语言支持特点：
+- 主要语言的出色准确度
+- 对中文、日语、韩语等语言应用基于字符的评估（CER）
+- 针对语言特定特性的专门处理
+- 对多语言内容的高级自动检测
+
+[🌐 查看详细语言支持文档](https://hwk06023.github.io/SONATA/LANGUAGES.html)
 
 ## 🔊 Audio Event Detection
 
-SONATA 可以检测 500 多种不同的音频事件，从笑声、掌声到环境声音和音乐。通过自定义事件检测阈值功能，您可以针对特定音频事件调整敏感度，以适应播客分析、会议记录或自然声音分析等各种用途。
+SONATA能够检测500多种不同的音频事件，从笑声、掌声到环境声音和音乐。通过自定义事件检测阈值功能，可以针对不同应用场景（如播客分析、会议录音、自然声音分析）调整特定音频事件的敏感度。
 
 [🎵 查看音频事件文档](https://hwk06023.github.io/SONATA/AUDIO_EVENTS.html)
 
 ## 🚀 Next Steps
 
-- 🧠 丰富高级 ASR 模型多样性
-- 😢 提升情感检测能力
-- 🔊 改进 speaker diarization 效果
-- ⚡ 优化性能表现
-- 🛠️ 修复深度检测模式中的并行处理问题以提高可靠性
+- 🧠 多样化高级 ASR 模型
+- 😢 增强 emotion detection
+- 🔊 改进 speaker diarization
+- ⚡ 性能优化
+- 🛠️ 通过修复 deep detection 模式的并行处理问题提高稳定性
 
 ## 🤝 Contributing
 
-Contributing 欢迎！请随时提交拉取请求。
+我们欢迎多种形式的贡献！您可以通过多种方式为SONATA做出贡献，包括代码改进、文档编写、测试和错误报告。我们的综合贡献指南涵盖：
+
+- 开发环境设置
+- 编码标准和最佳实践
+- 测试程序
+- 拉取请求工作流程
+- 文档指南
+- 语言特定考虑因素
+
+无论您是经验丰富的开发者还是开源新手，我们都欢迎所有贡献。
 
 [📝 查看贡献指南](https://hwk06023.github.io/SONATA/CONTRIBUTING.html)
 
 ## 📄 License
 
-本项目采用 GNU 通用公共许可证 v3.0 授权。
+本项目采用GNU通用公共许可证v3.0授权。
 
 ## 🙏 Acknowledgements
 
@@ -137,6 +150,6 @@ Contributing 欢迎！请随时提交拉取请求。
 - [AudioSet AST](https://github.com/YuanGongND/ast) - 音频事件检测
   - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - 用于音频事件分类的预训练模型
 - [Silero VAD](https://github.com/snakers4/silero-vad) - 语音活动检测
-- [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) - 微软的高级音频理解模型
+- [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) - 微软高级音频理解模型
   - [microsoft/wavlm-base-plus-sv](https://huggingface.co/microsoft/wavlm-base-plus-sv) - 说话人验证模型
-- [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP 工具 
+- [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP工具 
