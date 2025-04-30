@@ -1,0 +1,102 @@
+{
+  "raw_asr": {
+    "segments": [
+      {
+        "start": 2.062,
+        "end": 4.034,
+        "text": " I'm hungry.",
+        "words": [
+          {
+            "word": "I'm",
+            "start": 2.062,
+            "end": 2.182,
+            "score": 0.363
+          },
+          {
+            "word": "hungry.",
+            "start": 3.833,
+            "end": 4.034,
+            "score": 0.217
+          }
+        ]
+      }
+    ],
+    "word_segments": [
+      {
+        "word": "I'm",
+        "start": 2.062,
+        "end": 2.182,
+        "score": 0.363
+      },
+      {
+        "word": "hungry.",
+        "start": 3.833,
+        "end": 4.034,
+        "score": 0.217
+      }
+    ]
+  },
+  "audio_events": [
+    {
+      "type": "sigh",
+      "start": 1.5,
+      "end": 3.5,
+      "confidence": 0.8481593132019043
+    },
+    {
+      "type": "sigh",
+      "start": 0.0,
+      "end": 6.1765,
+      "confidence": 0.7542628049850464
+    },
+    {
+      "type": "gasp",
+      "start": 2.5,
+      "end": 3.5,
+      "confidence": 0.3069184720516205
+    }
+  ],
+  "integrated_transcript": {
+    "plain_text": "[sigh] [sigh] I'm [gasp] hungry.",
+    "rich_text": [
+      {
+        "type": "audio_event",
+        "content": "[sigh]",
+        "event_type": "sigh",
+        "start": 0.0,
+        "end": 6.1765,
+        "confidence": 0.7542628049850464
+      },
+      {
+        "type": "audio_event",
+        "content": "[sigh]",
+        "event_type": "sigh",
+        "start": 1.5,
+        "end": 3.5,
+        "confidence": 0.8481593132019043
+      },
+      {
+        "type": "word",
+        "content": "I'm",
+        "start": 2.062,
+        "end": 2.182,
+        "score": 0.363
+      },
+      {
+        "type": "audio_event",
+        "content": "[gasp]",
+        "event_type": "gasp",
+        "start": 2.5,
+        "end": 3.5,
+        "confidence": 0.3069184720516205
+      },
+      {
+        "type": "word",
+        "content": "hungry.",
+        "start": 3.833,
+        "end": 4.034,
+        "score": 0.217
+      }
+    ]
+  }
+}
