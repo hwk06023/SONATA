@@ -97,7 +97,7 @@ Audio Event：
 
 [📚 全使用法ドキュメントを見る](https://hwk06023.github.io/SONATA/USAGE.html)  
 [⌨️ 全CLIドキュメントを見る](https://hwk06023.github.io/SONATA/CLI.html)  
-[🎤 オフライン diarization ガイドを見る](https://hwk06023.github.io/SONATA/OFFLINE_DIARIZATION.html)
+[🎤 話者分離ガイドを見る](https://hwk06023.github.io/SONATA/SPEAKER_DIARIZATION.html)
 
 ## 🗣️ Supported Languages
 

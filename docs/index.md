@@ -78,7 +78,7 @@ graph TD
       <i class="fas fa-users"></i>
     </div>
     <h3>Speaker Diarization</h3>
-    <p>Identify and label different speakers in conversations with online and offline modes.</p>
+    <p>Identify and label different speakers in conversations with Silero VAD and WavLM embeddings.</p>
   </div>
   
   <div class="feature-card">
@@ -133,7 +133,7 @@ print(result["integrated_transcript"]["plain_text"])
 sonata-asr path/to/audio.wav
 
 # With speaker diarization
-sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
+sonata-asr path/to/audio.wav --diarize --num-speakers 3
 ```
     </div>
   </div>
@@ -196,10 +196,10 @@ sonata-asr path/to/audio.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
     </div>
   </a>
   
-  <a href="{{ '/OFFLINE_DIARIZATION' | relative_url }}" class="card-link">
+  <a href="{{ '/SPEAKER_DIARIZATION' | relative_url }}" class="card-link">
     <div class="card">
-      <h3><i class="fas fa-users-cog"></i> Offline Diarization</h3>
-      <p>Guide to using speaker diarization in offline mode</p>
+      <h3><i class="fas fa-users-cog"></i> Speaker Diarization</h3>
+      <p>Guide to using speaker diarization to identify different speakers</p>
     </div>
   </a>
 </div> 

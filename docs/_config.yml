@@ -73,7 +73,7 @@ header_pages:
   - USAGE.md
   - CLI.md
   - AUDIO_EVENTS.md
-  - OFFLINE_DIARIZATION.md
+  - SPEAKER_DIARIZATION.md
 
 # Lunr search settings
 lunr_search:
