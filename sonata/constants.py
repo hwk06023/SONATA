@@ -157,6 +157,7 @@ DEFAULT_LANGUAGE = LanguageCode.ENGLISH.value
 DEFAULT_MODEL = "large-v3"
 DEFAULT_DEVICE = "cpu"
 DEFAULT_COMPUTE_TYPE = "float32"
+DEFAULT_EMBEDDING_MODEL = "wavlm"  # Speaker embedding model (wavlm, ecapa, etc.)
 
 # Split settings
 DEFAULT_SPLIT_LENGTH = 30  # Length of split segments in seconds
