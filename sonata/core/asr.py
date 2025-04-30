@@ -160,7 +160,7 @@ class ASRProcessor:
         show_progress: bool = True,
         offline_mode: bool = False,
         offline_config_path: Optional[str] = None,
-        embedding_model: str = "ecapa",
+        embedding_model: str = "wavlm",
         clustering_method: str = "agglomerative",
         enhance_vad: bool = True,
     ):
@@ -171,7 +171,7 @@ class ASRProcessor:
             show_progress: Whether to display progress messages
             offline_mode: Whether to use offline mode
             offline_config_path: Path to offline config.yaml file
-            embedding_model: Speaker embedding model type ('ecapa', 'resnet', 'xvector')
+            embedding_model: Speaker embedding model type ('wavlm', 'ecapa', 'resnet', 'xvector')
             clustering_method: Clustering method ('agglomerative', 'spectral')
             enhance_vad: Whether to use enhanced voice activity detection
         """
@@ -733,7 +733,7 @@ class ASRProcessor:
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
         hf_token: Optional[str] = None,
-        embedding_model: str = "ecapa",
+        embedding_model: str = "wavlm",
         enhance_vad: bool = True,
         use_enhanced_diarization: bool = True,
     ) -> Dict:
@@ -2471,8 +2471,9 @@ class ASRProcessor:
         """Extract state-of-the-art speaker embeddings for each segment.
 
         Uses multiple speaker embedding techniques:
-        1. ECAPA-TDNN from SpeechBrain (state-of-the-art as of 2023)
-        2. WavLM/Wav2Vec2 embeddings as additional features
+        1. WavLM Base Plus SV (primary method)
+        2. ECAPA-TDNN from SpeechBrain (fallback)
+        3. MFCC features as last resort
 
         Args:
             audio_path: Path to the audio file
@@ -2536,7 +2537,7 @@ class ASRProcessor:
                             pbar.update(1)
                         continue
 
-                    # 1. Try to get embeddings from diarization model
+                    # 1. Try to get WavLM embeddings (primary method)
                     model_embedding = None
                     if has_embedding_extractor:
                         try:
@@ -2572,59 +2573,63 @@ class ASRProcessor:
                         except Exception as e:
                             model_embedding = None
 
-                    # 2. Try SpeechBrain ECAPA-TDNN (superior speaker embeddings)
+                    # 2. Try SpeechBrain ECAPA-TDNN as fallback
                     ecapa_embedding = None
-                    try:
-                        import speechbrain as sb
+                    if model_embedding is None:
+                        try:
+                            import speechbrain as sb
 
-                        # Check if we already have the embedding model
-                        if not hasattr(self, "embed_model") or self.embed_model is None:
-                            # Load the ECAPA-TDNN model
-                            self.embed_model = (
-                                sb.pretrained.EncoderClassifier.from_hparams(
+                            # Check if we already have the embedding model
+                            if (
+                                not hasattr(self, "embed_model")
+                                or self.embed_model is None
+                            ):
+                                # Load the ECAPA-TDNN model
+                                self.embed_model = sb.pretrained.EncoderClassifier.from_hparams(
                                     source="speechbrain/spkrec-ecapa-voxceleb",
                                     savedir="pretrained_models/spkrec-ecapa-voxceleb",
                                     run_opts={"device": device},
                                 )
-                            )
-                            has_ecapa_model = True
+                                has_ecapa_model = True
 
-                        # Extract the segment
-                        audio_obj = AudioSegment.from_file(audio_path)
-                        start_ms = int(start_time * 1000)
-                        end_ms = int(end_time * 1000)
-                        segment_audio = audio_obj[start_ms:end_ms]
+                            # Extract the segment
+                            audio_obj = AudioSegment.from_file(audio_path)
+                            start_ms = int(start_time * 1000)
+                            end_ms = int(end_time * 1000)
+                            segment_audio = audio_obj[start_ms:end_ms]
 
-                        # Save to temporary file
-                        with tempfile.NamedTemporaryFile(
-                            suffix=".wav", delete=False
-                        ) as tmp_file:
-                            temp_path = tmp_file.name
+                            # Save to temporary file
+                            with tempfile.NamedTemporaryFile(
+                                suffix=".wav", delete=False
+                            ) as tmp_file:
+                                temp_path = tmp_file.name
 
-                        segment_audio.export(temp_path, format="wav")
+                            segment_audio.export(temp_path, format="wav")
 
-                        try:
-                            # Extract embedding with SpeechBrain
-                            with torch.no_grad():
-                                signal, fs = self.embed_model.load_audio(temp_path)
-                                batch = signal.unsqueeze(0).to(device)
-                                ecapa_embedding = self.embed_model.encode_batch(batch)
-                                ecapa_embedding = (
-                                    ecapa_embedding.squeeze().cpu().numpy()
-                                )
-                                ecapa_embeddings.append(ecapa_embedding)
-                        finally:
-                            # Clean up temp file
-                            if os.path.exists(temp_path):
-                                os.unlink(temp_path)
-                    except Exception as e:
-                        ecapa_embedding = None
+                            try:
+                                # Extract embedding with SpeechBrain
+                                with torch.no_grad():
+                                    signal, fs = self.embed_model.load_audio(temp_path)
+                                    batch = signal.unsqueeze(0).to(device)
+                                    ecapa_embedding = self.embed_model.encode_batch(
+                                        batch
+                                    )
+                                    ecapa_embedding = (
+                                        ecapa_embedding.squeeze().cpu().numpy()
+                                    )
+                                    ecapa_embeddings.append(ecapa_embedding)
+                            finally:
+                                # Clean up temp file
+                                if os.path.exists(temp_path):
+                                    os.unlink(temp_path)
+                        except Exception as e:
+                            ecapa_embedding = None
 
-                    # Decide which embedding to use (prefer ECAPA-TDNN if available)
-                    if ecapa_embedding is not None:
-                        embeddings.append(ecapa_embedding)
-                    elif model_embedding is not None:
+                    # Decide which embedding to use (prefer WavLM if available)
+                    if model_embedding is not None:
                         embeddings.append(model_embedding)
+                    elif ecapa_embedding is not None:
+                        embeddings.append(ecapa_embedding)
                     else:
                         # Last resort: Use MFCC features if everything else fails
                         try:
@@ -2672,14 +2677,14 @@ class ASRProcessor:
                 pbar.close()
 
             # Provide information about which embeddings we're using
-            if ecapa_embeddings and len(ecapa_embeddings) == len(embeddings):
+            if wavlm_embeddings and len(wavlm_embeddings) == len(embeddings):
+                if show_progress:
+                    print(f"[ASR] Using WavLM embeddings ({len(embeddings)} segments)")
+            elif ecapa_embeddings and len(ecapa_embeddings) == len(embeddings):
                 if show_progress:
                     print(
                         f"[ASR] Using ECAPA-TDNN embeddings ({len(embeddings)} segments)"
                     )
-            elif wavlm_embeddings and len(wavlm_embeddings) == len(embeddings):
-                if show_progress:
-                    print(f"[ASR] Using WavLM embeddings ({len(embeddings)} segments)")
             else:
                 if show_progress:
                     print(f"[ASR] Using mixed embeddings ({len(embeddings)} segments)")
