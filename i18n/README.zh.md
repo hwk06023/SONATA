@@ -25,7 +25,7 @@ SONATA 是一个先进的 ASR(Automatic Speech Recognition) 系统，能够捕�
 - ⏱️ 单词级的精确 timestamp 信息
 - 🔄 音频 preprocessing 功能
 
-[📚 查看详细功能文档](../docs/FEATURES.md)
+[📚 查看详细功能文档](https://hwk06023.github.io/SONATA/FEATURES.html)
 
 ## 🚀 Installation
 
@@ -97,21 +97,21 @@ sonata-asr path/to/audio.wav --diarize --num-speakers 3
   --deep-detect-hop-sizes     深度检测的自定义跳跃大小 (用逗号分隔)
 ```
 
-[📚 查看完整使用文档](../docs/USAGE.md)  
-[⌨️ 查看完整命令行文档](../docs/CLI.md)  
-[🎤 查看离线说话人分离指南](../docs/OFFLINE_DIARIZATION.md)
+[📚 查看完整使用文档](https://hwk06023.github.io/SONATA/USAGE.html)  
+[⌨️ 查看完整命令行文档](https://hwk06023.github.io/SONATA/CLI.html)  
+[🎤 查看离线说话人分离指南](https://hwk06023.github.io/SONATA/OFFLINE_DIARIZATION.html)
 
 ## 🗣️ Supported Languages
 
 SONATA 支持 10 种语言，包括英语、韩语、中文、日语、法语、德语、西班牙语、意大利语、葡萄牙语和俄语。
 
-[🌐 查看语言文档](../docs/LANGUAGES.md)
+[🌐 查看语言文档](https://hwk06023.github.io/SONATA/LANGUAGES.html)
 
 ## 🔊 Audio Event Detection
 
 SONATA 可以检测 500 多种不同的音频事件，从笑声、掌声到环境声音和音乐。通过自定义事件检测阈值功能，您可以针对特定音频事件调整敏感度，以适应播客分析、会议记录或自然声音分析等各种用途。
 
-[🎵 查看音频事件文档](../docs/AUDIO_EVENTS.md)
+[🎵 查看音频事件文档](https://hwk06023.github.io/SONATA/AUDIO_EVENTS.html)
 
 ## 🚀 Next Steps
 
@@ -125,7 +125,7 @@ SONATA 可以检测 500 多种不同的音频事件，从笑声、掌声到环�
 
 Contributing 欢迎！请随时提交拉取请求。
 
-[📝 查看贡献指南](../docs/CONTRIBUTING.md)
+[📝 查看贡献指南](https://hwk06023.github.io/SONATA/CONTRIBUTING.html)
 
 ## 📄 License
 

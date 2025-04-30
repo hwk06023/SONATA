@@ -23,7 +23,7 @@ SONATA(SOund and Narrative Advanced Transcription Assistant) is advanced ASR sys
 - ⏱️ Rich timestamp information at the word level
 - 🔄 Audio preprocessing capabilities
 
-[📚 See detailed features documentation](https://github.com/hwk06023/SONATA/blob/main/docs/FEATURES.md)
+[📚 See detailed features documentation](https://hwk06023.github.io/SONATA/FEATURES.html)
 
 ## 🚀 Installation
 
@@ -93,26 +93,26 @@ Audio Events:
   --deep-detect-hop-sizes     Custom hop sizes for deep detection (comma-separated)
 ```
 
-[📚 See full usage documentation](https://github.com/hwk06023/SONATA/blob/main/docs/USAGE.md)  
-[⌨️ See complete CLI documentation](https://github.com/hwk06023/SONATA/blob/main/docs/CLI.md)
+[📚 See full usage documentation](https://hwk06023.github.io/SONATA/USAGE.html)  
+[⌨️ See complete CLI documentation](https://hwk06023.github.io/SONATA/CLI.html)
 
 ## 🗣️ Supported Languages
 
 SONATA supports 10 languages including English, Korean, Chinese, Japanese, French, German, Spanish, Italian, Portuguese, and Russian.
 
-[🌐 See languages documentation](https://github.com/hwk06023/SONATA/blob/main/docs/LANGUAGES.md)
+[🌐 See languages documentation](https://hwk06023.github.io/SONATA/LANGUAGES.html)
 
 ## 🔊 Audio Event Detection
 
 SONATA can detect over 500 different audio events, from laughter and applause to ambient sounds and music. The customizable event detection thresholds allow you to fine-tune sensitivity for specific audio events to match your unique use cases, such as podcast analysis, meeting transcription, or nature recording analysis.
 
-[🎵 See audio events documentation](https://github.com/hwk06023/SONATA/blob/main/docs/AUDIO_EVENTS.md)
+[🎵 See audio events documentation](https://hwk06023.github.io/SONATA/AUDIO_EVENTS.html)
 
 ## 👥 Speaker Diarization
 
 SONATA provides state-of-the-art speaker diarization to identify and separate different speakers in recordings. The system uses Silero VAD for speech detection and WavLM embeddings for speaker identification, making it ideal for transcribing multi-speaker content like meetings, interviews, and podcasts.
 
-[🎙️ See speaker diarization documentation](https://github.com/hwk06023/SONATA/blob/main/docs/SPEAKER_DIARIZATION.md)
+[🎙️ See speaker diarization documentation](https://hwk06023.github.io/SONATA/SPEAKER_DIARIZATION.html)
 
 ## 🚀 Next Steps
 
@@ -126,7 +126,7 @@ SONATA provides state-of-the-art speaker diarization to identify and separate di
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-[📝 See contribution guidelines](https://github.com/hwk06023/SONATA/blob/main/docs/CONTRIBUTING.md)
+[📝 See contribution guidelines](https://hwk06023.github.io/SONATA/CONTRIBUTING.html)
 
 ## 📄 License
 

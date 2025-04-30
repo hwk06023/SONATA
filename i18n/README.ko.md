@@ -25,7 +25,7 @@ SONATA는 감정 표현과 비언어적 신호를 포함한 인간의 표현을 
 - ⏱️ 단어 수준의 정확한 timestamp 정보
 - 🔄 오디오 preprocessing 기능
 
-[📚 자세한 기능 문서 보기](../docs/FEATURES.md)
+[📚 자세한 기능 문서 보기](https://hwk06023.github.io/SONATA/FEATURES.html)
 
 ## 🚀 Installation
 
@@ -95,21 +95,21 @@ sonata-asr path/to/audio.wav --diarize --num-speakers 3
   --deep-detect-hop-sizes     딥 감지를 위한 사용자 정의 홉 크기 (쉼표로 구분)
 ```
 
-[📚 전체 사용법 문서 보기](../docs/USAGE.md)  
-[⌨️ 전체 CLI 문서 보기](../docs/CLI.md)  
-[🎤 오프라인 다이어리제이션 가이드 보기](../docs/OFFLINE_DIARIZATION.md)
+[📚 전체 사용법 문서 보기](https://hwk06023.github.io/SONATA/USAGE.html)  
+[⌨️ 전체 CLI 문서 보기](https://hwk06023.github.io/SONATA/CLI.html)  
+[🎤 오프라인 다이어리제이션 가이드 보기](https://hwk06023.github.io/SONATA/OFFLINE_DIARIZATION.html)
 
 ## 🗣️ Supported Languages
 
 SONATA는 영어, 한국어, 중국어, 일본어, 프랑스어, 독일어, 스페인어, 이탈리아어, 포르투갈어, 러시아어 등 10개 언어를 지원합니다.
 
-[🌐 언어 문서 보기](../docs/LANGUAGES.md)
+[🌐 언어 문서 보기](https://hwk06023.github.io/SONATA/LANGUAGES.html)
 
 ## 🔊 Audio Event Detection
 
 SONATA는 웃음소리, 박수 소리부터 주변 소리, 음악까지 500개 이상의 다양한 오디오 이벤트를 감지할 수 있습니다. 사용자 정의 이벤트 감지 임계값 기능을 통해 팟캐스트 분석, 회의 녹취, 자연 소리 분석 등 다양한 용도에 맞게 특정 오디오 이벤트의 감도를 미세 조정할 수 있습니다.
 
-[🎵 오디오 이벤트 문서 보기](../docs/AUDIO_EVENTS.md)
+[🎵 오디오 이벤트 문서 보기](https://hwk06023.github.io/SONATA/AUDIO_EVENTS.html)
 
 ## 🚀 Next Steps
 
@@ -123,7 +123,7 @@ SONATA는 웃음소리, 박수 소리부터 주변 소리, 음악까지 500개 �
 
 Contribution은 언제나 환영합니다! 풀 리퀘스트를 자유롭게 제출해 주세요.
 
-[📝 기여 가이드라인 보기](../docs/CONTRIBUTING.md)
+[📝 기여 가이드라인 보기](https://hwk06023.github.io/SONATA/CONTRIBUTING.html)
 
 ## 📄 License
 
