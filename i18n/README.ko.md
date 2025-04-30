@@ -20,7 +20,7 @@ SONATA는 감정 표현과 비언어적 신호를 포함한 인간의 표현을 
 
 - 🎙️ WhisperX를 사용한 고정확도 speech-to-text 변환
 - 😀 523종 이상의 emotive sound와 non-verbal cue 인식
-- 🌍 10개 언어 지원
+- 🌍 99개 이상의 언어 지원
 - 👥 다중 화자 전사를 위한 speaker diarization(온라인 및 오프라인 모드)
 - ⏱️ 단어 수준의 정확한 timestamp 정보
 - 🔄 오디오 preprocessing 기능
@@ -101,9 +101,15 @@ sonata-asr path/to/audio.wav --diarize --num-speakers 3
 
 ## 🗣️ Supported Languages
 
-SONATA는 영어, 한국어, 중국어, 일본어, 프랑스어, 독일어, 스페인어, 이탈리아어, 포르투갈어, 러시아어 등 10개 언어를 지원합니다.
+SONATA는 Whisper large-v3를 활용하여 다양한 정확도 수준으로 99개 이상의 언어를 지원합니다. 영어, 스페인어, 프랑스어, 독일어, 일본어 등은 우수한 전사 성능(5-12% 오류율)을 보이며, 다른 언어들도 양호에서 보통 수준의 정확도를 제공합니다.
 
-[🌐 언어 문서 보기](https://hwk06023.github.io/SONATA/LANGUAGES.html)
+SONATA의 주요 언어 지원 특징:
+- 주요 언어에 대한 뛰어난 정확도
+- 중국어, 일본어, 한국어 같은 언어는 문자 기반 평가(CER) 적용
+- 언어별 특성에 맞는 특화된 처리
+- 다중언어 콘텐츠에 대한 고급 자동 감지 기능
+
+[🌐 자세한 언어 지원 문서 보기](https://hwk06023.github.io/SONATA/LANGUAGES.html)
 
 ## 🔊 Audio Event Detection
 
@@ -121,7 +127,16 @@ SONATA는 웃음소리, 박수 소리부터 주변 소리, 음악까지 500개 �
 
 ## 🤝 Contributing
 
-Contribution은 언제나 환영합니다! 풀 리퀘스트를 자유롭게 제출해 주세요.
+다양한 방식의 기여를 환영합니다! SONATA는 코드 개선, 문서화, 테스트, 버그 보고 등 여러 가지 방법으로 기여할 수 있습니다. 포괄적인 기여 가이드에서 다음 내용을 다룹니다:
+
+- 개발 환경 설정
+- 코딩 표준 및 모범 사례
+- 테스트 절차
+- 풀 리퀘스트 워크플로우
+- 문서화 가이드라인
+- 언어별 고려사항
+
+경험 많은 개발자든 오픈 소스 초보자든 모든 기여를 환영합니다.
 
 [📝 기여 가이드라인 보기](https://hwk06023.github.io/SONATA/CONTRIBUTING.html)
 
