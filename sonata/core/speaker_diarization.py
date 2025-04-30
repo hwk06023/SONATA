@@ -56,7 +56,7 @@ class SpeakerDiarizer:
         )
         self.wavlm_model.to(self.device)
 
-        # 3. Load ECAPA-TDNN for better embeddings
+        # 3. Load ECAPA-TDNN as fallback
         try:
             import speechbrain as sb
 
@@ -229,9 +229,6 @@ class SpeakerDiarizer:
         self, waveform, sample_rate, window_size, hop_size
     ):
         """Detect speaker changes using embedding similarity"""
-        if not self.has_ecapa_model:
-            return []
-
         changes = []
         duration = len(waveform) / sample_rate
 
@@ -255,31 +252,60 @@ class SpeakerDiarizer:
         embeddings = []
         for start_time, end_time, window_samples in windows:
             try:
-                # Convert to tensor
-                if not isinstance(window_samples, torch.Tensor):
-                    window_tensor = torch.tensor(window_samples).float()
+                # Convert to tensor or numpy as needed
+                if isinstance(window_samples, torch.Tensor):
+                    window_samples_np = window_samples.cpu().numpy()
                 else:
-                    window_tensor = window_samples
-
-                # Make mono and apply correct shape
-                if len(window_tensor.shape) == 1:
-                    window_tensor = window_tensor.unsqueeze(0)
+                    window_samples_np = window_samples
 
                 # Resample if needed
                 if sample_rate != 16000:
-                    window_tensor = torchaudio.functional.resample(
-                        window_tensor, sample_rate, 16000
+                    window_samples_np = librosa.resample(
+                        window_samples_np, orig_sr=sample_rate, target_sr=16000
                     )
 
+                # Process with WavLM
+                inputs = self.wavlm_processor(
+                    window_samples_np, sampling_rate=16000, return_tensors="pt"
+                )
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
                 with torch.no_grad():
-                    embedding = self.ecapa_model.encode_batch(
-                        window_tensor.to(self.device)
-                    )
-                    embedding = embedding.squeeze().cpu().numpy()
+                    outputs = self.wavlm_model(**inputs)
+                    embedding = outputs.embeddings.cpu().numpy().squeeze()
                     embeddings.append(embedding)
             except Exception as e:
-                # If extraction fails, use a dummy embedding to maintain indices
-                embeddings.append(None)
+                # If WavLM extraction fails, try ECAPA-TDNN as fallback
+                if self.has_ecapa_model:
+                    try:
+                        # Convert to tensor
+                        if not isinstance(window_samples, torch.Tensor):
+                            window_tensor = torch.tensor(window_samples).float()
+                        else:
+                            window_tensor = window_samples
+
+                        # Make mono and apply correct shape
+                        if len(window_tensor.shape) == 1:
+                            window_tensor = window_tensor.unsqueeze(0)
+
+                        # Resample if needed
+                        if sample_rate != 16000:
+                            window_tensor = torchaudio.functional.resample(
+                                window_tensor, sample_rate, 16000
+                            )
+
+                        with torch.no_grad():
+                            embedding = self.ecapa_model.encode_batch(
+                                window_tensor.to(self.device)
+                            )
+                            embedding = embedding.squeeze().cpu().numpy()
+                            embeddings.append(embedding)
+                    except Exception:
+                        # If all extraction fails, use a dummy embedding to maintain indices
+                        embeddings.append(None)
+                else:
+                    # If extraction fails, use a dummy embedding to maintain indices
+                    embeddings.append(None)
 
         # Check for distance between adjacent windows
         for i in range(1, len(windows) - 1):
@@ -291,7 +317,8 @@ class SpeakerDiarizer:
             next_dist = cosine(embeddings[i], embeddings[i + 1])
 
             # Check if this is a likely change point
-            if prev_dist > 0.15 and next_dist > 0.15:  # Tuned threshold
+            # WavLM might have different optimal thresholds than ECAPA-TDNN
+            if prev_dist > 0.2 and next_dist > 0.2:  # Adjusted threshold for WavLM
                 midpoint = (windows[i][0] + windows[i][1]) / 2
                 changes.append(midpoint)
 
@@ -418,7 +445,7 @@ class SpeakerDiarizer:
             wavlm_embedding = None
             ecapa_embedding = None
 
-            # 1. Process with WavLM
+            # 1. Process with WavLM (primary method)
             try:
                 if isinstance(segment_waveform, torch.Tensor):
                     segment_waveform_np = segment_waveform.cpu().numpy()
@@ -439,8 +466,8 @@ class SpeakerDiarizer:
                     f"Failed to extract WavLM embedding for segment {start}-{end}: {str(e)}"
                 )
 
-            # 2. Process with ECAPA-TDNN if available
-            if self.has_ecapa_model:
+            # 2. Process with ECAPA-TDNN as fallback if available
+            if wavlm_embedding is None and self.has_ecapa_model:
                 try:
                     if not isinstance(segment_waveform, torch.Tensor):
                         segment_tensor = torch.tensor(segment_waveform).float()
@@ -461,39 +488,59 @@ class SpeakerDiarizer:
                     self.logger.warning(
                         f"Failed to extract ECAPA embedding for segment {start}-{end}: {str(e)}"
                     )
+            elif self.has_ecapa_model:
+                # Always extract ECAPA embeddings if available (for potential comparison/fallback)
+                try:
+                    if not isinstance(segment_waveform, torch.Tensor):
+                        segment_tensor = torch.tensor(segment_waveform).float()
+                    else:
+                        segment_tensor = segment_waveform
+
+                    # Make mono and apply correct shape
+                    if len(segment_tensor.shape) == 1:
+                        segment_tensor = segment_tensor.unsqueeze(0)
+
+                    with torch.no_grad():
+                        ecapa_embedding = self.ecapa_model.encode_batch(
+                            segment_tensor.to(self.device)
+                        )
+                        ecapa_embedding = ecapa_embedding.squeeze().cpu().numpy()
+                        ecapa_embeddings.append(ecapa_embedding)
+                except Exception as e:
+                    pass  # Silently ignore since WavLM is primary
 
             # If either embedding was extracted, add the timing
             if wavlm_embedding is not None or ecapa_embedding is not None:
                 timings.append((start, end))
 
         # Determine which embeddings to use based on availability
-        if self.has_ecapa_model and len(ecapa_embeddings) == len(timings):
-            # Prefer ECAPA-TDNN embeddings
-            embeddings = ecapa_embeddings
-            if show_progress:
-                print(f"Using ECAPA-TDNN embeddings for {len(embeddings)} segments")
-        elif len(wavlm_embeddings) == len(timings):
-            # Fall back to WavLM embeddings
+        if len(wavlm_embeddings) == len(timings):
+            # Prefer WavLM embeddings (primary)
             embeddings = wavlm_embeddings
             if show_progress:
                 print(f"Using WavLM embeddings for {len(embeddings)} segments")
+        elif self.has_ecapa_model and len(ecapa_embeddings) == len(timings):
+            # Fall back to ECAPA-TDNN embeddings
+            embeddings = ecapa_embeddings
+            if show_progress:
+                print(f"Using ECAPA-TDNN embeddings for {len(embeddings)} segments")
         else:
             # If counts don't match, use available embeddings and adjust timings
-            if len(ecapa_embeddings) > len(wavlm_embeddings):
-                embeddings = ecapa_embeddings
-                # Adjust timing list to match
-                timings = timings[: len(embeddings)]
-                if show_progress:
-                    print(
-                        f"Using partial ECAPA-TDNN embeddings ({len(embeddings)} out of {len(timings)} segments)"
-                    )
-            else:
+            if len(wavlm_embeddings) > len(ecapa_embeddings):
                 embeddings = wavlm_embeddings
                 # Adjust timing list to match
                 timings = timings[: len(embeddings)]
                 if show_progress:
                     print(
                         f"Using partial WavLM embeddings ({len(embeddings)} out of {len(timings)} segments)"
+                    )
+            elif len(ecapa_embeddings) > 0:
+                embeddings = ecapa_embeddings
+                # Adjust timing list to match
+                timings = timings[: len(embeddings)]
+                if show_progress:
+                    print(
+                        f"Using partial ECAPA-TDNN embeddings ({len(embeddings)} out of {len(timings)} segments)"
                     )
 
         if show_progress:
