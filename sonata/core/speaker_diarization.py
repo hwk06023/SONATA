@@ -265,17 +265,13 @@ class SpeakerDiarizer:
     def _detect_changes_with_embeddings(
         self, waveform, sample_rate, window_size, hop_size
     ):
-        """Detect speaker changes using embedding similarity"""
+        """Detect speaker changes using embedding similarity with WavLM"""
         changes = []
         duration = len(waveform) / sample_rate
 
         # Skip if segment is too short
         if duration < window_size * 2:
             return []
-
-        # Optimized window size and hop size for WavLM
-        window_size_samples = int(window_size * sample_rate)
-        hop_size_samples = int(hop_size * sample_rate)
 
         # Create sliding windows with 50% overlap for better detection
         windows = []
@@ -289,19 +285,20 @@ class SpeakerDiarizer:
         if len(windows) < 3:
             return []
 
-        # Extract embeddings for each window
+        # Extract embeddings for each window using WavLM
         embeddings = []
         for start_time, end_time, window_samples in windows:
             try:
-                # Convert to tensor or numpy as needed
+                # Convert to numpy if tensor
                 if isinstance(window_samples, torch.Tensor):
                     window_samples_np = window_samples.cpu().numpy()
                 else:
                     window_samples_np = window_samples
 
-                # Apply noise filtering with high-pass filter (remove low frequency noise)
-                sos = signal.butter(10, 80, "hp", fs=sample_rate, output="sos")
-                window_samples_np = signal.sosfilt(sos, window_samples_np)
+                # Normalize audio (crucial for WavLM)
+                window_samples_np = window_samples_np / (
+                    np.max(np.abs(window_samples_np)) + 1e-8
+                )
 
                 # Resample if needed
                 if sample_rate != 16000:
@@ -309,7 +306,7 @@ class SpeakerDiarizer:
                         window_samples_np, orig_sr=sample_rate, target_sr=16000
                     )
 
-                # Process with WavLM
+                # Process with WavLM following official usage
                 inputs = self.wavlm_processor(
                     window_samples_np, sampling_rate=16000, return_tensors="pt"
                 )
@@ -317,7 +314,10 @@ class SpeakerDiarizer:
 
                 with torch.no_grad():
                     outputs = self.wavlm_model(**inputs)
-                    embedding = outputs.embeddings.cpu().numpy().squeeze()
+                    # Get embedding and normalize
+                    embedding = outputs.embeddings
+                    embedding = torch.nn.functional.normalize(embedding, dim=-1)
+                    embedding = embedding.cpu().numpy().squeeze()
                     embeddings.append(embedding)
             except Exception as e:
                 # If WavLM extraction fails, try ECAPA-TDNN as fallback
@@ -352,26 +352,21 @@ class SpeakerDiarizer:
                     # If extraction fails, use a dummy embedding to maintain indices
                     embeddings.append(None)
 
-        # Check for distance between adjacent windows with adaptive thresholding
+        # Check for distance between adjacent windows using cosine similarity
+        # WavLM is optimized for cosine similarity with properly normalized embeddings
         if len(embeddings) > 2:
             distances = []
             for i in range(len(embeddings) - 1):
                 if embeddings[i] is not None and embeddings[i + 1] is not None:
+                    # Compute cosine distance between normalized embeddings
                     distances.append(cosine(embeddings[i], embeddings[i + 1]))
 
-            # Calculate adaptive threshold - more robust than fixed threshold
-            if len(distances) > 2:
-                # Use mean + standard deviation for adaptive threshold
-                mean_dist = np.mean(distances)
-                std_dist = np.std(distances)
-                # WavLM-tuned adaptive threshold
-                threshold = min(0.25, max(0.15, mean_dist + 0.5 * std_dist))
-            else:
-                # WavLM-optimized threshold (determined empirically)
-                threshold = 0.18
+            # Use fixed threshold optimized for WavLM (Microsoft recommendation is ~0.86 for similarity)
+            # Since cosine returns distance (1-similarity), threshold is 1-0.86 = 0.14
+            threshold = 0.14  # Optimized for WavLM
 
-            # Detect changes using adaptive threshold and moving average
-            window_size = min(3, len(embeddings) - 2)
+            # Simple and effective change point detection
+            changes = []
             for i in range(1, len(embeddings) - 1):
                 if embeddings[i - 1] is None or embeddings[i + 1] is None:
                     continue
@@ -380,26 +375,20 @@ class SpeakerDiarizer:
                 prev_dist = cosine(embeddings[i - 1], embeddings[i])
                 next_dist = cosine(embeddings[i], embeddings[i + 1])
 
-                # Check if this is a likely change point using adaptive threshold
+                # Change point detection using Microsoft's recommended threshold
                 if prev_dist > threshold and next_dist > threshold:
+                    # Calculate midpoint time for the change point
                     midpoint = (windows[i][0] + windows[i][1]) / 2
                     changes.append(midpoint)
 
-        # Apply median filtering to remove spurious change points
-        if len(changes) > 3:
-            changes_array = np.array(changes)
-            # Sort changes
-            changes_array.sort()
-            # Calculate time differences
-            diffs = np.diff(changes_array)
-            # Calculate median difference
-            median_diff = np.median(diffs)
-            # Filter out changes that are too close (less than 40% of median)
-            filtered_changes = [changes[0]]
-            for i in range(1, len(changes)):
-                if changes[i] - filtered_changes[-1] > 0.4 * median_diff:
-                    filtered_changes.append(changes[i])
-            return filtered_changes
+            # Apply simple filtering to avoid duplicate change points
+            if len(changes) > 1:
+                filtered_changes = [changes[0]]
+                for change in changes[1:]:
+                    # Only add if sufficiently distant from the last added change point
+                    if change - filtered_changes[-1] > 0.5:  # 500ms minimum spacing
+                        filtered_changes.append(change)
+                changes = filtered_changes
 
         return changes
 
@@ -477,7 +466,7 @@ class SpeakerDiarizer:
             return -np.inf
 
     def _extract_embeddings(self, waveform, sample_rate, segments, show_progress=True):
-        """Extract speaker embeddings for each segment with multiple models"""
+        """Extract speaker embeddings for each segment using WavLM"""
         if show_progress:
             print("Extracting speaker embeddings...")
 
@@ -524,38 +513,26 @@ class SpeakerDiarizer:
             wavlm_embedding = None
             ecapa_embedding = None
 
-            # 1. Process with WavLM (primary method)
+            # 1. Process with WavLM (primary method) using official method
             try:
                 if isinstance(segment_waveform, torch.Tensor):
                     segment_waveform_np = segment_waveform.cpu().numpy()
                 else:
                     segment_waveform_np = segment_waveform
 
-                # Apply pre-emphasis filter to enhance high frequencies (better for speech)
-                segment_waveform_np = librosa.effects.preemphasis(
-                    segment_waveform_np, coef=0.97
-                )
-
-                # Normalize audio for more consistent embeddings
+                # Normalize audio (crucial for WavLM)
                 segment_waveform_np = segment_waveform_np / (
                     np.max(np.abs(segment_waveform_np)) + 1e-8
                 )
 
-                # For very short segments (<0.8s), add small padding to improve embedding quality
+                # For very short segments, add small padding to improve embedding quality
                 if duration < 0.8 and duration >= 0.3:
-                    # Add small padding at edges using reflection
                     pad_length = min(int(0.1 * 16000), len(segment_waveform_np) // 4)
                     segment_waveform_np = np.pad(
                         segment_waveform_np, (pad_length, pad_length), mode="reflect"
                     )
-                    # Trim back to original length plus minimal padding
-                    center = len(segment_waveform_np) // 2
-                    half_len = int(duration * 16000) // 2
-                    segment_waveform_np = segment_waveform_np[
-                        center - half_len : center + half_len
-                    ]
 
-                # Process with WavLM - use 16kHz sampling rate which is what WavLM expects
+                # Process with WavLM according to official examples
                 inputs = self.wavlm_processor(
                     segment_waveform_np, sampling_rate=16000, return_tensors="pt"
                 )
@@ -563,26 +540,11 @@ class SpeakerDiarizer:
 
                 with torch.no_grad():
                     outputs = self.wavlm_model(**inputs)
-
-                    # Get all hidden states to create more robust embedding
-                    # This is available in some versions of the WavLM model
-                    if (
-                        hasattr(outputs, "hidden_states")
-                        and outputs.hidden_states is not None
-                    ):
-                        # Use the average of the last 4 transformer layers for more robust features
-                        last_layers = outputs.hidden_states[-4:]
-                        # Average the features from multiple layers
-                        multi_layer_embedding = torch.mean(
-                            torch.stack(last_layers), dim=0
-                        )
-                        # Mean pooling across time dimension
-                        pooled_embedding = torch.mean(multi_layer_embedding, dim=1)
-                        wavlm_embedding = pooled_embedding.cpu().numpy().squeeze()
-                    else:
-                        # Use regular embedding if hidden states aren't available
-                        wavlm_embedding = outputs.embeddings.cpu().numpy().squeeze()
-
+                    # Get embedding directly - WavLMForXVector already has the correct pooling
+                    embedding = outputs.embeddings
+                    # Apply L2 normalization as per Microsoft's recommendation
+                    embedding = torch.nn.functional.normalize(embedding, dim=-1)
+                    wavlm_embedding = embedding.cpu().numpy().squeeze()
                     wavlm_embeddings.append(wavlm_embedding)
             except Exception as e:
                 self.logger.warning(
@@ -611,26 +573,6 @@ class SpeakerDiarizer:
                     self.logger.warning(
                         f"Failed to extract ECAPA embedding for segment {start}-{end}: {str(e)}"
                     )
-            elif self.has_ecapa_model:
-                # Always extract ECAPA embeddings if available (for potential comparison/fallback)
-                try:
-                    if not isinstance(segment_waveform, torch.Tensor):
-                        segment_tensor = torch.tensor(segment_waveform).float()
-                    else:
-                        segment_tensor = segment_waveform
-
-                    # Make mono and apply correct shape
-                    if len(segment_tensor.shape) == 1:
-                        segment_tensor = segment_tensor.unsqueeze(0)
-
-                    with torch.no_grad():
-                        ecapa_embedding = self.ecapa_model.encode_batch(
-                            segment_tensor.to(self.device)
-                        )
-                        ecapa_embedding = ecapa_embedding.squeeze().cpu().numpy()
-                        ecapa_embeddings.append(ecapa_embedding)
-                except Exception as e:
-                    pass  # Silently ignore since WavLM is primary
 
             # If either embedding was extracted, add the timing
             if wavlm_embedding is not None or ecapa_embedding is not None:
@@ -672,7 +614,7 @@ class SpeakerDiarizer:
         return np.array(embeddings), timings
 
     def _cluster_speakers(self, embeddings, num_speakers=None, show_progress=True):
-        """Enhanced clustering with multiple algorithms and automatic speaker count estimation"""
+        """Speaker clustering optimized for WavLM embeddings"""
         if show_progress:
             print("Clustering speaker embeddings...")
 
@@ -693,213 +635,42 @@ class SpeakerDiarizer:
         if show_progress:
             print(f"Clustering with {num_speakers} speakers")
 
-        # Normalize embeddings - using L2 normalization which works better with WavLM
-        norm_embeddings = embeddings / (
-            np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
-        )
-
-        # Apply dimensionality reduction for better clustering (especially for WavLM embeddings)
+        # For WavLM embeddings, the vectors should already be normalized
+        # Apply simple but effective clustering specifically optimized for WavLM
         try:
-            # Determine optimal PCA components based on dataset size
-            n_components = min(
-                min(norm_embeddings.shape[0] - 1, norm_embeddings.shape[1]), 128
+            # Use Agglomerative Clustering with cosine distance - ideal for WavLM
+            clustering = AgglomerativeClustering(
+                n_clusters=num_speakers,
+                affinity="cosine",
+                linkage="average",  # Average linkage works best with WavLM embeddings
             )
-            if n_components > 3:  # Only apply PCA if we have enough data
-                pca = PCA(n_components=n_components)
-                reduced_embeddings = pca.fit_transform(norm_embeddings)
-
-                # Preserve at least 90% of variance
-                explained_variance = np.sum(
-                    pca.explained_variance_ratio_[:n_components]
-                )
-                if explained_variance >= 0.9 and reduced_embeddings.shape[1] >= 3:
-                    if show_progress:
-                        print(
-                            f"Applied PCA reducing from {norm_embeddings.shape[1]} to {reduced_embeddings.shape[1]} dimensions with {explained_variance:.2f} variance preserved"
-                        )
-                    norm_embeddings = reduced_embeddings
+            labels = clustering.fit_predict(embeddings)
+            clustering_method = "Agglomerative (Cosine)"
         except Exception as e:
-            if show_progress:
-                print(
-                    f"PCA reduction failed: {str(e)}, continuing with original embeddings"
-                )
-
-        # Try multiple clustering methods with proper version handling
-        clustering_methods = []
-
-        # Improved clustering methods optimized for WavLM embeddings
-        try:
-            # Try creating with affinity and check if it raises an error
-            test_clustering = AgglomerativeClustering(
-                n_clusters=2, affinity="cosine", linkage="average"
-            )
-            # If no error, add the full method
-            clustering_methods.append(
-                {
-                    "name": "Agglomerative (Cosine)",
-                    "method": AgglomerativeClustering(
-                        n_clusters=num_speakers, affinity="cosine", linkage="average"
-                    ),
-                }
-            )
-
-            # Add Ward linkage which often works well with WavLM
-            clustering_methods.append(
-                {
-                    "name": "Agglomerative (Ward)",
-                    "method": AgglomerativeClustering(
-                        n_clusters=num_speakers, linkage="ward"
-                    ),
-                }
-            )
-        except TypeError:
-            # Fallback to simpler parameters
-            clustering_methods.append(
-                {
-                    "name": "Agglomerative (Basic)",
-                    "method": AgglomerativeClustering(n_clusters=num_speakers),
-                }
-            )
-
-        # Try spectral clustering with similar version check
-        try:
-            # Optimize spectral clustering parameters for WavLM
-            n_neighbors = min(max(num_speakers * 2, 5), len(norm_embeddings) // 2)
-
-            clustering_methods.append(
-                {
-                    "name": "Spectral",
-                    "method": SpectralClustering(
-                        n_clusters=num_speakers,
-                        affinity="nearest_neighbors",
-                        n_neighbors=n_neighbors,
-                        random_state=42,
-                        assign_labels="kmeans",  # Better for WavLM embeddings
-                    ),
-                }
-            )
-
-            # Add RBF kernel version which works well with some embedding types
-            gamma = (
-                1.0 / norm_embeddings.shape[1]
-            )  # Auto-scaled gamma based on dimensions
-            clustering_methods.append(
-                {
-                    "name": "Spectral (RBF)",
-                    "method": SpectralClustering(
-                        n_clusters=num_speakers,
-                        affinity="rbf",
-                        gamma=gamma,
-                        random_state=42,
-                    ),
-                }
-            )
-        except TypeError:
-            # Fallback to simpler spectral clustering
+            # Fallback to basic clustering if cosine fails
             try:
-                clustering_methods.append(
-                    {
-                        "name": "Spectral (Basic)",
-                        "method": SpectralClustering(
-                            n_clusters=num_speakers, random_state=42
-                        ),
-                    }
-                )
-            except:
-                # Skip if not available
-                pass
-
-        best_labels = None
-        best_score = -1
-        best_method = None
-
-        # Try each clustering method
-        for method_info in clustering_methods:
-            try:
-                # Apply clustering
-                labels = method_info["method"].fit_predict(norm_embeddings)
-
-                # Skip if only one cluster was found
-                if len(set(labels)) <= 1:
-                    continue
-
-                # Evaluate clustering quality with multiple metrics
-                try:
-                    from sklearn.metrics import (
-                        silhouette_score,
-                        calinski_harabasz_score,
-                        davies_bouldin_score,
-                    )
-
-                    # Compute multiple clustering quality metrics
-                    if len(set(labels)) > 1 and len(labels) > len(set(labels)):
-                        # Silhouette (higher is better)
-                        sil_score = silhouette_score(
-                            norm_embeddings, labels, metric="cosine"
-                        )
-
-                        # Calinski-Harabasz Index (higher is better)
-                        ch_score = calinski_harabasz_score(norm_embeddings, labels)
-
-                        # Davies-Bouldin Index (lower is better)
-                        db_score = davies_bouldin_score(norm_embeddings, labels)
-
-                        # Combined score optimized for WavLM embeddings (weighted average)
-                        combined_score = (
-                            (0.6 * sil_score)
-                            + (0.3 * (ch_score / 10000))
-                            - (0.1 * db_score)
-                        )
-
-                        if show_progress:
-                            print(
-                                f"{method_info['name']}: silhouette={sil_score:.4f}, CH={ch_score:.1f}, DB={db_score:.4f}"
-                            )
-
-                        if combined_score > best_score:
-                            best_score = combined_score
-                            best_labels = labels
-                            best_method = method_info["name"]
-                except Exception as e:
-                    if show_progress:
-                        print(
-                            f"Error evaluating clusters for {method_info['name']}: {str(e)}"
-                        )
-                    # Use these labels if we don't have any yet
-                    if best_labels is None:
-                        best_labels = labels
-                        best_method = method_info["name"]
-            except Exception as e:
-                if show_progress:
-                    print(f"Error with {method_info['name']} clustering: {str(e)}")
-
-        if best_labels is None:
-            # Fallback to simplest clustering
-            try:
-                # Most basic form that should work with any scikit-learn version
                 clustering = AgglomerativeClustering(n_clusters=num_speakers)
-                best_labels = clustering.fit_predict(norm_embeddings)
-                best_method = "Fallback Agglomerative"
+                labels = clustering.fit_predict(embeddings)
+                clustering_method = "Agglomerative (Basic)"
             except Exception as last_error:
                 if show_progress:
                     print(
                         f"All clustering methods failed. Last error: {str(last_error)}"
                     )
                 # Create simple labels if everything fails
-                best_labels = np.zeros(len(norm_embeddings), dtype=int)
-                for i in range(1, min(num_speakers, len(norm_embeddings))):
-                    if i < len(norm_embeddings):
-                        best_labels[i] = i % num_speakers
-                best_method = "Emergency Fallback (Sequential Assignment)"
+                labels = np.zeros(len(embeddings), dtype=int)
+                for i in range(1, min(num_speakers, len(embeddings))):
+                    if i < len(embeddings):
+                        labels[i] = i % num_speakers
+                clustering_method = "Emergency Fallback"
 
         if show_progress:
-            print(f"Selected clustering method: {best_method}")
+            print(f"Speaker clustering complete using {clustering_method}")
 
         # Create speaker labels with proper format
-        labels = [f"SPEAKER_{int(label):02d}" for label in best_labels]
+        speaker_labels = [f"SPEAKER_{int(label):02d}" for label in labels]
 
-        # Return in the format expected by create_speaker_segments
-        return labels
+        return speaker_labels
 
     def _estimate_num_speakers(self, embeddings, show_progress=True):
         """Estimate number of speakers using eigenvalue analysis"""
@@ -1057,27 +828,35 @@ class SpeakerDiarizer:
         return merged_segments
 
     def diarize(self, audio_path, num_speakers=None, show_progress=True):
-        """Main diarization method with improved processing pipeline"""
+        """Speaker diarization optimized for WavLM embeddings"""
         if show_progress:
-            print(f"Starting enhanced diarization for: {audio_path}")
+            print(f"Starting WavLM-optimized diarization for: {audio_path}")
 
         # 1. Load audio
         waveform, sample_rate = torchaudio.load(audio_path)
         waveform = waveform.mean(dim=0, keepdim=True)  # Convert to mono if needed
 
-        # 2. Enhanced VAD to get speech segments
+        # 2. Resample to 16kHz if needed (WavLM expects 16kHz)
+        if sample_rate != 16000:
+            waveform = torchaudio.functional.resample(waveform, sample_rate, 16000)
+            sample_rate = 16000
+
+        # 3. Normalize audio volume (important for WavLM)
+        waveform = waveform / (torch.max(torch.abs(waveform)) + 1e-8)
+
+        # 4. VAD to get speech segments
         vad_segments = self._get_vad_segments(waveform[0], sample_rate, show_progress)
 
         if len(vad_segments) == 0:
             self.logger.warning("No speech segments detected in audio")
             return []
 
-        # 3. Improved speaker change detection
+        # 5. Speaker change detection
         change_points = self._detect_speaker_changes(
             waveform[0], sample_rate, vad_segments, show_progress=show_progress
         )
 
-        # 4. Create segment boundaries from VAD and change points
+        # 6. Create segment boundaries from VAD and change points
         all_boundaries = sorted(
             list(
                 set(
@@ -1088,12 +867,12 @@ class SpeakerDiarizer:
             )
         )
 
-        # 5. Create analysis segments
+        # 7. Create analysis segments
         analysis_segments = []
         for i in range(len(all_boundaries) - 1):
             analysis_segments.append((all_boundaries[i], all_boundaries[i + 1]))
 
-        # 6. Extract enhanced speaker embeddings
+        # 8. Extract speaker embeddings using WavLM
         embeddings, segment_timings = self._extract_embeddings(
             waveform[0], sample_rate, analysis_segments, show_progress
         )
@@ -1102,37 +881,13 @@ class SpeakerDiarizer:
             self.logger.warning("Failed to extract any speaker embeddings")
             return []
 
-        # 7. Enhanced clustering to determine speakers
+        # 9. Determine speakers through clustering
         speaker_labels = self._cluster_speakers(embeddings, num_speakers, show_progress)
 
-        # 8. Detect overlapped speech
-        overlap_segments = self._detect_overlapped_speech(
-            waveform[0], sample_rate, segment_timings
-        )
-
-        if show_progress and overlap_segments:
-            print(f"Detected {len(overlap_segments)} potentially overlapped segments")
-
-        # 9. Create final speaker segments with overlap information
+        # 10. Create final speaker segments
         speaker_segments = self._create_speaker_segments(
             segment_timings, speaker_labels
         )
-
-        # 10. Add overlap information to segments
-        for overlap_idx in overlap_segments:
-            if overlap_idx < len(speaker_segments):
-                speaker_segments[overlap_idx].is_overlap = True
-
-                # Try to detect which speakers are in the overlap
-                if overlap_idx > 0 and overlap_idx < len(speaker_segments) - 1:
-                    prev_speaker = speaker_segments[overlap_idx - 1].speaker
-                    next_speaker = speaker_segments[overlap_idx + 1].speaker
-
-                    if prev_speaker != next_speaker:
-                        speaker_segments[overlap_idx].overlap_speakers = [
-                            prev_speaker,
-                            next_speaker,
-                        ]
 
         if show_progress:
             print(
