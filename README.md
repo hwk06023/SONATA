@@ -18,7 +18,7 @@ SONATA(SOund and Narrative Advanced Transcription Assistant) is advanced ASR sys
 
 - 🎙️ High-accuracy speech-to-text transcription using WhisperX
 - 😀 Recognition of 523+ emotive sounds and non-verbal cues
-- 🌍 Multi-language support with 10 languages
+- 🌍 Multi-language support with 99+ languages
 - 👥 SOTA speaker diarization using Silero VAD and WavLM embeddings
 - ⏱️ Rich timestamp information at the word level
 - 🔄 Audio preprocessing capabilities
@@ -98,9 +98,15 @@ Audio Events:
 
 ## 🗣️ Supported Languages
 
-SONATA supports 10 languages including English, Korean, Chinese, Japanese, French, German, Spanish, Italian, Portuguese, and Russian.
+SONATA leverages Whisper large-v3 to support 99+ languages across varying levels of accuracy. Languages like English, Spanish, French, German, and Japanese have excellent transcription performance (5-12% error rates), while other languages have good to moderate accuracy.
 
-[🌐 See languages documentation](https://hwk06023.github.io/SONATA/LANGUAGES.html)
+Key features of SONATA's language support:
+- Excellent accuracy for high-resource languages
+- Character-based evaluation for languages like Chinese, Japanese, and Korean
+- Specialized handling for language-specific characteristics
+- Advanced auto-detection for multi-language content
+
+[🌐 See detailed language support documentation](https://hwk06023.github.io/SONATA/LANGUAGES.html)
 
 ## 🔊 Audio Event Detection
 
@@ -124,7 +130,16 @@ SONATA provides state-of-the-art speaker diarization to identify and separate di
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! SONATA offers multiple ways to contribute, including code improvements, documentation, testing, and bug reports. Our comprehensive contribution guide covers:
+
+- Setting up the development environment
+- Coding standards and best practices
+- Testing procedures
+- Pull request workflow
+- Documentation guidelines
+- Language-specific considerations
+
+Whether you're an experienced developer or new to open source, we welcome your contributions.
 
 [📝 See contribution guidelines](https://hwk06023.github.io/SONATA/CONTRIBUTING.html)
 
