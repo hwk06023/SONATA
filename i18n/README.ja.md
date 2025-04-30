@@ -14,18 +14,18 @@
 
 **SOund and Narrative Advanced Transcription Assistant**
 
-SONATAは、感情表現や非言語的キューを含む人間の表現をキャプチャする先進的なASR(Automatic Speech Recognition)システムです。
+SONATAは、感情表現や非言語的信号を含む人間の表現をキャプチャする高度なASR（Automatic Speech Recognition）システムです。
 
 ## ✨ Features
 
-- 🎙️ WhisperXを使用した高精度 speech-to-text 変換
+- 🎙️ WhisperXを使用した高精度の speech-to-text 変換
 - 😀 523種類以上の emotive sound と non-verbal cue の認識
-- 🌍 10言語対応
-- 👥 複数話者の書き起こしのための speaker diarization（オンラインとオフラインモード）
+- 🌍 99以上の言語をサポート
+- 👥 複数の話者の書き起こしのための speaker diarization（オンラインおよびオフラインモード）
 - ⏱️ 単語レベルの正確な timestamp 情報
 - 🔄 オーディオ preprocessing 機能
 
-[📚 詳細な機能ドキュメントを見る](../docs/FEATURES.md)
+[📚 詳細な機能のドキュメントを見る](https://hwk06023.github.io/SONATA/FEATURES.html)
 
 ## 🚀 Installation
 
@@ -50,80 +50,95 @@ pip install -e .
 ```python
 from sonata.core.transcriber import IntegratedTranscriber
 
-# トランスクライバーを初期化
+# トランスクライバーの初期化
 transcriber = IntegratedTranscriber(asr_model="large-v3", device="cpu")
 
-# 音声ファイルを書き起こし
+# オーディオファイルの書き起こし
 result = transcriber.process_audio("path/to/audio.wav", language="ja")
 print(result["integrated_transcript"]["plain_text"])
 ```
 
-### CLIの使用方法
+### CLI の使用方法
 
 ```bash
 # 基本的な使用法
 sonata-asr path/to/audio.wav
 
-# 話者分離機能を使用
+# speaker diarization 機能を使用
 sonata-asr path/to/audio.wav --diarize
 
-# 話者数が既知の場合に設定
+# 話者数がわかっている場合は設定
 sonata-asr path/to/audio.wav --diarize --num-speakers 3
 ```
 
-#### 主なCLIオプション:
+#### 主な CLI オプション：
 
 ```
-一般:
-  -o, --output FILE           指定したJSONファイルに書き起こし結果を保存
-  -l, --language LANG         言語コード (en, ko, zh, ja, fr, de, es, it, pt, ru)
-  -m, --model NAME            WhisperXモデルサイズ (tiny, small, medium, large-v3 など)
-  -d, --device DEVICE         モデル実行デバイス (cpu, cuda)
-  --text-output               テキストファイルに書き起こし結果を保存 (デフォルト: input_name.txt)
-  --preprocess                オーディオの前処理（形式変換と無音トリミング）
+一般：
+  -o, --output FILE           指定されたJSONファイルに書き起こし結果を保存
+  -l, --language LANG         言語コード（en, ko, zh, ja, fr, de, es, it, pt, ru）
+  -m, --model NAME            WhisperXモデルサイズ（tiny, small, medium, large-v3など）
+  -d, --device DEVICE         モデル実行デバイス（cpu, cuda）
+  --text-output               テキストファイルに書き起こし結果を保存（デフォルト：input_name.txt）
+  --preprocess                オーディオ preprocessing（フォーマット変換と無音除去）
 
-話者分離:
-  --diarize                   Silero VADとWavLMを使用したSOTA話者分離を有効化
+Diarization：
+  --diarize                   Silero VADとWavLMを使用したSOTA speaker diarization を有効化
   --num-speakers NUM          正確な話者数を設定（オプション）
 
-音声イベント:
-  --threshold VALUE           音声イベント検出の閾値 (0.0-1.0)
-  --custom-thresholds FILE    カスタム音声イベント閾値を含むJSONファイルのパス
-  --deep-detect               マルチスケール音声イベント検出を有効化（精度向上）
-  --deep-detect-scales NUM    深層検出のためのスケール数 (1-3, デフォルト: 3)
-  --deep-detect-window-sizes  深層検出のためのカスタムウィンドウサイズ（カンマ区切り）
-  --deep-detect-hop-sizes     深層検出のためのカスタムホップサイズ（カンマ区切り）
+Audio Event：
+  --threshold VALUE           オーディオイベント検出のしきい値（0.0-1.0）
+  --custom-thresholds FILE    カスタムオーディオイベントしきい値を含むJSONファイルのパス
+  --deep-detect               マルチスケールオーディオイベント検出を有効化（精度向上）
+  --deep-detect-scales NUM    deep detection のためのスケール数（1-3、デフォルト：3）
+  --deep-detect-window-sizes  deep detection のためのカスタムウィンドウサイズ（カンマ区切り）
+  --deep-detect-hop-sizes     deep detection のためのカスタムホップサイズ（カンマ区切り）
 ```
 
-[📚 完全な使用方法ドキュメントを見る](../docs/USAGE.md)  
-[⌨️ 完全なCLIドキュメントを見る](../docs/CLI.md)  
-[🎤 オフライン diarization ガイドを見る](../docs/OFFLINE_DIARIZATION.md)
+[📚 全使用法ドキュメントを見る](https://hwk06023.github.io/SONATA/USAGE.html)  
+[⌨️ 全CLIドキュメントを見る](https://hwk06023.github.io/SONATA/CLI.html)  
+[🎤 オフライン diarization ガイドを見る](https://hwk06023.github.io/SONATA/OFFLINE_DIARIZATION.html)
 
 ## 🗣️ Supported Languages
 
-SONATAは英語、韓国語、中国語、日本語、フランス語、ドイツ語、スペイン語、イタリア語、ポルトガル語、ロシア語など10の言語をサポートしています。
+SONATAはWhisper large-v3を活用して、様々な精度レベルで99以上の言語をサポートしています。英語、スペイン語、フランス語、ドイツ語、日本語などは優れた書き起こし性能（5-12%のエラー率）を示し、その他の言語も良好から普通レベルの精度を提供します。
 
-[🌐 言語ドキュメントを見る](../docs/LANGUAGES.md)
+SONATAの主な言語サポート特徴：
+- 主要言語に対する優れた精度
+- 中国語、日本語、韓国語などの言語には文字ベースの評価（CER）を適用
+- 言語別特性に合わせた特化した処理
+- 多言語コンテンツに対する高度な自動検出機能
+
+[🌐 詳細な言語サポートドキュメントを見る](https://hwk06023.github.io/SONATA/LANGUAGES.html)
 
 ## 🔊 Audio Event Detection
 
-SONATAは笑い声、拍手から環境音、音楽まで500以上の異なるオーディオイベントを検出できます。カスタマイズ可能なイベント検出閾値機能により、ポッドキャスト分析、会議録音、自然音分析など様々な用途に合わせて特定のオーディオイベントの感度を微調整することができます。
+SONATAは、笑い声、拍手音から環境音、音楽まで500以上の様々なオーディオイベントを検出できます。カスタムイベント検出しきい値機能を通じて、ポッドキャスト分析、会議録音、自然音分析など様々な用途に合わせて特定のオーディオイベントの感度を微調整できます。
 
-[🎵 オーディオイベントドキュメントを見る](../docs/AUDIO_EVENTS.md)
+[🎵 オーディオイベントドキュメントを見る](https://hwk06023.github.io/SONATA/AUDIO_EVENTS.html)
 
 ## 🚀 Next Steps
 
-- 🧠 高度なASRモデルの多様化
-- 😢 感情検出の改善
-- 🔊 より優れた speaker diarization
-- ⚡ パフォーマンスの最適化
-- 🛠️ 深層検出モードの並列処理問題の修正による信頼性向上
+- 🧠 高度な ASR モデルの多様化
+- 😢 向上した emotion detection
+- 🔊 より良い speaker diarization
+- ⚡ パフォーマンス最適化
+- 🛠️ deep detection モードの並列処理問題修正による安定性向上
 
 ## 🤝 Contributing
 
-Contributing 大歓迎です！気軽にプルリクエストを送信してください。
+様々な方法での貢献を歓迎します！SONATAはコード改善、文書化、テスト、バグ報告など様々な方法で貢献できます。包括的な貢献ガイドでは以下の内容を扱います：
 
-[📝 貢献ガイドラインを見る](../docs/CONTRIBUTING.md)
+- 開発環境のセットアップ
+- コーディング標準とベストプラクティス
+- テスト手順
+- プルリクエストワークフロー
+- 文書化ガイドライン
+- 言語別の考慮事項
+
+経験豊富な開発者もオープンソース初心者も、すべての貢献を歓迎します。
+
+[📝 貢献ガイドラインを見る](https://hwk06023.github.io/SONATA/CONTRIBUTING.html)
 
 ## 📄 License
 
@@ -133,8 +148,8 @@ Contributing 大歓迎です！気軽にプルリクエストを送信してく�
 
 - [WhisperX](https://github.com/m-bain/whisperX) - 高速音声認識
 - [AudioSet AST](https://github.com/YuanGongND/ast) - オーディオイベント検出
-  - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - オーディオイベント分類のための事前学習モデル
-- [Silero VAD](https://github.com/snakers4/silero-vad) - 音声アクティビティ検出
-- [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) - Microsoftの先進的なオーディオ理解モデル
-  - [microsoft/wavlm-base-plus-sv](https://huggingface.co/microsoft/wavlm-base-plus-sv) - 話者検証モデル
+  - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - オーディオイベント分類のための事前訓練モデル
+- [Silero VAD](https://github.com/snakers4/silero-vad) - 音声活動検出
+- [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) - Microsoftの高度オーディオ理解モデル
+  - [microsoft/wavlm-base-plus-sv](https://huggingface.co/microsoft/wavlm-base-plus-sv) - スピーカー検証モデル
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLPツール 
