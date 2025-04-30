@@ -72,7 +72,7 @@ class SpeakerDiarizer:
             self.has_ecapa_model = False
 
     def _get_vad_segments(self, waveform, sample_rate, show_progress=True):
-        """Get voice activity segments using Silero VAD with enhanced parameters"""
+        """Get voice activity segments using Silero VAD with WavLM-optimized parameters"""
         if show_progress:
             print("Running voice activity detection...")
 
@@ -80,31 +80,19 @@ class SpeakerDiarizer:
             waveform = torchaudio.functional.resample(waveform, sample_rate, 16000)
             sample_rate = 16000
 
-        # Apply pre-processing to improve VAD accuracy
-        # 1. Normalize audio volume
+        # Apply normalization (crucial for accurate VAD)
         waveform = waveform / (torch.max(torch.abs(waveform)) + 1e-8)
 
-        # 2. Apply high-pass filter to reduce low-frequency noise
-        try:
-            waveform_np = waveform.cpu().numpy()
-            sos = signal.butter(10, 70, "hp", fs=sample_rate, output="sos")
-            waveform_np = signal.sosfilt(sos, waveform_np)
-            # Convert back to tensor
-            waveform = torch.from_numpy(waveform_np).to(self.device).float()
-        except Exception as e:
-            # Continue with original waveform if filtering fails
-            self.logger.warning(f"Audio pre-processing failed: {str(e)}")
-
-        # Use WavLM-optimized parameters for better recall and precision
+        # WavLM-optimized VAD parameters
         speech_timestamps = self.vad_get_speech_timestamps(
             waveform,
             self.vad_model,
             sampling_rate=sample_rate,
-            min_speech_duration_ms=180,  # Reduced to catch shorter utterances
-            min_silence_duration_ms=380,  # Reduced for better segmentation
+            min_speech_duration_ms=250,  # Optimized for clear speech detection
+            min_silence_duration_ms=300,  # Reduced for better segmentation
             window_size_samples=512,
-            speech_pad_ms=180,  # Adjusted for better boundary detection
-            threshold=0.25,  # Increased precision (lower value = more recall)
+            speech_pad_ms=150,  # Better boundary precision
+            threshold=0.3,  # Better precision for WavLM
         )
 
         segments = []
@@ -113,34 +101,17 @@ class SpeakerDiarizer:
             end = seg["end"] / sample_rate
             segments.append((start, end))
 
-        # Merge segments that are very close using dynamic gap threshold
+        # Merge segments that are very close
         if len(segments) > 0:
-            # Calculate average segment duration for dynamic threshold
-            avg_duration = np.mean([end - start for start, end in segments])
-            # Set gap threshold as a function of average segment duration
-            gap_threshold = min(0.6, max(0.3, avg_duration * 0.15))
-            merged_segments = self._merge_close_segments(
-                segments, gap_threshold=gap_threshold
-            )
+            # 400ms gap threshold works well with WavLM
+            merged_segments = self._merge_close_segments(segments, gap_threshold=0.4)
         else:
             merged_segments = []
 
-        # Apply additional processing to remove very short segments (likely noise)
-        min_valid_duration = 0.25  # Minimum valid speech duration in seconds
-        valid_segments = [
-            (start, end)
-            for start, end in merged_segments
-            if end - start >= min_valid_duration
-        ]
-
         if show_progress:
-            print(f"Found {len(merged_segments)} speech segments after merging")
-            if len(valid_segments) < len(merged_segments):
-                print(
-                    f"Removed {len(merged_segments) - len(valid_segments)} very short segments"
-                )
+            print(f"Found {len(merged_segments)} speech segments")
 
-        return valid_segments
+        return merged_segments
 
     def _merge_close_segments(self, segments, gap_threshold=0.5):
         """Merge segments that are separated by small gaps"""
@@ -173,23 +144,20 @@ class SpeakerDiarizer:
         waveform,
         sample_rate,
         vad_segments,
-        window_size=0.75,  # Reduced for more precision
-        hop_size=0.35,  # Reduced for more granularity
+        window_size=0.75,
+        hop_size=0.35,
         show_progress=True,
+        batch_size=8,
     ):
-        """Detect speaker changes within VAD segments with improved algorithms"""
+        """Detect speaker changes within VAD segments using WavLM embeddings"""
         if show_progress:
             print("Detecting speaker changes...")
 
         changes = []
 
-        # Create iterator with progress bar if needed
-        iterator = vad_segments
-        if show_progress:
-            iterator = tqdm(vad_segments, desc="Processing segments", unit="segment")
-
-        for start, end in iterator:
-            if end - start < window_size:
+        for start, end in vad_segments:
+            # Skip if segment is too short for analysis
+            if end - start < window_size * 2:
                 continue
 
             # Extract segment waveform
@@ -197,75 +165,34 @@ class SpeakerDiarizer:
             segment_end_sample = int(end * sample_rate)
             segment_waveform = waveform[segment_start_sample:segment_end_sample]
 
-            # Calculate features
-            if isinstance(segment_waveform, torch.Tensor):
-                segment_waveform = segment_waveform.cpu().numpy()
-
-            # Enhanced feature extraction with more coefficients and deltas
-            mfccs = librosa.feature.mfcc(y=segment_waveform, sr=sample_rate, n_mfcc=24)
-            delta = librosa.feature.delta(mfccs)
-            delta2 = librosa.feature.delta(mfccs, order=2)
-            features = np.concatenate([mfccs, delta, delta2])
-
-            # Add spectral features for better discrimination
-            spec_contrast = librosa.feature.spectral_contrast(
-                y=segment_waveform, sr=sample_rate
+            # Apply efficient embedding-based change detection
+            segment_changes = self._detect_changes_with_embeddings(
+                segment_waveform, sample_rate, window_size, hop_size, batch_size
             )
-            features = np.concatenate([features, spec_contrast])
 
-            # Multi-algorithm approach: BIC + Divergence + Embeddings
-            # 1. BIC-based change detection
-            bic_changes = []
-            for t in np.arange(window_size, end - start - window_size, hop_size):
-                t_sample = int(t * sample_rate / sample_rate * features.shape[1])
-                t_sample = min(t_sample, features.shape[1] - 1)
+            # Convert local changes to global timeline
+            segment_changes = [start + t for t in segment_changes]
+            changes.extend(segment_changes)
 
-                bic_score = self._compute_bic(features, t_sample)
-                if bic_score > 0:  # Positive BIC indicates change point
-                    bic_changes.append(start + t)
-
-            # 2. Embedding-based change detection for longer segments
-            if end - start > window_size * 3:
-                emb_changes = self._detect_changes_with_embeddings(
-                    segment_waveform, sample_rate, window_size, hop_size
-                )
-
-                # Convert local changes to global timeline
-                emb_changes = [start + t for t in emb_changes]
-
-                # Combine both methods with weighting
-                all_changes = bic_changes + emb_changes
-
-                # Cluster close change points to avoid duplicates
-                changes.extend(self._cluster_change_points(all_changes, threshold=0.35))
-            else:
-                changes.extend(bic_changes)
-
-        # Filter out changes too close to segment boundaries
-        filtered_changes = []
-        min_boundary_dist = 0.3
-
-        for change in changes:
-            is_near_boundary = False
-            for start, end in vad_segments:
-                if (
-                    abs(change - start) < min_boundary_dist
-                    or abs(change - end) < min_boundary_dist
-                ):
-                    is_near_boundary = True
-                    break
-            if not is_near_boundary:
-                filtered_changes.append(change)
+        # Final filtering to remove duplicate change points
+        if len(changes) > 1:
+            changes.sort()
+            filtered_changes = [changes[0]]
+            for change in changes[1:]:
+                # Only add if sufficiently distant from the last added change point
+                if change - filtered_changes[-1] > 0.5:  # 500ms minimum
+                    filtered_changes.append(change)
+            changes = filtered_changes
 
         if show_progress:
-            print(f"Detected {len(filtered_changes)} speaker change points")
+            print(f"Detected {len(changes)} speaker change points")
 
-        return sorted(filtered_changes)
+        return sorted(changes)
 
     def _detect_changes_with_embeddings(
-        self, waveform, sample_rate, window_size, hop_size
+        self, waveform, sample_rate, window_size, hop_size, batch_size=8
     ):
-        """Detect speaker changes using embedding similarity with WavLM"""
+        """Detect speaker changes using embedding similarity with WavLM batch processing"""
         changes = []
         duration = len(waveform) / sample_rate
 
@@ -285,75 +212,86 @@ class SpeakerDiarizer:
         if len(windows) < 3:
             return []
 
-        # Extract embeddings for each window using WavLM
-        embeddings = []
-        for start_time, end_time, window_samples in windows:
-            try:
-                # Convert to numpy if tensor
-                if isinstance(window_samples, torch.Tensor):
-                    window_samples_np = window_samples.cpu().numpy()
-                else:
-                    window_samples_np = window_samples
+        # Prepare window audio data for batch processing
+        window_waveforms = []
 
-                # Normalize audio (crucial for WavLM)
-                window_samples_np = window_samples_np / (
-                    np.max(np.abs(window_samples_np)) + 1e-8
+        for _, _, window_samples in windows:
+            # Convert to numpy if tensor
+            if isinstance(window_samples, torch.Tensor):
+                window_samples_np = window_samples.cpu().numpy()
+            else:
+                window_samples_np = window_samples
+
+            # Normalize audio (crucial for WavLM)
+            window_samples_np = window_samples_np / (
+                np.max(np.abs(window_samples_np)) + 1e-8
+            )
+
+            # Add padding for very short segments (improve embedding quality)
+            if (
+                len(window_samples_np) < 0.8 * sample_rate
+                and len(window_samples_np) >= 0.3 * sample_rate
+            ):
+                pad_length = min(int(0.1 * sample_rate), len(window_samples_np) // 4)
+                window_samples_np = np.pad(
+                    window_samples_np, (pad_length, pad_length), mode="reflect"
                 )
 
-                # Resample if needed
-                if sample_rate != 16000:
-                    window_samples_np = librosa.resample(
-                        window_samples_np, orig_sr=sample_rate, target_sr=16000
-                    )
+            # Resample if needed
+            if sample_rate != 16000:
+                window_samples_np = librosa.resample(
+                    window_samples_np, orig_sr=sample_rate, target_sr=16000
+                )
 
-                # Process with WavLM following official usage
+            window_waveforms.append(window_samples_np)
+
+        # Process in batches to improve performance
+        embeddings = [None] * len(windows)  # Pre-allocate with None values
+        batch_count = (len(window_waveforms) + batch_size - 1) // batch_size
+
+        for batch_idx in range(batch_count):
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + batch_size, len(window_waveforms))
+            batch = window_waveforms[start_idx:end_idx]
+
+            try:
+                # Process batch with WavLM
                 inputs = self.wavlm_processor(
-                    window_samples_np, sampling_rate=16000, return_tensors="pt"
+                    batch, sampling_rate=16000, return_tensors="pt", padding=True
                 )
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
                 with torch.no_grad():
                     outputs = self.wavlm_model(**inputs)
-                    # Get embedding and normalize
-                    embedding = outputs.embeddings
-                    embedding = torch.nn.functional.normalize(embedding, dim=-1)
-                    embedding = embedding.cpu().numpy().squeeze()
-                    embeddings.append(embedding)
+                    # Get embeddings and normalize
+                    batch_embeddings = outputs.embeddings
+                    batch_embeddings = torch.nn.functional.normalize(
+                        batch_embeddings, dim=-1
+                    )
+                    batch_embeddings = batch_embeddings.cpu().numpy()
+
+                    # Store embeddings at correct positions
+                    for i in range(len(batch)):
+                        embeddings[start_idx + i] = batch_embeddings[i]
             except Exception as e:
-                # If WavLM extraction fails, try ECAPA-TDNN as fallback
-                if self.has_ecapa_model:
+                # Process individually on failure
+                for i, waveform_np in enumerate(batch):
                     try:
-                        # Convert to tensor
-                        if not isinstance(window_samples, torch.Tensor):
-                            window_tensor = torch.tensor(window_samples).float()
-                        else:
-                            window_tensor = window_samples
-
-                        # Make mono and apply correct shape
-                        if len(window_tensor.shape) == 1:
-                            window_tensor = window_tensor.unsqueeze(0)
-
-                        # Resample if needed
-                        if sample_rate != 16000:
-                            window_tensor = torchaudio.functional.resample(
-                                window_tensor, sample_rate, 16000
-                            )
+                        inputs = self.wavlm_processor(
+                            waveform_np, sampling_rate=16000, return_tensors="pt"
+                        )
+                        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
                         with torch.no_grad():
-                            embedding = self.ecapa_model.encode_batch(
-                                window_tensor.to(self.device)
-                            )
-                            embedding = embedding.squeeze().cpu().numpy()
-                            embeddings.append(embedding)
+                            outputs = self.wavlm_model(**inputs)
+                            embedding = outputs.embeddings
+                            embedding = torch.nn.functional.normalize(embedding, dim=-1)
+                            embedding = embedding.cpu().numpy().squeeze()
+                            embeddings[start_idx + i] = embedding
                     except Exception:
-                        # If all extraction fails, use a dummy embedding to maintain indices
-                        embeddings.append(None)
-                else:
-                    # If extraction fails, use a dummy embedding to maintain indices
-                    embeddings.append(None)
+                        pass  # Keep None at this position
 
         # Check for distance between adjacent windows using cosine similarity
-        # WavLM is optimized for cosine similarity with properly normalized embeddings
         if len(embeddings) > 2:
             distances = []
             for i in range(len(embeddings) - 1):
@@ -465,26 +403,25 @@ class SpeakerDiarizer:
         except:
             return -np.inf
 
-    def _extract_embeddings(self, waveform, sample_rate, segments, show_progress=True):
-        """Extract speaker embeddings for each segment using WavLM"""
+    def _extract_embeddings_batch(
+        self, waveform, sample_rate, segments, show_progress=True, batch_size=8
+    ):
+        """Extract speaker embeddings using WavLM with efficient batch processing"""
         if show_progress:
-            print("Extracting speaker embeddings...")
+            print("Extracting speaker embeddings in batches...")
 
         embeddings = []
         timings = []
-        wavlm_embeddings = []
-        ecapa_embeddings = []
 
-        # Create iterator with progress bar if needed
-        iterator = segments
-        if show_progress:
-            iterator = tqdm(segments, desc="Processing segments", unit="segment")
+        # Prepare batches of segments
+        valid_segments = []
+        segment_waveforms = []
 
-        for start, end in iterator:
+        for start, end in segments:
             start_sample = int(start * sample_rate)
             end_sample = int(end * sample_rate)
 
-            # Handle edge case
+            # Handle edge cases
             if (
                 start_sample >= end_sample
                 or start_sample >= len(waveform)
@@ -493,9 +430,9 @@ class SpeakerDiarizer:
                 continue
 
             segment_waveform = waveform[start_sample:end_sample]
+            duration = (end_sample - start_sample) / sample_rate
 
             # Skip segments that are too short
-            duration = (end_sample - start_sample) / sample_rate
             if duration < 0.3:  # Minimum 300ms
                 continue
 
@@ -510,108 +447,159 @@ class SpeakerDiarizer:
                         segment_waveform, orig_sr=sample_rate, target_sr=16000
                     )
 
-            wavlm_embedding = None
-            ecapa_embedding = None
+            # Normalize audio
+            if isinstance(segment_waveform, torch.Tensor):
+                segment_waveform_np = segment_waveform.cpu().numpy()
+            else:
+                segment_waveform_np = segment_waveform
 
-            # 1. Process with WavLM (primary method) using official method
+            segment_waveform_np = segment_waveform_np / (
+                np.max(np.abs(segment_waveform_np)) + 1e-8
+            )
+
+            segment_waveforms.append(segment_waveform_np)
+            valid_segments.append((start, end))
+
+        if not valid_segments:
+            return np.array([]), []
+
+        # Process in batches
+        total_segments = len(valid_segments)
+        batch_count = (
+            total_segments + batch_size - 1
+        ) // batch_size  # Ceiling division
+
+        if show_progress:
+            print(f"Processing {total_segments} segments in {batch_count} batches")
+
+        for batch_idx in range(batch_count):
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + batch_size, total_segments)
+
+            batch_waveforms = segment_waveforms[start_idx:end_idx]
+
             try:
-                if isinstance(segment_waveform, torch.Tensor):
-                    segment_waveform_np = segment_waveform.cpu().numpy()
-                else:
-                    segment_waveform_np = segment_waveform
-
-                # Normalize audio (crucial for WavLM)
-                segment_waveform_np = segment_waveform_np / (
-                    np.max(np.abs(segment_waveform_np)) + 1e-8
-                )
-
-                # For very short segments, add small padding to improve embedding quality
-                if duration < 0.8 and duration >= 0.3:
-                    pad_length = min(int(0.1 * 16000), len(segment_waveform_np) // 4)
-                    segment_waveform_np = np.pad(
-                        segment_waveform_np, (pad_length, pad_length), mode="reflect"
-                    )
-
-                # Process with WavLM according to official examples
+                # Process batch with WavLM
                 inputs = self.wavlm_processor(
-                    segment_waveform_np, sampling_rate=16000, return_tensors="pt"
+                    batch_waveforms,
+                    sampling_rate=16000,
+                    return_tensors="pt",
+                    padding=True,
                 )
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
                 with torch.no_grad():
                     outputs = self.wavlm_model(**inputs)
-                    # Get embedding directly - WavLMForXVector already has the correct pooling
-                    embedding = outputs.embeddings
-                    # Apply L2 normalization as per Microsoft's recommendation
-                    embedding = torch.nn.functional.normalize(embedding, dim=-1)
-                    wavlm_embedding = embedding.cpu().numpy().squeeze()
-                    wavlm_embeddings.append(wavlm_embedding)
+                    # Get embeddings and normalize
+                    batch_embeddings = outputs.embeddings
+                    batch_embeddings = torch.nn.functional.normalize(
+                        batch_embeddings, dim=-1
+                    )
+                    batch_embeddings = batch_embeddings.cpu().numpy()
+
+                    # Add embeddings and corresponding timings
+                    for i in range(len(batch_waveforms)):
+                        embeddings.append(batch_embeddings[i])
+                        timings.append(valid_segments[start_idx + i])
             except Exception as e:
-                self.logger.warning(
-                    f"Failed to extract WavLM embedding for segment {start}-{end}: {str(e)}"
-                )
-
-            # 2. Process with ECAPA-TDNN as fallback if available
-            if wavlm_embedding is None and self.has_ecapa_model:
-                try:
-                    if not isinstance(segment_waveform, torch.Tensor):
-                        segment_tensor = torch.tensor(segment_waveform).float()
-                    else:
-                        segment_tensor = segment_waveform
-
-                    # Make mono and apply correct shape
-                    if len(segment_tensor.shape) == 1:
-                        segment_tensor = segment_tensor.unsqueeze(0)
-
-                    with torch.no_grad():
-                        ecapa_embedding = self.ecapa_model.encode_batch(
-                            segment_tensor.to(self.device)
+                self.logger.warning(f"Failed to process batch {batch_idx}: {str(e)}")
+                # Process segments individually as fallback
+                for i, waveform_np in enumerate(batch_waveforms):
+                    try:
+                        inputs = self.wavlm_processor(
+                            waveform_np, sampling_rate=16000, return_tensors="pt"
                         )
-                        ecapa_embedding = ecapa_embedding.squeeze().cpu().numpy()
-                        ecapa_embeddings.append(ecapa_embedding)
-                except Exception as e:
-                    self.logger.warning(
-                        f"Failed to extract ECAPA embedding for segment {start}-{end}: {str(e)}"
-                    )
+                        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-            # If either embedding was extracted, add the timing
-            if wavlm_embedding is not None or ecapa_embedding is not None:
-                timings.append((start, end))
-
-        # Determine which embeddings to use based on availability
-        if len(wavlm_embeddings) == len(timings):
-            # Prefer WavLM embeddings (primary)
-            embeddings = wavlm_embeddings
-            if show_progress:
-                print(f"Using WavLM embeddings for {len(embeddings)} segments")
-        elif self.has_ecapa_model and len(ecapa_embeddings) == len(timings):
-            # Fall back to ECAPA-TDNN embeddings
-            embeddings = ecapa_embeddings
-            if show_progress:
-                print(f"Using ECAPA-TDNN embeddings for {len(embeddings)} segments")
-        else:
-            # If counts don't match, use available embeddings and adjust timings
-            if len(wavlm_embeddings) > len(ecapa_embeddings):
-                embeddings = wavlm_embeddings
-                # Adjust timing list to match
-                timings = timings[: len(embeddings)]
-                if show_progress:
-                    print(
-                        f"Using partial WavLM embeddings ({len(embeddings)} out of {len(timings)} segments)"
-                    )
-            elif len(ecapa_embeddings) > 0:
-                embeddings = ecapa_embeddings
-                # Adjust timing list to match
-                timings = timings[: len(embeddings)]
-                if show_progress:
-                    print(
-                        f"Using partial ECAPA-TDNN embeddings ({len(embeddings)} out of {len(timings)} segments)"
-                    )
+                        with torch.no_grad():
+                            outputs = self.wavlm_model(**inputs)
+                            embedding = outputs.embeddings
+                            embedding = torch.nn.functional.normalize(embedding, dim=-1)
+                            embedding = embedding.cpu().numpy().squeeze()
+                            embeddings.append(embedding)
+                            timings.append(valid_segments[start_idx + i])
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Failed individual embedding extraction: {str(e)}"
+                        )
 
         if show_progress:
-            print(f"Extracted {len(embeddings)} speaker embeddings")
+            print(f"Successfully extracted {len(embeddings)} speaker embeddings")
 
         return np.array(embeddings), timings
+
+    def diarize(self, audio_path, num_speakers=None, show_progress=True, batch_size=8):
+        """Speaker diarization optimized for WavLM embeddings with batch processing"""
+        if show_progress:
+            print(f"Starting WavLM-optimized diarization for: {audio_path}")
+
+        # 1. Load audio
+        waveform, sample_rate = torchaudio.load(audio_path)
+        waveform = waveform.mean(dim=0, keepdim=True)  # Convert to mono if needed
+
+        # 2. Resample to 16kHz if needed (WavLM expects 16kHz)
+        if sample_rate != 16000:
+            waveform = torchaudio.functional.resample(waveform, sample_rate, 16000)
+            sample_rate = 16000
+
+        # 3. Normalize audio volume (important for WavLM)
+        waveform = waveform / (torch.max(torch.abs(waveform)) + 1e-8)
+
+        # 4. VAD to get speech segments
+        vad_segments = self._get_vad_segments(waveform[0], sample_rate, show_progress)
+
+        if len(vad_segments) == 0:
+            self.logger.warning("No speech segments detected in audio")
+            return []
+
+        # 5. Speaker change detection
+        change_points = self._detect_speaker_changes(
+            waveform[0], sample_rate, vad_segments, show_progress=show_progress
+        )
+
+        # 6. Create segment boundaries from VAD and change points
+        all_boundaries = sorted(
+            list(
+                set(
+                    [s[0] for s in vad_segments]
+                    + [s[1] for s in vad_segments]
+                    + change_points
+                )
+            )
+        )
+
+        # 7. Create analysis segments
+        analysis_segments = []
+        for i in range(len(all_boundaries) - 1):
+            analysis_segments.append((all_boundaries[i], all_boundaries[i + 1]))
+
+        # 8. Extract speaker embeddings using WavLM with batch processing
+        embeddings, segment_timings = self._extract_embeddings_batch(
+            waveform[0],
+            sample_rate,
+            analysis_segments,
+            show_progress,
+            batch_size=batch_size,
+        )
+
+        if len(embeddings) == 0:
+            self.logger.warning("Failed to extract any speaker embeddings")
+            return []
+
+        # 9. Determine speakers through clustering
+        speaker_labels = self._cluster_speakers(embeddings, num_speakers, show_progress)
+
+        # 10. Create final speaker segments
+        speaker_segments = self._create_speaker_segments(
+            segment_timings, speaker_labels
+        )
+
+        if show_progress:
+            print(
+                f"Diarization complete: identified {len(speaker_segments)} speaker segments with {len(set(s.speaker for s in speaker_segments))} speakers"
+            )
+
+        return speaker_segments
 
     def _cluster_speakers(self, embeddings, num_speakers=None, show_progress=True):
         """Speaker clustering optimized for WavLM embeddings"""
@@ -826,72 +814,3 @@ class SpeakerDiarizer:
             merged_segments = segments
 
         return merged_segments
-
-    def diarize(self, audio_path, num_speakers=None, show_progress=True):
-        """Speaker diarization optimized for WavLM embeddings"""
-        if show_progress:
-            print(f"Starting WavLM-optimized diarization for: {audio_path}")
-
-        # 1. Load audio
-        waveform, sample_rate = torchaudio.load(audio_path)
-        waveform = waveform.mean(dim=0, keepdim=True)  # Convert to mono if needed
-
-        # 2. Resample to 16kHz if needed (WavLM expects 16kHz)
-        if sample_rate != 16000:
-            waveform = torchaudio.functional.resample(waveform, sample_rate, 16000)
-            sample_rate = 16000
-
-        # 3. Normalize audio volume (important for WavLM)
-        waveform = waveform / (torch.max(torch.abs(waveform)) + 1e-8)
-
-        # 4. VAD to get speech segments
-        vad_segments = self._get_vad_segments(waveform[0], sample_rate, show_progress)
-
-        if len(vad_segments) == 0:
-            self.logger.warning("No speech segments detected in audio")
-            return []
-
-        # 5. Speaker change detection
-        change_points = self._detect_speaker_changes(
-            waveform[0], sample_rate, vad_segments, show_progress=show_progress
-        )
-
-        # 6. Create segment boundaries from VAD and change points
-        all_boundaries = sorted(
-            list(
-                set(
-                    [s[0] for s in vad_segments]
-                    + [s[1] for s in vad_segments]
-                    + change_points
-                )
-            )
-        )
-
-        # 7. Create analysis segments
-        analysis_segments = []
-        for i in range(len(all_boundaries) - 1):
-            analysis_segments.append((all_boundaries[i], all_boundaries[i + 1]))
-
-        # 8. Extract speaker embeddings using WavLM
-        embeddings, segment_timings = self._extract_embeddings(
-            waveform[0], sample_rate, analysis_segments, show_progress
-        )
-
-        if len(embeddings) == 0:
-            self.logger.warning("Failed to extract any speaker embeddings")
-            return []
-
-        # 9. Determine speakers through clustering
-        speaker_labels = self._cluster_speakers(embeddings, num_speakers, show_progress)
-
-        # 10. Create final speaker segments
-        speaker_segments = self._create_speaker_segments(
-            segment_timings, speaker_labels
-        )
-
-        if show_progress:
-            print(
-                f"Diarization complete: identified {len(speaker_segments)} speaker segments with {len(set(s.speaker for s in speaker_segments))} speakers"
-            )
-
-        return speaker_segments
