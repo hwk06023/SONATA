@@ -21,7 +21,7 @@ SONATA는 감정 표현과 비언어적 신호를 포함한 인간의 표현을 
 - 🎙️ WhisperX를 사용한 고정확도 speech-to-text 변환
 - 😀 523종 이상의 emotive sound와 non-verbal cue 인식
 - 🌍 99개 이상의 언어 지원
-- 👥 다중 화자 전사를 위한 speaker diarization(온라인 및 오프라인 모드)
+- 👥 다중 화자 전사를 위한 speaker diarization(Silero VAD와 WavLM 임베딩 활용)
 - ⏱️ 단어 수준의 정확한 timestamp 정보
 - 🔄 오디오 preprocessing 기능
 
@@ -97,7 +97,7 @@ sonata-asr path/to/audio.wav --diarize --num-speakers 3
 
 [📚 전체 사용법 문서 보기](https://hwk06023.github.io/SONATA/USAGE.html)  
 [⌨️ 전체 CLI 문서 보기](https://hwk06023.github.io/SONATA/CLI.html)  
-[🎤 오프라인 다이어리제이션 가이드 보기](https://hwk06023.github.io/SONATA/OFFLINE_DIARIZATION.html)
+[🎤 화자 다이어리제이션 가이드 보기](https://hwk06023.github.io/SONATA/SPEAKER_DIARIZATION.html)
 
 ## 🗣️ Supported Languages
 

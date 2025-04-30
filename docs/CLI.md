@@ -26,6 +26,7 @@ This will transcribe the audio file using default settings and save the results 
 | `<audio_file>` | Path to the input audio file |
 | `-o, --output FILE` | Path to save JSON output (default: `<filename>.json`) |
 | `--text-output` | Save transcript to text file (default: `<filename>.txt`) |
+| `--format [TYPE]` | Format for text output: concise, default, extended (default: default) |
 
 ### Model Options
 
@@ -34,7 +35,8 @@ This will transcribe the audio file using default settings and save the results 
 | `-m, --model MODEL` | WhisperX model size to use: tiny, base, small, medium, large, large-v2, large-v3 (default: large-v3) |
 | `-d, --device DEVICE` | Device to run on: cpu, cuda, mps (default: cpu) |
 | `-e, --audio-model PATH` | Path to custom audio event detection model |
-| `-t, --threshold FLOAT` | Threshold for audio event detection (default: 0.3) |
+| `-t, --threshold FLOAT` | Threshold for audio event detection (default: 0.5) |
+| `--custom-thresholds PATH` | Path to JSON file with custom audio event thresholds |
 
 ### Language Options
 
@@ -55,15 +57,19 @@ This will transcribe the audio file using default settings and save the results 
 
 | Option | Description |
 |--------|-------------|
-| `--diarize` | Enable speaker diarization |
-| `--hf-token TOKEN` | HuggingFace token for diarization models (required for diarization) |
-| `--min-speakers N` | Minimum number of speakers for diarization |
-| `--max-speakers N` | Maximum number of speakers for diarization |
-| `--offline-diarize` | Use offline diarization (no token needed after setup) |
-| `--offline-config PATH` | Path to offline diarization config file |
-| `--setup-offline` | Download and setup offline diarization models |
+| `--diarize` | Enable SOTA speaker diarization using Silero VAD and WavLM embeddings |
+| `--num-speakers N` | Number of speakers if known (estimated automatically if not provided) |
 
-> **Important**: Speaker diarization requires access permissions to both `pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0` models on HuggingFace. You must accept the terms of use for both models before using this feature.
+### Audio Event Detection Options
+
+| Option | Description |
+|--------|-------------|
+| `--deep-detect` | Enable multi-scale audio event detection with parallel window sizes for better paralinguistic detection |
+| `--deep-detect-scales {1,2,3}` | Number of scales to use for deep detection (default: 3, fewer scales = faster processing) |
+| `--deep-detect-window-sizes SIZES` | Comma-separated list of window sizes in seconds for deep detection (default: 0.2,1.0,2.5) |
+| `--deep-detect-hop-sizes SIZES` | Comma-separated list of hop sizes in seconds for deep detection (default: 0.1,0.5,1.0) |
+| `--deep-detect-parallel` | Use parallel processing for multi-scale detection (automatically enables --deep-detect) |
+| `--deep-detect-progress` | Show detailed progress bars for deep detection processing |
 
 ### Miscellaneous
 
@@ -95,7 +101,13 @@ sonata-asr korean_speech.mp3 --language ko
 ### With Speaker Diarization
 
 ```bash
-sonata-asr interview.wav --diarize --hf-token YOUR_HUGGINGFACE_TOKEN
+sonata-asr interview.wav --diarize --num-speakers 3
+```
+
+### Enhanced Audio Event Detection
+
+```bash
+sonata-asr podcast.wav --deep-detect --deep-detect-parallel
 ```
 
 ### Preprocessing Long Audio
@@ -107,7 +119,7 @@ sonata-asr long_podcast.mp3 --preprocess --split --split-length 60 --split-overl
 ### Customizing Output
 
 ```bash
-sonata-asr meeting.wav --output meeting_data.json --text-output
+sonata-asr meeting.wav --output meeting_data.json --text-output --format extended
 ```
 
 ### Adjusting Detection Sensitivity
@@ -124,33 +136,17 @@ Lower threshold values will detect more audio events but may increase false posi
 - **1**: Invalid arguments or file not found
 - **2**: Processing error
 
-## Additional Information
-
-- For speaker diarization, sign up on [HuggingFace](https://huggingface.co) and accept the user agreement for the pyannote/speaker-diarization models
-- Large audio files are automatically processed in segments regardless of the `--split` option, but with this flag you can customize the segmentation parameters
-- The `--preprocess` option is recommended for noisy or poorly formatted audio files 
-
-# Transcription Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `-l`, `--language` | en | Language code (en, ko, zh, ja, fr, de, etc.) |
-| `-m`, `--model` | large-v3 | WhisperX model size |
-| `-d`, `--device` | cpu | Device to run models on (cpu/cuda) |
-| `-e`, `--audio-model` | (None) | Path to custom audio event detection model |
-| `-t`, `--threshold` | 0.5 | Threshold for audio event detection |
-| `--custom-thresholds` | (None) | Path to JSON file with custom audio event thresholds |
-| `--text-output` | (False) | Save transcript to text file (default: `<filename>.txt`) |
-| `--preprocess` | (False) | Preprocess audio (convert format and trim silence) |
-
-# Advanced Examples
+## Advanced Examples
 
 ```bash
 # Using custom audio event thresholds
 sonata-asr audio.wav --custom-thresholds thresholds.json
 
+# Deep detection with custom settings
+sonata-asr interview.wav --deep-detect --deep-detect-scales 2 --deep-detect-window-sizes 0.5,2.0 --deep-detect-hop-sizes 0.2,1.0
+
 # Combining multiple options
-sonata-asr audio.mp3 --language ko --device cuda --diarize --offline-diarize --custom-thresholds custom_thresholds.json
+sonata-asr audio.mp3 --language ko --device cuda --diarize --num-speakers 2 --deep-detect --custom-thresholds custom_thresholds.json
 ```
 
 > **Note**: Speaker diarization works with all supported languages. The language option affects only the transcription part, not the speaker identification. 
