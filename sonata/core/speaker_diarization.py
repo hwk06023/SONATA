@@ -838,23 +838,20 @@ class SpeakerDiarizer:
             waveform[0], sample_rate, vad_segments, show_progress=show_progress
         )
 
-        # 4. Create segment boundaries from VAD and change points
+        # 4. Create analysis segments from VAD and change points
         all_boundaries = sorted(
-            list(
-                set(
-                    [s[0] for s in vad_segments]
-                    + [s[1] for s in vad_segments]
-                    + change_points
-                )
+            set(
+                [s[0] for s in vad_segments]
+                + [s[1] for s in vad_segments]
+                + change_points
             )
         )
+        analysis_segments = [
+            (all_boundaries[i], all_boundaries[i + 1])
+            for i in range(len(all_boundaries) - 1)
+        ]
 
-        # 5. Create analysis segments
-        analysis_segments = []
-        for i in range(len(all_boundaries) - 1):
-            analysis_segments.append((all_boundaries[i], all_boundaries[i + 1]))
-
-        # 6. Extract enhanced speaker embeddings
+        # 5. Extract enhanced speaker embeddings
         embeddings, segment_timings = self._extract_embeddings(
             waveform[0], sample_rate, analysis_segments, show_progress
         )
@@ -863,10 +860,10 @@ class SpeakerDiarizer:
             self.logger.warning("Failed to extract any speaker embeddings")
             return []
 
-        # 7. Enhanced clustering to determine speakers
+        # 6. Enhanced clustering to determine speakers
         speaker_labels = self._cluster_speakers(embeddings, num_speakers, show_progress)
 
-        # 8. Detect overlapped speech
+        # 7. Detect overlapped speech
         overlap_segments = self._detect_overlapped_speech(
             waveform[0], sample_rate, segment_timings
         )
@@ -874,12 +871,12 @@ class SpeakerDiarizer:
         if show_progress and overlap_segments:
             print(f"Detected {len(overlap_segments)} potentially overlapped segments")
 
-        # 9. Create final speaker segments with overlap information
+        # 8. Create final speaker segments with overlap information
         speaker_segments = self._create_speaker_segments(
             segment_timings, speaker_labels
         )
 
-        # 10. Add overlap information to segments
+        # 9. Add overlap information to segments
         for overlap_idx in overlap_segments:
             if overlap_idx < len(speaker_segments):
                 speaker_segments[overlap_idx].is_overlap = True
