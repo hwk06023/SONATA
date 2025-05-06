@@ -817,10 +817,31 @@ class SpeakerDiarizer:
 
         return merged_segments
 
-    def diarize(self, audio_path, num_speakers=None, show_progress=True):
+    def _save_to_txt(self, data, filename):
+        """Minimal function to save data to text file"""
+        with open(filename, "w") as f:
+            if isinstance(data, list):
+                for item in data:
+                    f.write(f"{item}\n")
+            elif isinstance(data, np.ndarray):
+                for item in data:
+                    f.write(f"{item}\n")
+            else:
+                f.write(str(data))
+
+    def diarize(
+        self, audio_path, num_speakers=None, show_progress=True, save_steps=False
+    ):
         """Main diarization method with improved processing pipeline"""
         if show_progress:
             print(f"Starting enhanced diarization for: {audio_path}")
+
+        output_dir = None
+        if save_steps:
+            # Create directory for saving step outputs
+            audio_basename = os.path.basename(audio_path).split(".")[0]
+            output_dir = f"{audio_basename}_steps"
+            os.makedirs(output_dir, exist_ok=True)
 
         # 1. Load audio
         waveform, sample_rate = torchaudio.load(audio_path)
@@ -828,6 +849,12 @@ class SpeakerDiarizer:
 
         # 2. Enhanced VAD to get speech segments
         vad_segments = self._get_vad_segments(waveform[0], sample_rate, show_progress)
+
+        if save_steps:
+            vad_txt = os.path.join(output_dir, "01_vad_segments.txt")
+            with open(vad_txt, "w") as f:
+                for start, end in vad_segments:
+                    f.write(f"{start},{end}\n")
 
         if len(vad_segments) == 0:
             self.logger.warning("No speech segments detected in audio")
@@ -837,6 +864,10 @@ class SpeakerDiarizer:
         change_points = self._detect_speaker_changes(
             waveform[0], sample_rate, vad_segments, show_progress=show_progress
         )
+
+        if save_steps:
+            cp_txt = os.path.join(output_dir, "02_change_points.txt")
+            self._save_to_txt(change_points, cp_txt)
 
         # 4. Create analysis segments from VAD and change points
         all_boundaries = sorted(
@@ -851,10 +882,28 @@ class SpeakerDiarizer:
             for i in range(len(all_boundaries) - 1)
         ]
 
+        if save_steps:
+            seg_txt = os.path.join(output_dir, "03_analysis_segments.txt")
+            with open(seg_txt, "w") as f:
+                for start, end in analysis_segments:
+                    f.write(f"{start},{end}\n")
+
         # 5. Extract enhanced speaker embeddings
         embeddings, segment_timings = self._extract_embeddings(
             waveform[0], sample_rate, analysis_segments, show_progress
         )
+
+        if save_steps:
+            timing_txt = os.path.join(output_dir, "04_segment_timings.txt")
+            with open(timing_txt, "w") as f:
+                for start, end in segment_timings:
+                    f.write(f"{start},{end}\n")
+
+            # Just save embedding shape info since embeddings are large
+            emb_txt = os.path.join(output_dir, "04_embeddings_shape.txt")
+            with open(emb_txt, "w") as f:
+                f.write(f"Shape: {embeddings.shape}\n")
+                f.write(f"Type: {embeddings.dtype}\n")
 
         if len(embeddings) == 0:
             self.logger.warning("Failed to extract any speaker embeddings")
@@ -863,10 +912,18 @@ class SpeakerDiarizer:
         # 6. Enhanced clustering to determine speakers
         speaker_labels = self._cluster_speakers(embeddings, num_speakers, show_progress)
 
+        if save_steps:
+            labels_txt = os.path.join(output_dir, "05_speaker_labels.txt")
+            self._save_to_txt(speaker_labels, labels_txt)
+
         # 7. Detect overlapped speech
         overlap_segments = self._detect_overlapped_speech(
             waveform[0], sample_rate, segment_timings
         )
+
+        if save_steps:
+            overlap_txt = os.path.join(output_dir, "06_overlap_segments.txt")
+            self._save_to_txt(overlap_segments, overlap_txt)
 
         if show_progress and overlap_segments:
             print(f"Detected {len(overlap_segments)} potentially overlapped segments")
@@ -875,6 +932,12 @@ class SpeakerDiarizer:
         speaker_segments = self._create_speaker_segments(
             segment_timings, speaker_labels
         )
+
+        if save_steps:
+            segments_txt = os.path.join(output_dir, "07_speaker_segments.txt")
+            with open(segments_txt, "w") as f:
+                for seg in speaker_segments:
+                    f.write(f"{seg.start},{seg.end},{seg.speaker},{seg.is_overlap}\n")
 
         # 9. Add overlap information to segments
         for overlap_idx in overlap_segments:
@@ -891,6 +954,17 @@ class SpeakerDiarizer:
                             prev_speaker,
                             next_speaker,
                         ]
+
+        if save_steps:
+            final_txt = os.path.join(output_dir, "08_final_segments.txt")
+            with open(final_txt, "w") as f:
+                for seg in speaker_segments:
+                    overlap_str = (
+                        ",".join(seg.overlap_speakers) if seg.overlap_speakers else ""
+                    )
+                    f.write(
+                        f"{seg.start},{seg.end},{seg.speaker},{seg.is_overlap},{overlap_str}\n"
+                    )
 
         if show_progress:
             print(
