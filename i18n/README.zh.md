@@ -153,3 +153,31 @@ SONATA能够检测500多种不同的音频事件，从笑声、掌声到环境�
 - [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) - 微软高级音频理解模型
   - [microsoft/wavlm-base-plus-sv](https://huggingface.co/microsoft/wavlm-base-plus-sv) - 说话人验证模型
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLP工具 
+
+## 👥 说话人分离（Speaker Diarization）
+
+SONATA提供最先进的说话人分离技术，用于识别和区分录音中的不同说话者。该系统使用Silero VAD进行语音检测，使用WavLM嵌入进行说话者识别，非常适合会议、访谈和播客等多说话人内容的转录。
+
+使用说话人分离功能很简单：
+```bash
+# 基本分离
+sonata-asr 音频文件路径.wav --diarize
+
+# 如果知道说话人数量，可以指定
+sonata-asr 音频文件路径.wav --diarize --num-speakers 3
+
+# 保存中间步骤输出以便调试或分析
+sonata-asr 音频文件路径.wav --diarize --save-steps
+```
+
+使用`--save-steps`选项时，SONATA将在以音频文件命名的目录中保存以下中间文件：
+- 语音活动检测段（VAD segments）
+- 说话人变化点
+- 分析段
+- 说话人嵌入信息
+- 聚类结果
+- 最终说话人段
+
+这对于微调或调试复杂音频文件的说话人分离功能特别有用。
+
+[🎙️ 查看说话人分离文档](https://hwk06023.github.io/SONATA/SPEAKER_DIARIZATION.html) 

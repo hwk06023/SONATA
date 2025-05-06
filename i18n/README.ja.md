@@ -153,3 +153,31 @@ SONATAは、笑い声、拍手音から環境音、音楽まで500以上の様�
 - [WavLM](https://github.com/microsoft/unilm/tree/master/wavlm) - Microsoftの高度オーディオ理解モデル
   - [microsoft/wavlm-base-plus-sv](https://huggingface.co/microsoft/wavlm-base-plus-sv) - スピーカー検証モデル
 - [HuggingFace Transformers](https://github.com/huggingface/transformers) - NLPツール 
+
+## 👥 話者分離（Speaker Diarization）
+
+SONATAは、録音内の異なる話者を識別し区別するための最先端の話者分離機能を提供します。このシステムは音声検出にSilero VADを使用し、話者識別にWavLM埋め込みを使用しており、会議、インタビュー、ポッドキャストなどの複数話者コンテンツの書き起こしに理想的です。
+
+話者分離機能の使い方は簡単です：
+```bash
+# 基本的な分離
+sonata-asr オーディオファイルのパス.wav --diarize
+
+# 話者数がわかっている場合は指定
+sonata-asr オーディオファイルのパス.wav --diarize --num-speakers 3
+
+# デバッグや分析のために中間ステップ出力を保存
+sonata-asr オーディオファイルのパス.wav --diarize --save-steps
+```
+
+`--save-steps`オプションを使用すると、SONATAはオーディオファイル名に基づいたディレクトリに以下の中間ファイルを保存します：
+- 音声活動検出セグメント（VADセグメント）
+- 話者変更ポイント
+- 分析セグメント
+- 話者埋め込み情報
+- クラスタリング結果
+- 最終話者セグメント
+
+これは、特に複雑なオーディオファイルの話者分離機能を微調整またはデバッグする際に非常に役立ちます。
+
+[🎙️ 話者分離のドキュメントを見る](https://hwk06023.github.io/SONATA/SPEAKER_DIARIZATION.html) 

@@ -83,6 +83,7 @@ class IntegratedTranscriber:
         batch_size: int = 16,
         diarize: bool = False,
         num_speakers: Optional[int] = None,
+        save_diarization_steps: bool = False,
     ) -> Dict:
         """Process audio to get transcription with audio events integrated.
 
@@ -93,6 +94,7 @@ class IntegratedTranscriber:
             batch_size: Batch size for processing
             diarize: Whether to perform speaker diarization
             num_speakers: Number of speakers for diarization (optional)
+            save_diarization_steps: Whether to save intermediate outputs for each diarization step
 
         Returns:
             Dictionary containing the complete transcription results
@@ -184,10 +186,13 @@ class IntegratedTranscriber:
         if diarize:
             self.logger.info("Running speaker diarization...")
             try:
-                # Use the speaker diarizer
+                # Initialize diarizer
                 diarizer = SpeakerDiarizer(device=self.device)
                 diarize_segments = diarizer.diarize(
-                    audio_path=audio_path, num_speakers=num_speakers, show_progress=True
+                    audio_path=audio_path,
+                    num_speakers=num_speakers,
+                    show_progress=True,
+                    save_steps=save_diarization_steps,
                 )
 
                 # Convert speaker segments to the format expected by assign_word_speakers

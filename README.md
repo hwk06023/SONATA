@@ -118,6 +118,28 @@ SONATA can detect over 500 different audio events, from laughter and applause to
 
 SONATA provides state-of-the-art speaker diarization to identify and separate different speakers in recordings. The system uses Silero VAD for speech detection and WavLM embeddings for speaker identification, making it ideal for transcribing multi-speaker content like meetings, interviews, and podcasts.
 
+Using speaker diarization is simple:
+```bash
+# Basic diarization
+sonata-asr path/to/audio.wav --diarize
+
+# Set number of speakers if known
+sonata-asr path/to/audio.wav --diarize --num-speakers 3
+
+# Save intermediate step outputs for debugging or analysis
+sonata-asr path/to/audio.wav --diarize --save-steps
+```
+
+When using the `--save-steps` option, SONATA will save the following intermediate files in a directory named after your audio file:
+- Voice activity detection segments
+- Speaker change points
+- Analysis segments
+- Speaker embeddings information
+- Clustering results
+- Final speaker segments
+
+This is particularly useful for fine-tuning or debugging diarization on challenging audio files.
+
 [🎙️ See speaker diarization documentation](https://hwk06023.github.io/SONATA/SPEAKER_DIARIZATION.html)
 
 ## 🚀 Next Steps
