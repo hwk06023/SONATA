@@ -108,6 +108,11 @@ def parse_args():
         type=int,
         help="Number of speakers if known (estimated automatically if not provided)",
     )
+    parser.add_argument(
+        "--save-steps",
+        action="store_true",
+        help="Save intermediate output files for each diarization step for analysis",
+    )
 
     # Deep detection option
     parser.add_argument(
@@ -170,6 +175,9 @@ def show_usage_and_exit():
     )
     print("\nDiarization options:")
     print("  --num-speakers [NUM]    Set exact number of speakers (optional)")
+    print(
+        "  --save-steps            Save intermediate diarization step outputs for analysis"
+    )
     print("\nFor more options:")
     print("  sonata-asr --help")
     print("\nExamples:")
@@ -325,6 +333,7 @@ def process_file(transcriber, input_path, output_path, args):
                 audio_threshold=args.threshold,
                 diarize=args.diarize,
                 num_speakers=args.num_speakers,
+                save_diarization_steps=args.save_steps if args.diarize else False,
             )
 
             # Add segment info
@@ -371,6 +380,7 @@ def process_file(transcriber, input_path, output_path, args):
             audio_threshold=args.threshold,
             diarize=args.diarize,
             num_speakers=args.num_speakers,
+            save_diarization_steps=args.save_steps if args.diarize else False,
         )
 
         # Save result
