@@ -140,7 +140,7 @@ class SpeakerDiarizer:
         hop_size=0.35,  # Reduced for more granularity
         show_progress=True,
     ):
-        """Detect speaker changes within VAD segments with improved algorithms"""
+        """Detect speaker changes within VAD segments using embedding similarity"""
         if show_progress:
             print("Detecting speaker changes...")
 
@@ -152,7 +152,7 @@ class SpeakerDiarizer:
             iterator = tqdm(vad_segments, desc="Processing segments", unit="segment")
 
         for start, end in iterator:
-            if end - start < window_size:
+            if end - start < window_size * 3:
                 continue
 
             # Extract segment waveform
@@ -160,49 +160,20 @@ class SpeakerDiarizer:
             segment_end_sample = int(end * sample_rate)
             segment_waveform = waveform[segment_start_sample:segment_end_sample]
 
-            # Calculate features
+            # Convert tensor to numpy if needed
             if isinstance(segment_waveform, torch.Tensor):
                 segment_waveform = segment_waveform.cpu().numpy()
 
-            # Enhanced feature extraction with more coefficients and deltas
-            mfccs = librosa.feature.mfcc(y=segment_waveform, sr=sample_rate, n_mfcc=24)
-            delta = librosa.feature.delta(mfccs)
-            delta2 = librosa.feature.delta(mfccs, order=2)
-            features = np.concatenate([mfccs, delta, delta2])
-
-            # Add spectral features for better discrimination
-            spec_contrast = librosa.feature.spectral_contrast(
-                y=segment_waveform, sr=sample_rate
+            # Use embedding-based change detection for segments
+            emb_changes = self._detect_changes_with_embeddings(
+                segment_waveform, sample_rate, window_size, hop_size
             )
-            features = np.concatenate([features, spec_contrast])
 
-            # Multi-algorithm approach: BIC + Divergence + Embeddings
-            # 1. BIC-based change detection
-            bic_changes = []
-            for t in np.arange(window_size, end - start - window_size, hop_size):
-                t_sample = int(t * sample_rate / sample_rate * features.shape[1])
-                t_sample = min(t_sample, features.shape[1] - 1)
+            # Convert local changes to global timeline
+            emb_changes = [start + t for t in emb_changes]
 
-                bic_score = self._compute_bic(features, t_sample)
-                if bic_score > 0:  # Positive BIC indicates change point
-                    bic_changes.append(start + t)
-
-            # 2. Embedding-based change detection for longer segments
-            if end - start > window_size * 3:
-                emb_changes = self._detect_changes_with_embeddings(
-                    segment_waveform, sample_rate, window_size, hop_size
-                )
-
-                # Convert local changes to global timeline
-                emb_changes = [start + t for t in emb_changes]
-
-                # Combine both methods with weighting
-                all_changes = bic_changes + emb_changes
-
-                # Cluster close change points to avoid duplicates
-                changes.extend(self._cluster_change_points(all_changes, threshold=0.35))
-            else:
-                changes.extend(bic_changes)
+            # Cluster close change points to avoid duplicates
+            changes.extend(self._cluster_change_points(emb_changes, threshold=0.35))
 
         # Filter out changes too close to segment boundaries
         filtered_changes = []
@@ -322,53 +293,6 @@ class SpeakerDiarizer:
             clusters.append(sum(current_cluster) / len(current_cluster))
 
         return clusters
-
-    def _compute_bic(self, features, change_point):
-        """Compute Bayesian Information Criterion for change detection"""
-        n_samples = features.shape[1]
-        n_features = features.shape[0]
-
-        # Ensure we have enough samples on each side
-        if change_point < 2 or n_samples - change_point < 2:
-            return -np.inf
-
-        # Split features at change point
-        part1 = features[:, :change_point]
-        part2 = features[:, change_point:]
-
-        try:
-            # Calculate covariances
-            cov = np.cov(features)
-            cov1 = np.cov(part1)
-            cov2 = np.cov(part2)
-
-            # Add small constant to avoid singularity
-            eps = 1e-6
-            cov += eps * np.eye(cov.shape[0])
-            cov1 += eps * np.eye(cov1.shape[0])
-            cov2 += eps * np.eye(cov2.shape[0])
-
-            # BIC calculation with improved penalty weight
-            n1 = part1.shape[1]
-            n2 = part2.shape[1]
-
-            bic = 0.5 * (
-                n_samples * np.log(np.linalg.det(cov))
-                - (n1 * np.log(np.linalg.det(cov1)) + n2 * np.log(np.linalg.det(cov2)))
-            )
-
-            # Modified penalty term with tuned lambda factor
-            lambda_factor = 1.0  # Can be tuned between 0.5-1.5
-            penalty = (
-                lambda_factor
-                * 0.5
-                * (n_features + 0.5 * n_features * (n_features + 1))
-                * np.log(n_samples)
-            )
-
-            return bic - penalty
-        except:
-            return -np.inf
 
     def _extract_embeddings(self, waveform, sample_rate, segments, show_progress=True):
         """Extract speaker embeddings for each segment with multiple models"""
