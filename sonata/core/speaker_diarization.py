@@ -817,9 +817,14 @@ class SpeakerDiarizer:
 
         return merged_segments
 
-    def _save_to_txt(self, data, filename):
-        """Minimal function to save data to text file"""
+    def _save_to_txt(self, data, filename, description=""):
+        """Save data to text file with description header"""
         with open(filename, "w") as f:
+            # Add description header if provided
+            if description:
+                f.write(f"# {description}\n")
+                f.write("#" + "-" * 50 + "\n")
+
             if isinstance(data, list):
                 for item in data:
                     f.write(f"{item}\n")
@@ -852,7 +857,10 @@ class SpeakerDiarizer:
 
         if save_steps:
             vad_txt = os.path.join(output_dir, "01_vad_segments.txt")
+            vad_desc = "Voice Activity Detection (VAD) Segments\nEach line represents the start and end time (in seconds) of a detected speech segment.\nFormat: start_time,end_time"
             with open(vad_txt, "w") as f:
+                f.write(f"# {vad_desc}\n")
+                f.write("#" + "-" * 50 + "\n")
                 for start, end in vad_segments:
                     f.write(f"{start},{end}\n")
 
@@ -867,7 +875,8 @@ class SpeakerDiarizer:
 
         if save_steps:
             cp_txt = os.path.join(output_dir, "02_change_points.txt")
-            self._save_to_txt(change_points, cp_txt)
+            cp_desc = "Speaker Change Points (in seconds)\nEach value represents a time point where one speaker changes to another."
+            self._save_to_txt(change_points, cp_txt, cp_desc)
 
         # 4. Create analysis segments from VAD and change points
         all_boundaries = sorted(
@@ -884,7 +893,10 @@ class SpeakerDiarizer:
 
         if save_steps:
             seg_txt = os.path.join(output_dir, "03_analysis_segments.txt")
+            seg_desc = "Analysis Segments\nFinal analysis segments created by combining VAD segments and speaker change points.\nFormat: start_time,end_time"
             with open(seg_txt, "w") as f:
+                f.write(f"# {seg_desc}\n")
+                f.write("#" + "-" * 50 + "\n")
                 for start, end in analysis_segments:
                     f.write(f"{start},{end}\n")
 
@@ -895,15 +907,23 @@ class SpeakerDiarizer:
 
         if save_steps:
             timing_txt = os.path.join(output_dir, "04_segment_timings.txt")
+            timing_desc = "Embedding Segment Timings\nEach line represents the start and end time (in seconds) of audio segments used for speaker embedding extraction.\nFormat: start_time,end_time"
             with open(timing_txt, "w") as f:
+                f.write(f"# {timing_desc}\n")
+                f.write("#" + "-" * 50 + "\n")
                 for start, end in segment_timings:
                     f.write(f"{start},{end}\n")
 
             # Just save embedding shape info since embeddings are large
             emb_txt = os.path.join(output_dir, "04_embeddings_shape.txt")
+            emb_desc = "Speaker Embedding Information\nEmbeddings are vectors representing the voice characteristics of speakers.\nOne embedding vector is generated for each audio segment."
             with open(emb_txt, "w") as f:
+                f.write(f"# {emb_desc}\n")
+                f.write("#" + "-" * 50 + "\n")
                 f.write(f"Shape: {embeddings.shape}\n")
                 f.write(f"Type: {embeddings.dtype}\n")
+                f.write(f"Number of segments: {len(segment_timings)}\n")
+                f.write(f"Embedding dimensions: {embeddings.shape[1]}\n")
 
         if len(embeddings) == 0:
             self.logger.warning("Failed to extract any speaker embeddings")
@@ -914,7 +934,8 @@ class SpeakerDiarizer:
 
         if save_steps:
             labels_txt = os.path.join(output_dir, "05_speaker_labels.txt")
-            self._save_to_txt(speaker_labels, labels_txt)
+            labels_desc = "Speaker Clustering Results\nEach line represents the speaker label for the corresponding segment.\nThese labels correspond to the segments in 04_segment_timings.txt."
+            self._save_to_txt(speaker_labels, labels_txt, labels_desc)
 
         # 7. Detect overlapped speech
         overlap_segments = self._detect_overlapped_speech(
@@ -923,7 +944,8 @@ class SpeakerDiarizer:
 
         if save_steps:
             overlap_txt = os.path.join(output_dir, "06_overlap_segments.txt")
-            self._save_to_txt(overlap_segments, overlap_txt)
+            overlap_desc = "Overlapped Speech Segment Indices\nIndices of segments where multiple speakers are detected speaking simultaneously."
+            self._save_to_txt(overlap_segments, overlap_txt, overlap_desc)
 
         if show_progress and overlap_segments:
             print(f"Detected {len(overlap_segments)} potentially overlapped segments")
@@ -935,7 +957,10 @@ class SpeakerDiarizer:
 
         if save_steps:
             segments_txt = os.path.join(output_dir, "07_speaker_segments.txt")
+            segments_desc = "Final Speaker Segments (without overlap information)\nFormat: start_time,end_time,speaker_id,is_overlap"
             with open(segments_txt, "w") as f:
+                f.write(f"# {segments_desc}\n")
+                f.write("#" + "-" * 50 + "\n")
                 for seg in speaker_segments:
                     f.write(f"{seg.start},{seg.end},{seg.speaker},{seg.is_overlap}\n")
 
@@ -957,7 +982,10 @@ class SpeakerDiarizer:
 
         if save_steps:
             final_txt = os.path.join(output_dir, "08_final_segments.txt")
+            final_desc = "Final Speaker Segments with Overlap Information\nFormat: start_time,end_time,speaker_id,is_overlap,overlap_speakers"
             with open(final_txt, "w") as f:
+                f.write(f"# {final_desc}\n")
+                f.write("#" + "-" * 50 + "\n")
                 for seg in speaker_segments:
                     overlap_str = (
                         ",".join(seg.overlap_speakers) if seg.overlap_speakers else ""
