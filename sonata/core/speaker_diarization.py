@@ -136,13 +136,13 @@ class SpeakerDiarizer:
         waveform,
         sample_rate,
         vad_segments,
-        window_size=0.75,  # Reduced for more precision
-        hop_size=0.35,  # Reduced for more granularity
+        window_size=1.0,  # Increased window for better WavLM embeddings
+        hop_size=0.5,  # Optimal hop size for WavLM
         show_progress=True,
     ):
-        """Detect speaker changes within VAD segments using embedding similarity"""
+        """Detect speaker changes within VAD segments using WavLM embedding similarity"""
         if show_progress:
-            print("Detecting speaker changes...")
+            print("Detecting speaker changes using WavLM...")
 
         changes = []
 
@@ -152,7 +152,7 @@ class SpeakerDiarizer:
             iterator = tqdm(vad_segments, desc="Processing segments", unit="segment")
 
         for start, end in iterator:
-            if end - start < window_size * 3:
+            if end - start < window_size * 2.5:  # Skip very short segments
                 continue
 
             # Extract segment waveform
@@ -164,7 +164,7 @@ class SpeakerDiarizer:
             if isinstance(segment_waveform, torch.Tensor):
                 segment_waveform = segment_waveform.cpu().numpy()
 
-            # Use embedding-based change detection for segments
+            # Use WavLM embedding-based change detection for segments
             emb_changes = self._detect_changes_with_embeddings(
                 segment_waveform, sample_rate, window_size, hop_size
             )
@@ -173,11 +173,11 @@ class SpeakerDiarizer:
             emb_changes = [start + t for t in emb_changes]
 
             # Cluster close change points to avoid duplicates
-            changes.extend(self._cluster_change_points(emb_changes, threshold=0.35))
+            changes.extend(self._cluster_change_points(emb_changes, threshold=0.5))
 
         # Filter out changes too close to segment boundaries
         filtered_changes = []
-        min_boundary_dist = 0.3
+        min_boundary_dist = 0.5  # Increased for WavLM's larger window
 
         for change in changes:
             is_near_boundary = False
@@ -199,10 +199,7 @@ class SpeakerDiarizer:
     def _detect_changes_with_embeddings(
         self, waveform, sample_rate, window_size, hop_size
     ):
-        """Detect speaker changes using embedding similarity"""
-        if not self.has_ecapa_model:
-            return []
-
+        """Detect speaker changes using WavLM embedding similarity"""
         changes = []
         duration = len(waveform) / sample_rate
 
@@ -222,31 +219,31 @@ class SpeakerDiarizer:
         if len(windows) < 3:
             return []
 
-        # Extract embeddings for each window
+        # Extract embeddings for each window using WavLM
         embeddings = []
         for start_time, end_time, window_samples in windows:
             try:
-                # Convert to tensor
-                if not isinstance(window_samples, torch.Tensor):
-                    window_tensor = torch.tensor(window_samples).float()
+                # Convert to appropriate format for WavLM
+                if isinstance(window_samples, torch.Tensor):
+                    window_samples_np = window_samples.cpu().numpy()
                 else:
-                    window_tensor = window_samples
-
-                # Make mono and apply correct shape
-                if len(window_tensor.shape) == 1:
-                    window_tensor = window_tensor.unsqueeze(0)
+                    window_samples_np = window_samples
 
                 # Resample if needed
                 if sample_rate != 16000:
-                    window_tensor = torchaudio.functional.resample(
-                        window_tensor, sample_rate, 16000
+                    window_samples_np = librosa.resample(
+                        window_samples_np, orig_sr=sample_rate, target_sr=16000
                     )
 
+                # Process with WavLM
+                inputs = self.wavlm_processor(
+                    window_samples_np, sampling_rate=16000, return_tensors="pt"
+                )
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
                 with torch.no_grad():
-                    embedding = self.ecapa_model.encode_batch(
-                        window_tensor.to(self.device)
-                    )
-                    embedding = embedding.squeeze().cpu().numpy()
+                    outputs = self.wavlm_model(**inputs)
+                    embedding = outputs.embeddings.cpu().numpy().squeeze()
                     embeddings.append(embedding)
             except Exception as e:
                 # If extraction fails, use a dummy embedding to maintain indices
@@ -257,19 +254,20 @@ class SpeakerDiarizer:
             if embeddings[i - 1] is None or embeddings[i + 1] is None:
                 continue
 
-            # Compute distances
+            # Compute distances using cosine similarity
             prev_dist = cosine(embeddings[i - 1], embeddings[i])
             next_dist = cosine(embeddings[i], embeddings[i + 1])
 
-            # Check if this is a likely change point
-            if prev_dist > 0.15 and next_dist > 0.15:  # Tuned threshold
+            # Check if this is a likely change point with optimized threshold
+            # WavLM speaker embeddings typically show clearer boundaries
+            if prev_dist > 0.25 and next_dist > 0.25:  # Optimized threshold for WavLM
                 midpoint = (windows[i][0] + windows[i][1]) / 2
                 changes.append(midpoint)
 
         return changes
 
-    def _cluster_change_points(self, change_points, threshold=0.35):
-        """Cluster change points that are close to each other"""
+    def _cluster_change_points(self, change_points, threshold=0.5):
+        """Cluster change points that are close to each other with WavLM-optimized thresholds"""
         if not change_points:
             return []
 
@@ -295,14 +293,17 @@ class SpeakerDiarizer:
         return clusters
 
     def _extract_embeddings(self, waveform, sample_rate, segments, show_progress=True):
-        """Extract speaker embeddings for each segment with multiple models"""
+        """Extract speaker embeddings using WavLM with optimized parameters"""
         if show_progress:
-            print("Extracting speaker embeddings...")
+            print("Extracting speaker embeddings using WavLM...")
 
         embeddings = []
         timings = []
         wavlm_embeddings = []
         ecapa_embeddings = []
+
+        # Minimum segment duration optimal for WavLM
+        min_segment_duration = 0.5  # WavLM performs well with at least 0.5s
 
         # Create iterator with progress bar if needed
         iterator = segments
@@ -323,9 +324,9 @@ class SpeakerDiarizer:
 
             segment_waveform = waveform[start_sample:end_sample]
 
-            # Skip segments that are too short
+            # Skip segments that are too short for optimal WavLM performance
             duration = (end_sample - start_sample) / sample_rate
-            if duration < 0.3:  # Minimum 300ms
+            if duration < min_segment_duration:
                 continue
 
             # Resample if needed
@@ -342,7 +343,7 @@ class SpeakerDiarizer:
             wavlm_embedding = None
             ecapa_embedding = None
 
-            # 1. Process with WavLM
+            # 1. Process with WavLM (primary method)
             try:
                 if isinstance(segment_waveform, torch.Tensor):
                     segment_waveform_np = segment_waveform.cpu().numpy()
@@ -350,7 +351,11 @@ class SpeakerDiarizer:
                     segment_waveform_np = segment_waveform
 
                 inputs = self.wavlm_processor(
-                    segment_waveform_np, sampling_rate=16000, return_tensors="pt"
+                    segment_waveform_np,
+                    sampling_rate=16000,
+                    return_tensors="pt",
+                    padding="max_length",
+                    max_length=int(16000 * min(10, duration)),  # Cap at 10 seconds max
                 )
                 inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
@@ -358,13 +363,15 @@ class SpeakerDiarizer:
                     outputs = self.wavlm_model(**inputs)
                     wavlm_embedding = outputs.embeddings.cpu().numpy().squeeze()
                     wavlm_embeddings.append(wavlm_embedding)
+                    # Successfully extracted WavLM embedding, add timing
+                    timings.append((start, end))
             except Exception as e:
                 self.logger.warning(
                     f"Failed to extract WavLM embedding for segment {start}-{end}: {str(e)}"
                 )
 
-            # 2. Process with ECAPA-TDNN if available
-            if self.has_ecapa_model:
+            # 2. Process with ECAPA-TDNN only as backup if WavLM failed
+            if wavlm_embedding is None and self.has_ecapa_model:
                 try:
                     if not isinstance(segment_waveform, torch.Tensor):
                         segment_tensor = torch.tensor(segment_waveform).float()
@@ -381,44 +388,43 @@ class SpeakerDiarizer:
                         )
                         ecapa_embedding = ecapa_embedding.squeeze().cpu().numpy()
                         ecapa_embeddings.append(ecapa_embedding)
+                        # Add timing only if WavLM failed and ECAPA succeeded
+                        if (start, end) not in timings:
+                            timings.append((start, end))
                 except Exception as e:
                     self.logger.warning(
-                        f"Failed to extract ECAPA embedding for segment {start}-{end}: {str(e)}"
+                        f"Backup ECAPA also failed for segment {start}-{end}: {str(e)}"
                     )
 
-            # If either embedding was extracted, add the timing
-            if wavlm_embedding is not None or ecapa_embedding is not None:
-                timings.append((start, end))
-
-        # Determine which embeddings to use based on availability
-        if self.has_ecapa_model and len(ecapa_embeddings) == len(timings):
-            # Prefer ECAPA-TDNN embeddings
-            embeddings = ecapa_embeddings
-            if show_progress:
-                print(f"Using ECAPA-TDNN embeddings for {len(embeddings)} segments")
-        elif len(wavlm_embeddings) == len(timings):
-            # Fall back to WavLM embeddings
+        # Use WavLM embeddings primarily, fall back to ECAPA only if necessary
+        if len(wavlm_embeddings) >= len(timings) * 0.8:  # At least 80% coverage
+            # Primary: Use WavLM embeddings
             embeddings = wavlm_embeddings
             if show_progress:
                 print(f"Using WavLM embeddings for {len(embeddings)} segments")
+            # Ensure timing length matches embedding count
+            if len(timings) > len(embeddings):
+                timings = timings[: len(embeddings)]
+        elif self.has_ecapa_model and len(ecapa_embeddings) > 0:
+            # Fallback: Use ECAPA if WavLM mostly failed
+            embeddings = ecapa_embeddings
+            if show_progress:
+                print(
+                    f"Falling back to ECAPA-TDNN embeddings for {len(embeddings)} segments"
+                )
+            # Ensure timing length matches embedding count
+            if len(timings) > len(embeddings):
+                timings = timings[: len(embeddings)]
         else:
-            # If counts don't match, use available embeddings and adjust timings
-            if len(ecapa_embeddings) > len(wavlm_embeddings):
-                embeddings = ecapa_embeddings
-                # Adjust timing list to match
+            # Use whatever WavLM embeddings we have
+            embeddings = wavlm_embeddings
+            if show_progress:
+                print(
+                    f"Using partial WavLM embeddings ({len(embeddings)} out of {len(timings)} segments)"
+                )
+            # Ensure timing length matches embedding count
+            if len(timings) > len(embeddings):
                 timings = timings[: len(embeddings)]
-                if show_progress:
-                    print(
-                        f"Using partial ECAPA-TDNN embeddings ({len(embeddings)} out of {len(timings)} segments)"
-                    )
-            else:
-                embeddings = wavlm_embeddings
-                # Adjust timing list to match
-                timings = timings[: len(embeddings)]
-                if show_progress:
-                    print(
-                        f"Using partial WavLM embeddings ({len(embeddings)} out of {len(timings)} segments)"
-                    )
 
         if show_progress:
             print(f"Extracted {len(embeddings)} speaker embeddings")
