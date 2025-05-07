@@ -17,4 +17,5 @@ speechbrain>=0.5.14
 pyannote.core>=4.5
 pyannote.metrics>=3.2
 pyannote.pipeline>=2.3
-networkx>=2.6.3 
+networkx>=2.6.3
+hf_xet>=0.1.0 
