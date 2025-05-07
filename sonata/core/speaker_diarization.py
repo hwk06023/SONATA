@@ -459,14 +459,14 @@ class SpeakerDiarizer:
         try:
             # Try creating with affinity and check if it raises an error
             test_clustering = AgglomerativeClustering(
-                n_clusters=2, affinity="cosine", linkage="average"
+                n_clusters=2, metric="cosine", linkage="average"
             )
             # If no error, add the full method
             clustering_methods.append(
                 {
                     "name": "Agglomerative (Cosine)",
                     "method": AgglomerativeClustering(
-                        n_clusters=num_speakers, affinity="cosine", linkage="average"
+                        n_clusters=num_speakers, metric="cosine", linkage="average"
                     ),
                 }
             )
