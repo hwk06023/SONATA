@@ -2819,13 +2819,13 @@ class ASRProcessor:
         # 1. Agglomerative with cosine distance
         try:
             test_agg = AgglomerativeClustering(
-                n_clusters=2, affinity="cosine", linkage="average"
+                n_clusters=2, metric="cosine", linkage="average"
             )
             methods.append(
                 {
                     "name": "Agglomerative (cosine)",
                     "method": AgglomerativeClustering(
-                        n_clusters=n_clusters, affinity="cosine", linkage="average"
+                        n_clusters=n_clusters, metric="cosine", linkage="average"
                     ),
                 }
             )

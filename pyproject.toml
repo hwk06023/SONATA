@@ -58,6 +58,7 @@ speechbrain = ">=0.5.14"
 "pyannote.metrics" = ">=3.2"
 "pyannote.pipeline" = ">=2.3"
 networkx = ">=2.6.3"
+hf_xet = ">=0.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.3.1"
