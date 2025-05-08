@@ -188,11 +188,15 @@ class IntegratedTranscriber:
             try:
                 # Initialize diarizer
                 diarizer = SpeakerDiarizer(device=self.device)
+
+                # Use word timestamps from ASR to improve diarization
+                self.logger.info("Using ASR word timestamps to assist with diarization")
                 diarize_segments = diarizer.diarize(
                     audio_path=audio_path,
                     num_speakers=num_speakers,
                     show_progress=True,
                     save_steps=save_diarization_steps,
+                    word_timestamps=word_timestamps,
                 )
 
                 # Convert speaker segments to the format expected by assign_word_speakers

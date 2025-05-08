@@ -855,9 +855,22 @@ class SpeakerDiarizer:
                 f.write(str(data))
 
     def diarize(
-        self, audio_path, num_speakers=None, show_progress=True, save_steps=False
+        self,
+        audio_path,
+        num_speakers=None,
+        show_progress=True,
+        save_steps=False,
+        word_timestamps=None,
     ):
-        """Main diarization method with improved processing pipeline"""
+        """Main diarization method with improved processing pipeline
+
+        Args:
+            audio_path: Path to the audio file
+            num_speakers: Number of speakers (estimated if None)
+            show_progress: Whether to show progress information
+            save_steps: Whether to save intermediate outputs
+            word_timestamps: Optional word timestamps from ASR to skip change detection
+        """
         if show_progress:
             print(f"Starting enhanced diarization for: {audio_path}")
 
@@ -872,7 +885,7 @@ class SpeakerDiarizer:
         waveform, sample_rate = torchaudio.load(audio_path)
         waveform = waveform.mean(dim=0, keepdim=True)  # Convert to mono if needed
 
-        # 2. Enhanced VAD to get speech segments
+        # 2. VAD to get speech segments (still needed even with word timestamps)
         vad_segments = self._get_vad_segments(waveform[0], sample_rate, show_progress)
 
         if save_steps:
@@ -888,39 +901,91 @@ class SpeakerDiarizer:
             self.logger.warning("No speech segments detected in audio")
             return []
 
-        # 3. Improved speaker change detection
-        change_points = self._detect_speaker_changes(
-            waveform[0], sample_rate, vad_segments, show_progress=show_progress
-        )
+        # 3. Create analysis segments based on input method
+        if word_timestamps:
+            if show_progress:
+                print("Using ASR word timestamps to create analysis segments")
 
-        if save_steps:
-            cp_txt = os.path.join(output_dir, "02_change_points.txt")
-            cp_desc = "Speaker Change Points (in seconds)\nEach value represents a time point where one speaker changes to another."
-            self._save_to_txt(change_points, cp_txt, cp_desc)
+            # Extract boundaries from word timestamps
+            word_boundaries = []
+            for word in word_timestamps:
+                word_boundaries.append(word.get("start", 0))
+                word_boundaries.append(word.get("end", 0))
 
-        # 4. Create analysis segments from VAD and change points
-        all_boundaries = sorted(
-            set(
-                [s[0] for s in vad_segments]
-                + [s[1] for s in vad_segments]
-                + change_points
+            # Filter and sort unique time points
+            word_boundaries = sorted(set(word_boundaries))
+
+            # Create analysis segments between consecutive word boundaries
+            # but ensure they fall within VAD segments
+            analysis_segments = []
+            for i in range(len(word_boundaries) - 1):
+                start = word_boundaries[i]
+                end = word_boundaries[i + 1]
+
+                # Skip if too short
+                if end - start < 0.1:
+                    continue
+
+                # Check if this segment overlaps with a VAD segment
+                for vad_start, vad_end in vad_segments:
+                    # If segment is within VAD or significantly overlaps
+                    if (start >= vad_start and end <= vad_end) or (
+                        start < vad_end
+                        and end > vad_start
+                        and min(vad_end, end) - max(vad_start, start) > 0.2
+                    ):
+                        analysis_segments.append((start, end))
+                        break
+
+            if save_steps:
+                seg_txt = os.path.join(output_dir, "03_analysis_segments_from_asr.txt")
+                seg_desc = "Analysis Segments from ASR\nSegments created using word timestamps from ASR.\nFormat: start_time,end_time"
+                with open(seg_txt, "w") as f:
+                    f.write(f"# {seg_desc}\n")
+                    f.write("#" + "-" * 50 + "\n")
+                    for start, end in analysis_segments:
+                        f.write(f"{start},{end}\n")
+        else:
+            # Traditional approach: detect speaker changes and combine with VAD
+            if show_progress:
+                print("Using traditional speaker change detection")
+
+            # Detect speaker changes within VAD segments
+            change_points = self._detect_speaker_changes(
+                waveform[0], sample_rate, vad_segments, show_progress=show_progress
             )
-        )
-        analysis_segments = [
-            (all_boundaries[i], all_boundaries[i + 1])
-            for i in range(len(all_boundaries) - 1)
-        ]
 
-        if save_steps:
-            seg_txt = os.path.join(output_dir, "03_analysis_segments.txt")
-            seg_desc = "Analysis Segments\nFinal analysis segments created by combining VAD segments and speaker change points.\nFormat: start_time,end_time"
-            with open(seg_txt, "w") as f:
-                f.write(f"# {seg_desc}\n")
-                f.write("#" + "-" * 50 + "\n")
-                for start, end in analysis_segments:
-                    f.write(f"{start},{end}\n")
+            if save_steps:
+                cp_txt = os.path.join(output_dir, "02_change_points.txt")
+                cp_desc = "Speaker Change Points (in seconds)\nEach value represents a time point where one speaker changes to another."
+                self._save_to_txt(change_points, cp_txt, cp_desc)
 
-        # 5. Extract enhanced speaker embeddings
+            # Create analysis segments from VAD and change points
+            all_boundaries = sorted(
+                set(
+                    [s[0] for s in vad_segments]
+                    + [s[1] for s in vad_segments]
+                    + change_points
+                )
+            )
+            analysis_segments = [
+                (all_boundaries[i], all_boundaries[i + 1])
+                for i in range(len(all_boundaries) - 1)
+            ]
+
+            if save_steps:
+                seg_txt = os.path.join(output_dir, "03_analysis_segments.txt")
+                seg_desc = "Analysis Segments\nFinal analysis segments created by combining VAD segments and speaker change points.\nFormat: start_time,end_time"
+                with open(seg_txt, "w") as f:
+                    f.write(f"# {seg_desc}\n")
+                    f.write("#" + "-" * 50 + "\n")
+                    for start, end in analysis_segments:
+                        f.write(f"{start},{end}\n")
+
+        if show_progress:
+            print(f"Created {len(analysis_segments)} analysis segments")
+
+        # 4. Extract enhanced speaker embeddings
         embeddings, segment_timings = self._extract_embeddings(
             waveform[0], sample_rate, analysis_segments, show_progress
         )
@@ -949,7 +1014,7 @@ class SpeakerDiarizer:
             self.logger.warning("Failed to extract any speaker embeddings")
             return []
 
-        # 6. Enhanced clustering to determine speakers
+        # 5. Enhanced clustering to determine speakers
         speaker_labels = self._cluster_speakers(embeddings, num_speakers, show_progress)
 
         if save_steps:
@@ -957,7 +1022,7 @@ class SpeakerDiarizer:
             labels_desc = "Speaker Clustering Results\nEach line represents the speaker label for the corresponding segment.\nThese labels correspond to the segments in 04_segment_timings.txt."
             self._save_to_txt(speaker_labels, labels_txt, labels_desc)
 
-        # 7. Detect overlapped speech
+        # 6. Detect overlapped speech
         overlap_segments = self._detect_overlapped_speech(
             waveform[0], sample_rate, segment_timings
         )
@@ -970,7 +1035,7 @@ class SpeakerDiarizer:
         if show_progress and overlap_segments:
             print(f"Detected {len(overlap_segments)} potentially overlapped segments")
 
-        # 8. Create final speaker segments with overlap information
+        # 7. Create final speaker segments with overlap information
         speaker_segments = self._create_speaker_segments(
             segment_timings, speaker_labels
         )
@@ -984,7 +1049,7 @@ class SpeakerDiarizer:
                 for seg in speaker_segments:
                     f.write(f"{seg.start},{seg.end},{seg.speaker},{seg.is_overlap}\n")
 
-        # 9. Add overlap information to segments
+        # 8. Add overlap information to segments
         for overlap_idx in overlap_segments:
             if overlap_idx < len(speaker_segments):
                 speaker_segments[overlap_idx].is_overlap = True
