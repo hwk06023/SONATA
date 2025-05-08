@@ -2581,7 +2581,7 @@ class ASRProcessor:
                         if not hasattr(self, "embed_model") or self.embed_model is None:
                             # Load the ECAPA-TDNN model
                             self.embed_model = (
-                                sb.pretrained.EncoderClassifier.from_hparams(
+                                sb.inference.EncoderClassifier.from_hparams(
                                     source="speechbrain/spkrec-ecapa-voxceleb",
                                     savedir="pretrained_models/spkrec-ecapa-voxceleb",
                                     run_opts={"device": device},
