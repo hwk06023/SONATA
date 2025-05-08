@@ -470,6 +470,25 @@ class SpeakerDiarizer:
                     ),
                 }
             )
+
+            # Add agglomerative with different linkages
+            clustering_methods.append(
+                {
+                    "name": "Agglomerative (Ward)",
+                    "method": AgglomerativeClustering(
+                        n_clusters=num_speakers, metric="euclidean", linkage="ward"
+                    ),
+                }
+            )
+
+            clustering_methods.append(
+                {
+                    "name": "Agglomerative (Complete)",
+                    "method": AgglomerativeClustering(
+                        n_clusters=num_speakers, metric="cosine", linkage="complete"
+                    ),
+                }
+            )
         except TypeError:
             # Fallback to simpler parameters
             clustering_methods.append(
@@ -492,6 +511,19 @@ class SpeakerDiarizer:
                     ),
                 }
             )
+
+            # Add spectral with different affinity
+            clustering_methods.append(
+                {
+                    "name": "Spectral (RBF)",
+                    "method": SpectralClustering(
+                        n_clusters=num_speakers,
+                        affinity="rbf",
+                        gamma=0.1,
+                        random_state=42,
+                    ),
+                }
+            )
         except TypeError:
             # Fallback to simpler spectral clustering
             try:
@@ -507,6 +539,57 @@ class SpeakerDiarizer:
                 # Skip if not available
                 pass
 
+        # Try K-means
+        try:
+            from sklearn.cluster import KMeans
+
+            clustering_methods.append(
+                {
+                    "name": "K-Means",
+                    "method": KMeans(
+                        n_clusters=num_speakers,
+                        init="k-means++",
+                        n_init=10,
+                        random_state=42,
+                    ),
+                }
+            )
+        except Exception:
+            pass
+
+        # Try Gaussian Mixture Model
+        try:
+            from sklearn.mixture import GaussianMixture
+
+            clustering_methods.append(
+                {
+                    "name": "Gaussian Mixture",
+                    "method": GaussianMixture(
+                        n_components=num_speakers,
+                        covariance_type="full",
+                        random_state=42,
+                        max_iter=100,
+                    ),
+                }
+            )
+        except Exception:
+            pass
+
+        # Try BIRCH
+        try:
+            from sklearn.cluster import Birch
+
+            clustering_methods.append(
+                {
+                    "name": "BIRCH",
+                    "method": Birch(
+                        n_clusters=num_speakers, threshold=0.1, branching_factor=50
+                    ),
+                }
+            )
+        except Exception:
+            pass
+
         best_labels = None
         best_score = -1
         best_method = None
@@ -515,10 +598,23 @@ class SpeakerDiarizer:
         for method_info in clustering_methods:
             try:
                 # Apply clustering
-                labels = method_info["method"].fit_predict(norm_embeddings)
+                method = method_info["method"]
+
+                # Handle methods like GMM that use fit_predict vs fit and predict
+                if hasattr(method, "fit_predict"):
+                    labels = method.fit_predict(norm_embeddings)
+                elif hasattr(method, "fit") and hasattr(method, "predict"):
+                    method.fit(norm_embeddings)
+                    labels = method.predict(norm_embeddings)
+                else:
+                    continue
 
                 # Skip if only one cluster was found
                 if len(set(labels)) <= 1:
+                    continue
+
+                # If not enough clusters, skip
+                if len(set(labels)) < num_speakers // 2:
                     continue
 
                 # Evaluate clustering quality
@@ -538,7 +634,7 @@ class SpeakerDiarizer:
 
                     if show_progress:
                         print(
-                            f"{method_info['name']}: silhouette={sil_score:.4f}, CH={ch_score:.4f}"
+                            f"{method_info['name']}: silhouette={sil_score:.4f}, CH={ch_score:.4f}, clusters={len(set(labels))}"
                         )
 
                     if combined_score > best_score:
