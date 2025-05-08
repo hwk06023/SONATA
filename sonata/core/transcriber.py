@@ -189,42 +189,15 @@ class IntegratedTranscriber:
                 # Initialize diarizer
                 diarizer = SpeakerDiarizer(device=self.device)
 
-                # Extract text segments from ASR result
-                text_segments = []
-                if "segments" in asr_result:
-                    for segment in asr_result["segments"]:
-                        if "start" in segment and "end" in segment:
-                            text_segments.append(
-                                {
-                                    "start": segment.get("start", 0),
-                                    "end": segment.get("end", 0),
-                                    "text": segment.get("text", ""),
-                                }
-                            )
-
-                # Use text segments for diarization if available, otherwise fall back to word timestamps
-                if text_segments:
-                    self.logger.info(
-                        "Using ASR text segments to assist with diarization"
-                    )
-                    diarize_segments = diarizer.diarize(
-                        audio_path=audio_path,
-                        num_speakers=num_speakers,
-                        show_progress=True,
-                        save_steps=save_diarization_steps,
-                        text_segments=text_segments,
-                    )
-                else:
-                    self.logger.info(
-                        "No text segments available, using word timestamps"
-                    )
-                    diarize_segments = diarizer.diarize(
-                        audio_path=audio_path,
-                        num_speakers=num_speakers,
-                        show_progress=True,
-                        save_steps=save_diarization_steps,
-                        word_timestamps=word_timestamps,
-                    )
+                # Use word timestamps from ASR to improve diarization
+                self.logger.info("Using ASR word timestamps to assist with diarization")
+                diarize_segments = diarizer.diarize(
+                    audio_path=audio_path,
+                    num_speakers=num_speakers,
+                    show_progress=True,
+                    save_steps=save_diarization_steps,
+                    word_timestamps=word_timestamps,
+                )
 
                 # Convert speaker segments to the format expected by assign_word_speakers
                 speaker_segments = []
