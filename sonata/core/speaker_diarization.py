@@ -30,16 +30,20 @@ class SpeakerDiarizer:
     def __init__(self, device="cpu"):
         self.device = device
         self.logger = logging.getLogger(__name__)
-        self._load_models()
 
-        # Initialize utility processors
-        self.vad_processor = None
-        self.change_detector = None
-        self.embedding_extractor = None
+        # Initialize utility processors that don't require models
         self.clusterer = SpeakerClusterer()
         self.overlap_detector = OverlapDetector(device=device)
         self.segment_processor = SegmentProcessor()
         self.io_handler = DiarizationIO()
+
+        # These will be initialized in _load_models
+        self.vad_processor = None
+        self.change_detector = None
+        self.embedding_extractor = None
+
+        # Now load models and initialize remaining processors
+        self._load_models()
 
     def _load_models(self):
         self.logger.info("Loading diarization models...")
