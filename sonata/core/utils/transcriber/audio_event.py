@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Set
 from sonata.core.audio_event_detector import AudioEvent
 
 
@@ -19,116 +19,132 @@ class AudioEventIntegrator:
         Returns:
             Dictionary with integrated transcript information
         """
-        # Create result structure
-        result = {
-            "plain_text": "",
-            "rich_text": [],
-        }
+        # Create a timeline mapping timestamp -> action
+        timeline = []
 
-        # Return early if no words or events
-        if not word_timestamps or not audio_events:
-            self.logger.warning("No word timestamps or audio events to integrate")
-            return result
+        # Sort events by start time for easier integration
+        audio_events.sort(key=lambda x: x.start_time)
 
-        self.logger.info(
-            f"Integrating {len(word_timestamps)} words with {len(audio_events)} audio events"
-        )
+        # Add word timestamps to timeline
+        for word in word_timestamps:
+            start_time = word.get("start", 0)
+            end_time = word.get("end", 0)
+            speaker = word.get("speaker", None)
 
-        # Sort word timestamps by start time
-        sorted_words = sorted(word_timestamps, key=lambda x: x.get("start", 0))
+            # Add word start event
+            timeline.append(
+                {
+                    "time": start_time,
+                    "type": "word_start",
+                    "content": word["word"],
+                    "speaker": speaker,
+                    "confidence": word.get("confidence", 1.0),
+                }
+            )
 
-        # Sort audio events by start time
-        sorted_events = sorted(audio_events, key=lambda x: x.start_time)
+            # Add word end event
+            timeline.append(
+                {
+                    "time": end_time,
+                    "type": "word_end",
+                    "content": word["word"],
+                    "speaker": speaker,
+                }
+            )
 
-        # Interleave words and audio events based on timing
-        current_text = ""
+        # Add audio events to timeline
+        for event in audio_events:
+            # Add audio event start
+            timeline.append(
+                {
+                    "time": event.start_time,
+                    "type": "audio_event_start",
+                    "content": event.type,
+                    "confidence": event.confidence,
+                }
+            )
+
+            # Add audio event end
+            timeline.append(
+                {
+                    "time": event.end_time,
+                    "type": "audio_event_end",
+                    "content": event.type,
+                }
+            )
+
+        # Sort timeline by time
+        timeline.sort(key=lambda x: x["time"])
+
+        # Process timeline to create integrated transcript
         rich_text = []
+        plain_text = ""
+        current_text = ""
+        open_audio_events = set()
+        active_speaker = None
 
-        word_idx = 0
-        event_idx = 0
+        for event in timeline:
+            event_type = event["type"]
 
-        while word_idx < len(sorted_words) or event_idx < len(sorted_events):
-            # Process next word
-            if word_idx < len(sorted_words):
-                word = sorted_words[word_idx]
+            if event_type == "word_start":
+                word = event["content"]
 
-                # Check if an event comes before this word
-                if event_idx < len(sorted_events) and sorted_events[
-                    event_idx
-                ].start_time <= word.get("start", float("inf")):
-                    # Add accumulated text as a segment
+                # Check if speaker changed
+                if event.get("speaker") != active_speaker:
+                    # If we have accumulated text, add it to rich_text
                     if current_text:
                         rich_text.append(
                             {
-                                "type": "text",
-                                "content": current_text,
+                                "content": current_text.strip(),
+                                "start": prev_start,
+                                "end": prev_end,
+                                "speaker": active_speaker,
+                                "audio_events": list(open_audio_events),
                             }
                         )
+
+                        # Add speaker label to plain text if needed
+                        if active_speaker and event.get("speaker"):
+                            plain_text += f" [{active_speaker}] "
+
+                        plain_text += current_text.strip() + " "
                         current_text = ""
 
-                    # Add the event tag
-                    event = sorted_events[event_idx]
-                    rich_text.append(
-                        {
-                            "type": "tag",
-                            "content": f"[{event.type}]",
-                            "event": event.to_dict(),
-                        }
-                    )
+                    active_speaker = event.get("speaker")
+                    prev_start = event["time"]
 
-                    event_idx += 1
-                else:
-                    # Add the word
-                    if "text" in word:
-                        current_text += word["text"]
-                        if word.get("is_last_word_in_segment", False):
-                            current_text += " "
-                    word_idx += 1
-            else:
-                # Only events left
-                if event_idx < len(sorted_events):
-                    # Add accumulated text as a segment
-                    if current_text:
-                        rich_text.append(
-                            {
-                                "type": "text",
-                                "content": current_text,
-                            }
-                        )
-                        current_text = ""
+                # Add word with proper spacing
+                if current_text and not current_text.endswith(" "):
+                    current_text += " "
+                current_text += word
+                prev_end = event.get("time", 0)
 
-                    # Add the event tag
-                    event = sorted_events[event_idx]
-                    rich_text.append(
-                        {
-                            "type": "tag",
-                            "content": f"[{event.type}]",
-                            "event": event.to_dict(),
-                        }
-                    )
+            elif event_type == "audio_event_start":
+                open_audio_events.add(event["content"])
 
-                    event_idx += 1
+            elif event_type == "audio_event_end":
+                if event["content"] in open_audio_events:
+                    open_audio_events.remove(event["content"])
 
         # Add any remaining text
         if current_text:
             rich_text.append(
                 {
-                    "type": "text",
-                    "content": current_text,
+                    "content": current_text.strip(),
+                    "start": prev_start if "prev_start" in locals() else 0,
+                    "end": prev_end if "prev_end" in locals() else 0,
+                    "speaker": active_speaker,
+                    "audio_events": list(open_audio_events),
                 }
             )
 
-        # Generate plain text from rich text
-        plain_text = ""
-        for item in rich_text:
-            plain_text += item["content"]
+            # Add final speaker label if needed
+            if active_speaker:
+                plain_text += f" [{active_speaker}] "
 
-        # Final result
-        result["plain_text"] = plain_text
-        result["rich_text"] = rich_text
+            plain_text += current_text.strip()
 
-        self.logger.info(
-            f"Integration complete: {len(rich_text)} segments in transcript"
-        )
-
-        return result
+        return {
+            "plain_text": plain_text.strip(),
+            "rich_text": rich_text,
+        }
