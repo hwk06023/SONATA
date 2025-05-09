@@ -203,46 +203,186 @@ class ASRProcessor:
             ChangeDetector,
             EmbeddingExtractor,
             SpeakerClusterer,
+            OverlapDetector,
+            SegmentProcessor,
         )
 
         if show_progress:
             print("[ASR] Performing enhanced speaker diarization...", flush=True)
 
-        # Step 1: Voice Activity Detection
-        vad_processor = DiarizationVAD()
-        vad_segments = vad_processor.detect(audio_path, show_progress=show_progress)
+        try:
+            # Try to use the dedicated diarizer for better performance
+            try:
+                from sonata.core.speaker_diarization import SpeakerDiarizer
 
-        if not vad_segments:
-            if show_progress:
-                print("[ASR] No speech detected in audio")
-            return []
+                speaker_diarizer = SpeakerDiarizer(device=self.device)
 
-        # Step 2: Speaker Change Detection
-        change_detector = ChangeDetector()
-        initial_segments = change_detector.detect_changes(
-            audio_path, vad_segments, show_progress=show_progress
-        )
+                # Use the enhanced speaker diarizer
+                speaker_segments = speaker_diarizer.diarize(
+                    audio_path=audio_path,
+                    num_speakers=num_speakers,
+                    show_progress=show_progress,
+                )
 
-        if not initial_segments:
-            if show_progress:
-                print("[ASR] No valid segments created after change detection")
-            return []
+                # Convert to standard format
+                result = []
+                for segment in speaker_segments:
+                    diarize_segment = {
+                        "start": segment.start,
+                        "end": segment.end,
+                        "speaker": segment.speaker,
+                    }
 
-        # Step 3: Extract Speaker Embeddings
-        embedding_extractor = EmbeddingExtractor()
-        segment_embeddings = embedding_extractor.extract_embeddings(
-            audio_path,
-            initial_segments,
-            embedding_model=self.embedding_model_name,
-            show_progress=show_progress,
-        )
+                    # Add overlap information if available
+                    if segment.is_overlap and segment.overlap_speakers:
+                        diarize_segment["overlap"] = True
+                        diarize_segment["overlap_speakers"] = segment.overlap_speakers
 
-        if not segment_embeddings:
+                    result.append(diarize_segment)
+
+                if result:
+                    if show_progress:
+                        print(
+                            f"[ASR] Enhanced diarization using SpeakerDiarizer completed successfully with {len(set(s['speaker'] for s in result))} speakers",
+                            flush=True,
+                        )
+                    return result
+                else:
+                    if show_progress:
+                        print(
+                            f"[ASR] SpeakerDiarizer returned no results, falling back to alternative method",
+                            flush=True,
+                        )
+            except Exception as e:
+                if show_progress:
+                    print(
+                        f"[ASR] Error using SpeakerDiarizer: {str(e)}, falling back to alternative method",
+                        flush=True,
+                    )
+
+            # --- Alternative method using individual modules ---
+
+            # Step 1: Voice Activity Detection
+            vad_processor = DiarizationVAD()
+            vad_segments = vad_processor.detect(audio_path, show_progress=show_progress)
+
+            if not vad_segments:
+                if show_progress:
+                    print("[ASR] No speech detected in audio")
+                return []
+
+            # Step 2: Speaker Change Detection
+            change_detector = ChangeDetector()
+            initial_segments = change_detector.detect_changes(
+                audio_path, vad_segments, show_progress=show_progress
+            )
+
+            if not initial_segments:
+                if show_progress:
+                    print("[ASR] No valid segments created after change detection")
+                return []
+
+            # Step 3: Extract Speaker Embeddings
+            embedding_extractor = EmbeddingExtractor()
+            segment_embeddings = embedding_extractor.extract_embeddings(
+                audio_path,
+                initial_segments,
+                embedding_model=self.embedding_model_name,
+                show_progress=show_progress,
+            )
+
+            if not segment_embeddings:
+                if show_progress:
+                    print(
+                        "[ASR] Could not extract speaker embeddings, falling back to basic diarization"
+                    )
+                # Fall back to basic diarization
+                return self.diarize_audio(
+                    audio_path=audio_path,
+                    num_speakers=num_speakers,
+                    min_speakers=min_speakers,
+                    max_speakers=max_speakers,
+                    show_progress=show_progress,
+                )
+
+            # Step 4: Cluster Speakers
+            clusterer = SpeakerClusterer()
+            speaker_labels = clusterer.cluster_speakers(
+                segment_embeddings,
+                num_speakers=num_speakers,
+                show_progress=show_progress,
+            )
+
+            # Create segment timings
+            segment_timings = [
+                (segment["start"], segment["end"]) for segment in initial_segments
+            ]
+
+            # Step 5: Detect Overlapped Speech
+            overlap_detector = OverlapDetector(device=self.device)
+            import torch
+            import torchaudio
+
+            waveform, sample_rate = torchaudio.load(audio_path)
+            waveform = waveform.mean(dim=0)  # Convert to mono
+            overlap_segments = overlap_detector.detect_overlapped_speech(
+                waveform, sample_rate, segment_timings
+            )
+
+            # Step 6: Create Final Speaker Segments
+            segment_processor = SegmentProcessor()
+            speaker_segments = segment_processor.create_speaker_segments(
+                segment_timings, speaker_labels
+            )
+
+            # Add overlap information
+            for overlap_idx in overlap_segments:
+                if overlap_idx < len(speaker_segments):
+                    speaker_segments[overlap_idx].is_overlap = True
+
+                    # Try to determine overlapping speakers
+                    if overlap_idx > 0 and overlap_idx < len(speaker_segments) - 1:
+                        prev_speaker = speaker_segments[overlap_idx - 1].speaker
+                        next_speaker = speaker_segments[overlap_idx + 1].speaker
+
+                        if prev_speaker != next_speaker:
+                            speaker_segments[overlap_idx].overlap_speakers = [
+                                prev_speaker,
+                                next_speaker,
+                            ]
+
+            # Convert speaker segments to dictionary format
+            result = []
+            for segment in speaker_segments:
+                segment_dict = {
+                    "start": segment.start,
+                    "end": segment.end,
+                    "speaker": segment.speaker,
+                }
+
+                if segment.is_overlap:
+                    segment_dict["overlap"] = True
+                    if segment.overlap_speakers:
+                        segment_dict["overlap_speakers"] = segment.overlap_speakers
+
+                result.append(segment_dict)
+
             if show_progress:
                 print(
-                    "[ASR] Could not extract speaker embeddings, falling back to basic diarization"
+                    f"[ASR] Enhanced diarization complete with {len(set(s['speaker'] for s in result))} speakers",
+                    flush=True,
                 )
-            # Fall back to basic diarization
+
+            return result
+
+        except Exception as e:
+            print(f"[ASR] Enhanced diarization failed with error: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+
+            # Fall back to standard diarization
+            print("[ASR] Falling back to standard diarization")
             return self.diarize_audio(
                 audio_path=audio_path,
                 num_speakers=num_speakers,
@@ -250,34 +390,6 @@ class ASRProcessor:
                 max_speakers=max_speakers,
                 show_progress=show_progress,
             )
-
-        # Step 4: Cluster Speakers
-        clusterer = SpeakerClusterer()
-        speaker_labels = clusterer.cluster_speakers(
-            segment_embeddings, num_speakers=num_speakers, show_progress=show_progress
-        )
-
-        # Step 5: Create final diarization segments
-        diarization_segments = []
-
-        for i, segment in enumerate(initial_segments):
-            if i < len(speaker_labels):
-                speaker_label = int(speaker_labels[i])
-                diarization_segments.append(
-                    {
-                        "start": segment["start"],
-                        "end": segment["end"],
-                        "speaker": f"SPEAKER_{speaker_label:02d}",
-                    }
-                )
-
-        # Sort by start time
-        diarization_segments.sort(key=lambda x: x["start"])
-
-        # Capture speaker embeddings for potential later use (e.g., speaker ID)
-        self._capture_speaker_embeddings(segment_embeddings, speaker_labels)
-
-        return diarization_segments
 
     def _capture_speaker_embeddings(self, embeddings, speaker_labels):
         """Store average embeddings for each speaker for later use"""
