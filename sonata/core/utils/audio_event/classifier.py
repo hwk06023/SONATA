@@ -159,7 +159,7 @@ class AudiosetClassifier:
             # Run inference
             with torch.no_grad():
                 # AudioSet models typically return logits
-                model_output = self.model(audio_tensor, sample_rate=sr)
+                model_output = self.model(audio_tensor)
 
                 # Some models might return probabilities directly
                 if isinstance(model_output, tuple):
