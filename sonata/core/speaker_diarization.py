@@ -860,7 +860,6 @@ class SpeakerDiarizer:
         num_speakers=None,
         show_progress=True,
         save_steps=False,
-        word_timestamps=None,
     ):
         """Main diarization method with improved processing pipeline
 
@@ -869,7 +868,6 @@ class SpeakerDiarizer:
             num_speakers: Number of speakers (estimated if None)
             show_progress: Whether to show progress information
             save_steps: Whether to save intermediate outputs
-            word_timestamps: Optional word timestamps from ASR to skip change detection
         """
         if show_progress:
             print(f"Starting enhanced diarization for: {audio_path}")
@@ -885,7 +883,7 @@ class SpeakerDiarizer:
         waveform, sample_rate = torchaudio.load(audio_path)
         waveform = waveform.mean(dim=0, keepdim=True)  # Convert to mono if needed
 
-        # 2. VAD to get speech segments (still needed even with word timestamps)
+        # 2. VAD to get speech segment
         vad_segments = self._get_vad_segments(waveform[0], sample_rate, show_progress)
 
         if save_steps:
@@ -902,85 +900,36 @@ class SpeakerDiarizer:
             return []
 
         # 3. Create analysis segments based on input method
-        if word_timestamps:
-            if show_progress:
-                print("Using ASR word timestamps to create analysis segments")
+        change_points = self._detect_speaker_changes(
+            waveform[0], sample_rate, vad_segments, show_progress=show_progress
+        )
 
-            # Extract boundaries from word timestamps
-            word_boundaries = []
-            for word in word_timestamps:
-                word_boundaries.append(word.get("start", 0))
-                word_boundaries.append(word.get("end", 0))
+        if save_steps:
+            cp_txt = os.path.join(output_dir, "02_change_points.txt")
+            cp_desc = "Speaker Change Points (in seconds)\nEach value represents a time point where one speaker changes to another."
+            self._save_to_txt(change_points, cp_txt, cp_desc)
 
-            # Filter and sort unique time points
-            word_boundaries = sorted(set(word_boundaries))
-
-            # Create analysis segments between consecutive word boundaries
-            # but ensure they fall within VAD segments
-            analysis_segments = []
-            for i in range(len(word_boundaries) - 1):
-                start = word_boundaries[i]
-                end = word_boundaries[i + 1]
-
-                # Skip if too short
-                if end - start < 0.1:
-                    continue
-
-                # Check if this segment overlaps with a VAD segment
-                for vad_start, vad_end in vad_segments:
-                    # If segment is within VAD or significantly overlaps
-                    if (start >= vad_start and end <= vad_end) or (
-                        start < vad_end
-                        and end > vad_start
-                        and min(vad_end, end) - max(vad_start, start) > 0.2
-                    ):
-                        analysis_segments.append((start, end))
-                        break
-
-            if save_steps:
-                seg_txt = os.path.join(output_dir, "03_analysis_segments_from_asr.txt")
-                seg_desc = "Analysis Segments from ASR\nSegments created using word timestamps from ASR.\nFormat: start_time,end_time"
-                with open(seg_txt, "w") as f:
-                    f.write(f"# {seg_desc}\n")
-                    f.write("#" + "-" * 50 + "\n")
-                    for start, end in analysis_segments:
-                        f.write(f"{start},{end}\n")
-        else:
-            # Traditional approach: detect speaker changes and combine with VAD
-            if show_progress:
-                print("Using traditional speaker change detection")
-
-            # Detect speaker changes within VAD segments
-            change_points = self._detect_speaker_changes(
-                waveform[0], sample_rate, vad_segments, show_progress=show_progress
+        # Create analysis segments from VAD and change points
+        all_boundaries = sorted(
+            set(
+                [s[0] for s in vad_segments]
+                + [s[1] for s in vad_segments]
+                + change_points
             )
+        )
+        analysis_segments = [
+            (all_boundaries[i], all_boundaries[i + 1])
+            for i in range(len(all_boundaries) - 1)
+        ]
 
-            if save_steps:
-                cp_txt = os.path.join(output_dir, "02_change_points.txt")
-                cp_desc = "Speaker Change Points (in seconds)\nEach value represents a time point where one speaker changes to another."
-                self._save_to_txt(change_points, cp_txt, cp_desc)
-
-            # Create analysis segments from VAD and change points
-            all_boundaries = sorted(
-                set(
-                    [s[0] for s in vad_segments]
-                    + [s[1] for s in vad_segments]
-                    + change_points
-                )
-            )
-            analysis_segments = [
-                (all_boundaries[i], all_boundaries[i + 1])
-                for i in range(len(all_boundaries) - 1)
-            ]
-
-            if save_steps:
-                seg_txt = os.path.join(output_dir, "03_analysis_segments.txt")
-                seg_desc = "Analysis Segments\nFinal analysis segments created by combining VAD segments and speaker change points.\nFormat: start_time,end_time"
-                with open(seg_txt, "w") as f:
-                    f.write(f"# {seg_desc}\n")
-                    f.write("#" + "-" * 50 + "\n")
-                    for start, end in analysis_segments:
-                        f.write(f"{start},{end}\n")
+        if save_steps:
+            seg_txt = os.path.join(output_dir, "03_analysis_segments.txt")
+            seg_desc = "Analysis Segments\nFinal analysis segments created by combining VAD segments and speaker change points.\nFormat: start_time,end_time"
+            with open(seg_txt, "w") as f:
+                f.write(f"# {seg_desc}\n")
+                f.write("#" + "-" * 50 + "\n")
+                for start, end in analysis_segments:
+                    f.write(f"{start},{end}\n")
 
         if show_progress:
             print(f"Created {len(analysis_segments)} analysis segments")
