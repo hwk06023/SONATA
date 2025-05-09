@@ -577,9 +577,8 @@ class AudioEventDetector:
         # Use device if provided, otherwise use CUDA if available
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        else:
-            self.device = device
 
+        self.device = device
         self.event_types = event_types
         self.custom_thresholds = custom_thresholds or AUDIO_EVENT_THRESHOLDS
         self.window_size = window_size

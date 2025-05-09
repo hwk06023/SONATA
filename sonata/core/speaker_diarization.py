@@ -6,6 +6,7 @@ from typing import List, Dict, Optional, Tuple, Union
 import os
 import logging
 import warnings
+import speechbrain as sb
 from dataclasses import dataclass
 
 # Import utility modules
@@ -16,9 +17,9 @@ from sonata.core.utils.diarization.clustering import SpeakerClusterer
 from sonata.core.utils.diarization.overlap import (
     OverlapDetector,
     SegmentProcessor,
-    SpeakerSegment,
 )
 from sonata.core.utils.diarization.io import DiarizationIO
+
 
 # Filter PyTorch transformer attention warnings
 warnings.filterwarnings(
@@ -71,9 +72,7 @@ class SpeakerDiarizer:
 
         # 3. Load ECAPA-TDNN for better embeddings
         try:
-            import speechbrain as sb
-
-            self.ecapa_model = sb.pretrained.EncoderClassifier.from_hparams(
+            self.ecapa_model = sb.inference.EncoderClassifier.from_hparams(
                 source="speechbrain/spkrec-ecapa-voxceleb",
                 savedir="pretrained_models/spkrec-ecapa-voxceleb",
                 run_opts={"device": self.device},
