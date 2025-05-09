@@ -52,17 +52,23 @@ class SpeakerClusterer:
         # Try different clustering methods
         labels = None
 
-        # First try Agglomerative Clustering
+        # First try Agglomerative Clustering with version-compatible parameters
         try:
             if show_progress:
                 print("Trying agglomerative clustering...")
 
-            clustering = AgglomerativeClustering(
-                n_clusters=num_speakers,
-                affinity="precomputed",
-                linkage="average",
-            )
-            labels = clustering.fit_predict(distance_matrix)
+            # Try first with sklearn 0.24+ syntax
+            try:
+                clustering = AgglomerativeClustering(
+                    n_clusters=num_speakers, affinity="precomputed", linkage="average"
+                )
+                labels = clustering.fit_predict(distance_matrix)
+            except TypeError:
+                # Fallback for older scikit-learn versions
+                clustering = AgglomerativeClustering(
+                    n_clusters=num_speakers, linkage="average"
+                )
+                labels = clustering.fit_predict(distance_matrix)
         except Exception as e:
             print(f"Agglomerative clustering failed: {str(e)}")
             labels = None
@@ -76,13 +82,21 @@ class SpeakerClusterer:
                 # Transform distances to similarities for spectral clustering
                 similarity_matrix = 1 - distance_matrix
 
-                clustering = SpectralClustering(
-                    n_clusters=num_speakers,
-                    affinity="precomputed",
-                    assign_labels="discretize",
-                    random_state=42,
-                )
-                labels = clustering.fit_predict(similarity_matrix)
+                # Try first with newer parameter format
+                try:
+                    clustering = SpectralClustering(
+                        n_clusters=num_speakers,
+                        affinity="precomputed",
+                        assign_labels="discretize",
+                        random_state=42,
+                    )
+                    labels = clustering.fit_predict(similarity_matrix)
+                except TypeError:
+                    # Fallback for older scikit-learn versions
+                    clustering = SpectralClustering(
+                        n_clusters=num_speakers, random_state=42
+                    )
+                    labels = clustering.fit_predict(similarity_matrix)
             except Exception as e:
                 print(f"Spectral clustering failed: {str(e)}")
 

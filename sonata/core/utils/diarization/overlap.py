@@ -48,6 +48,10 @@ class OverlapDetector:
 
             segment_waveform = waveform[start_sample:end_sample]
 
+            # Convert tensor to numpy if needed
+            if isinstance(segment_waveform, torch.Tensor):
+                segment_waveform = segment_waveform.cpu().numpy()
+
             # Simplified energy-based detection
             # Higher energy or rapid energy changes might indicate overlapped speech
             # (This is just a basic heuristic and would be replaced with a proper model)
