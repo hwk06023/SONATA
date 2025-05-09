@@ -65,21 +65,34 @@ class AudioCNN(nn.Module):
 class AudiosetModelLoader:
     """Loader for the AudioSet AST (Audio Spectrogram Transformer) model."""
 
-    def __init__(self):
-        """Initialize the model loader."""
-        self.logger = logging.getLogger(__name__)
-
-    def load_model(
-        self, model_dir: Optional[str] = None, device: str = "cuda"
-    ) -> Dict[str, Any]:
-        """Load the AudioSet model and corresponding labels.
+    def __init__(
+        self,
+        model_path: Optional[str] = None,
+        label_path: Optional[str] = None,
+        device: str = "cuda",
+        use_vggish: bool = False,
+    ):
+        """Initialize the model loader.
 
         Args:
-            model_dir: Directory containing the model weights (optional)
+            model_path: Path to the model weights (optional)
+            label_path: Path to the label mapping (optional)
             device: Device to load the model on ('cpu' or 'cuda')
+            use_vggish: Whether to use VGGish model instead of AST
+        """
+        self.logger = logging.getLogger(__name__)
+        self.model_path = model_path
+        self.label_path = label_path
+        self.device = device
+        self.use_vggish = use_vggish
+        self.model = None
+        self.labels = None
+
+    def load_model(self) -> Any:
+        """Load the AudioSet model.
 
         Returns:
-            Dictionary containing the model and labels
+            The loaded model
         """
         # Set up comprehensive warning suppression
         original_level = logging.getLogger().level
@@ -93,13 +106,23 @@ class AudiosetModelLoader:
             # Redirect both stdout and stderr during model loading
             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
                 # Load the AudioSet model
-                model = load_audioset(device=device, model_dir=model_dir)
-                # Use predefined class mapping
-                labels = AUDIOSET_CLASS_MAPPING
+                model = load_audioset(device=self.device, model_dir=self.model_path)
         finally:
             # Restore original logging level
             logging.getLogger().setLevel(original_level)
 
-        self.logger.info(f"Loaded Audioset model with {len(labels)} classes")
+        self.model = model
+        self.logger.info(f"Loaded Audioset model")
+        return model
 
-        return {"model": model, "labels": labels, "device": device}
+    def load_labels(self) -> Dict[str, int]:
+        """Load the label mapping.
+
+        Returns:
+            Dictionary mapping class names to indices
+        """
+        # Use predefined class mapping from constants
+        labels = AUDIOSET_CLASS_MAPPING
+        self.labels = labels
+        self.logger.info(f"Loaded {len(labels)} audio event classes")
+        return labels

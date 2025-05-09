@@ -14,6 +14,25 @@ class AudioProcessor:
         """Initialize the audio processor."""
         self.logger = logging.getLogger(__name__)
 
+    def load_audio(
+        self, audio_path: str, target_sr: int = 16000
+    ) -> Tuple[np.ndarray, int]:
+        """Load audio file at specified sample rate.
+
+        Args:
+            audio_path: Path to audio file
+            target_sr: Target sample rate
+
+        Returns:
+            Tuple of (audio_data, sample_rate)
+        """
+        try:
+            audio_data, sr = librosa.load(audio_path, sr=target_sr)
+            return audio_data, sr
+        except Exception as e:
+            self.logger.error(f"Failed to load audio file: {str(e)}")
+            raise
+
     @staticmethod
     def compute_mfcc_features(y: np.ndarray, sr: int, n_mfcc: int = 13) -> np.ndarray:
         """Compute MFCC features from audio signal.
