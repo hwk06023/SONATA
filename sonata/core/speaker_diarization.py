@@ -9,6 +9,10 @@ import warnings
 import speechbrain as sb
 from dataclasses import dataclass
 
+# Configure speechbrain to suppress debug logs
+sb_logger = logging.getLogger("speechbrain")
+sb_logger.setLevel(logging.WARNING)
+
 # Import utility modules
 from sonata.core.utils.diarization.vad import VADProcessor
 from sonata.core.utils.diarization.change_detection import ChangeDetector
