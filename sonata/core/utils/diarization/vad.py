@@ -1,76 +1,96 @@
 import torch
-import torchaudio
-from typing import List, Tuple
-from tqdm import tqdm
+import numpy as np
+from typing import List, Tuple, Callable
 
 
 class VADProcessor:
-    def __init__(self, vad_model, vad_get_speech_timestamps, device="cpu"):
+    def __init__(self, vad_model, get_speech_timestamps_func, device="cpu"):
         self.vad_model = vad_model
-        self.vad_get_speech_timestamps = vad_get_speech_timestamps
+        self.get_speech_timestamps = get_speech_timestamps_func
         self.device = device
 
+        # Ensure model is on the correct device
+        if self.vad_model is not None and hasattr(self.vad_model, "to"):
+            self.vad_model = self.vad_model.to(self.device)
+
     def get_vad_segments(
-        self, waveform, sample_rate, show_progress=True
+        self, waveform, sample_rate, show_progress=False
     ) -> List[Tuple[float, float]]:
-        """Get voice activity segments using Silero VAD with enhanced parameters"""
-        if show_progress:
-            print("Running voice activity detection...")
+        """Get voice activity detection segments
 
-        if sample_rate != 16000:
-            waveform = torchaudio.functional.resample(waveform, sample_rate, 16000)
-            sample_rate = 16000
+        Args:
+            waveform: Audio waveform
+            sample_rate: Sample rate
+            show_progress: Whether to show progress
 
-        # Use more sensitive parameters for better recall
-        speech_timestamps = self.vad_get_speech_timestamps(
-            waveform,
-            self.vad_model,
-            sampling_rate=sample_rate,
-            min_speech_duration_ms=200,  # Reduced from 250ms
-            min_silence_duration_ms=400,  # Reduced from 500ms
-            window_size_samples=512,
-            speech_pad_ms=200,  # Increased padding
-            threshold=0.3,  # Lower threshold for better recall
-        )
-
-        segments = []
-        for seg in speech_timestamps:
-            start = seg["start"] / sample_rate
-            end = seg["end"] / sample_rate
-            segments.append((start, end))
-
-        # Merge segments that are very close
-        merged_segments = self.merge_close_segments(segments, gap_threshold=0.5)
-
-        if show_progress:
-            print(f"Found {len(merged_segments)} speech segments after merging")
-
-        return merged_segments
-
-    def merge_close_segments(
-        self, segments, gap_threshold=0.5
-    ) -> List[Tuple[float, float]]:
-        """Merge segments that are separated by small gaps"""
-        if not segments:
+        Returns:
+            List of (start, end) tuples in seconds
+        """
+        if self.vad_model is None or self.get_speech_timestamps is None:
+            print("VAD model or function not initialized")
             return []
 
-        # Sort segments by start time
-        sorted_segments = sorted(segments, key=lambda x: x[0])
+        try:
+            # Make sure waveform is the right type
+            if not isinstance(waveform, torch.Tensor):
+                waveform = torch.tensor(waveform).float()
 
-        merged = []
-        current_start, current_end = sorted_segments[0]
+            # Ensure the waveform is on the correct device
+            waveform = waveform.to(self.device)
 
-        for start, end in sorted_segments[1:]:
-            # If this segment starts soon after the previous one ends
-            if start - current_end <= gap_threshold:
-                # Extend the current segment
-                current_end = end
-            else:
-                # Add the current segment to results and start a new one
-                merged.append((current_start, current_end))
-                current_start, current_end = start, end
+            # Resample to 16kHz if needed
+            if sample_rate != 16000:
+                import torchaudio
 
-        # Add the last segment
-        merged.append((current_start, current_end))
+                waveform = torchaudio.functional.resample(
+                    waveform.unsqueeze(0), sample_rate, 16000
+                ).squeeze(0)
+                sample_rate = 16000
 
-        return merged
+            # Apply VAD
+            speech_timestamps = self.get_speech_timestamps(
+                waveform, self.vad_model, sampling_rate=sample_rate
+            )
+
+            # Convert to seconds
+            segments = []
+            for segment in speech_timestamps:
+                start_time = segment["start"] / sample_rate
+                end_time = segment["end"] / sample_rate
+                segments.append((start_time, end_time))
+
+            return segments
+
+        except Exception as e:
+            print(f"Error in VAD processing: {str(e)}")
+            return []
+
+    def detect(self, audio_path, show_progress=False) -> List[Tuple[float, float]]:
+        """Load and process audio file to get VAD segments
+
+        Args:
+            audio_path: Path to audio file
+            show_progress: Whether to show progress
+
+        Returns:
+            List of (start, end) tuples in seconds
+        """
+        try:
+            import torchaudio
+
+            if show_progress:
+                print("Applying voice activity detection...")
+
+            # Load audio
+            waveform, sample_rate = torchaudio.load(audio_path)
+
+            # Convert to mono if stereo
+            if waveform.shape[0] > 1:
+                waveform = torch.mean(waveform, dim=0)
+
+            # Process with VAD
+            return self.get_vad_segments(waveform, sample_rate, show_progress)
+
+        except Exception as e:
+            print(f"Error loading audio for VAD: {str(e)}")
+            return []

@@ -115,9 +115,25 @@ class EmbeddingExtractor:
                         embedding = embedding.mean(axis=1).squeeze()
                 except Exception as e:
                     print(f"WavLM embedding failed: {str(e)}")
+                    embedding = None
+
+            # If both methods failed, try a simple fallback using MFCCs
+            if embedding is None:
+                try:
+                    import librosa
+
+                    # Generate simple MFCC features as fallback
+                    mfccs = librosa.feature.mfcc(
+                        y=segment_waveform.squeeze().cpu().numpy(), sr=16000, n_mfcc=20
+                    )
+                    # Use mean across time as a simple embedding
+                    embedding = np.mean(mfccs, axis=1)
+                    print("Using MFCC fallback for embedding")
+                except Exception as e:
+                    print(f"MFCC fallback failed: {str(e)}")
                     continue
 
-            # Skip if both methods failed
+            # Skip if all methods failed
             if embedding is None:
                 continue
 

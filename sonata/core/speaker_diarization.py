@@ -36,16 +36,22 @@ class SpeakerDiarizer:
         self.device = device
         self.logger = logging.getLogger(__name__)
 
+        # These will be initialized in _load_models
+        self.vad_model = None
+        self.vad_get_speech_timestamps = None
+        self.wavlm_processor = None
+        self.wavlm_model = None
+        self.ecapa_model = None
+        self.has_ecapa_model = False
+        self.vad_processor = None
+        self.change_detector = None
+        self.embedding_extractor = None
+
         # Initialize utility processors that don't require models
         self.clusterer = SpeakerClusterer()
         self.overlap_detector = OverlapDetector(device=device)
         self.segment_processor = SegmentProcessor()
         self.io_handler = DiarizationIO()
-
-        # These will be initialized in _load_models
-        self.vad_processor = None
-        self.change_detector = None
-        self.embedding_extractor = None
 
         # Now load models and initialize remaining processors
         self._load_models()
