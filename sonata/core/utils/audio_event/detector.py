@@ -129,8 +129,12 @@ class AudioEventDetector:
         # Extract events above threshold
         for class_idx, prob in enumerate(probs[0]):
             if prob >= threshold and class_idx < len(self.labels):
-                # Get class name from index
-                class_name = [k for k, v in self.labels.items() if v == class_idx][0]
+                # Get class name from index - safer approach to avoid index errors
+                class_names = [k for k, v in self.labels.items() if v == class_idx]
+                if not class_names:
+                    continue  # Skip if no matching class name found
+
+                class_name = class_names[0]
 
                 # Skip if not in target events
                 if target_events and class_name not in target_events:

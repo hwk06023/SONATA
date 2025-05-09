@@ -20,6 +20,7 @@ class AudioTranscriber:
         self.model_manager = ASRModelManager(
             model_name=model_name, device=device, compute_type=compute_type
         )
+        self.device = device
         self.logger = logging.getLogger(__name__)
 
     def transcribe_audio(
@@ -65,6 +66,7 @@ class AudioTranscriber:
                 audio_path=audio_path,
                 align_model=align_model,
                 align_metadata=align_metadata,
+                device=self.device,
                 show_progress=show_progress,
             )
 
@@ -82,7 +84,7 @@ class AudioTranscriber:
         whisperx_options = {
             "language": language,
             "batch_size": batch_size,
-            "vad_filter": True,  # Apply VAD filter for better accuracy
+            # Remove vad_filter if it's causing errors in newer WhisperX versions
         }
 
         # Set up contexts for suppressing output based on show_progress
@@ -113,6 +115,7 @@ class AudioTranscriber:
         audio_path: str,
         align_model,
         align_metadata,
+        device: str = "cpu",
         show_progress: bool = True,
     ) -> Dict:
         """Align transcription with WhisperX alignment model"""
@@ -138,6 +141,7 @@ class AudioTranscriber:
                     align_model,
                     align_metadata,
                     audio_path,
+                    device=device,  # Add the device parameter
                     return_char_alignments=False,
                 )
 
