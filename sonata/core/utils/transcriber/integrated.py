@@ -2,9 +2,9 @@ import os
 import logging
 import traceback
 from typing import Dict, List, Optional
-from sonata.core.utils.asr import ASRProcessor
-from sonata.core.utils.audio_event import AudioEventDetector
-from sonata.core.utils.diarization import SpeakerDiarizer
+from sonata.core.asr import ASRProcessor
+from sonata.core.audio_event_detector import AudioEventDetector
+from sonata.core.speaker_diarization import SpeakerDiarizer
 from .speaker import SpeakerAssigner
 from .audio_event import AudioEventIntegrator
 from .formatter import TranscriptFormatter

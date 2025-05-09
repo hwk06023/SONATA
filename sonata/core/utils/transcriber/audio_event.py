@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, List, Optional, Any, Tuple
-from sonata.core.utils.audio_event import AudioEvent
+from sonata.core.audio_event_detector import AudioEvent
 
 
 class AudioEventIntegrator:
@@ -25,9 +25,14 @@ class AudioEventIntegrator:
             "rich_text": [],
         }
 
-        # Return early if no words
-        if not word_timestamps:
+        # Return early if no words or events
+        if not word_timestamps or not audio_events:
+            self.logger.warning("No word timestamps or audio events to integrate")
             return result
+
+        self.logger.info(
+            f"Integrating {len(word_timestamps)} words with {len(audio_events)} audio events"
+        )
 
         # Sort word timestamps by start time
         sorted_words = sorted(word_timestamps, key=lambda x: x.get("start", 0))
@@ -121,5 +126,9 @@ class AudioEventIntegrator:
         # Final result
         result["plain_text"] = plain_text
         result["rich_text"] = rich_text
+
+        self.logger.info(
+            f"Integration complete: {len(rich_text)} segments in transcript"
+        )
 
         return result

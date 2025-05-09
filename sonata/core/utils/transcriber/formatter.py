@@ -16,8 +16,15 @@ class TranscriptFormatter:
         Returns:
             Formatted transcript text
         """
-        if not result or "segments" not in result:
+        if not result:
+            self.logger.warning("Empty result provided to formatter")
             return ""
+
+        if "segments" not in result:
+            self.logger.warning("No segments found in result")
+            return ""
+
+        self.logger.info(f"Formatting transcript with format type: {format_type}")
 
         if format_type == "plain":
             return self.get_plain_text(result)
@@ -42,13 +49,17 @@ class TranscriptFormatter:
         Returns:
             Plain text transcript
         """
+        # Check for integrated transcript
         if (
             "integrated_transcript" in result
             and "plain_text" in result["integrated_transcript"]
+            and result["integrated_transcript"]["plain_text"]
         ):
             return result["integrated_transcript"]["plain_text"]
 
+        # Fallback to segments if no integrated transcript
         if "segments" not in result:
+            self.logger.warning("No segments found in result for plain text")
             return ""
 
         text = ""
@@ -71,8 +82,12 @@ class TranscriptFormatter:
         if (
             "integrated_transcript" in result
             and "rich_text" in result["integrated_transcript"]
+            and result["integrated_transcript"]["rich_text"]
         ):
             rich_text = result["integrated_transcript"]["rich_text"]
+            self.logger.info(
+                f"Using rich text formatting with {len(rich_text)} segments"
+            )
 
             formatted_text = ""
             for item in rich_text:
@@ -84,8 +99,18 @@ class TranscriptFormatter:
 
             return formatted_text
 
-        # Fall back to plain text
-        return self.get_plain_text(result)
+        # Fall back to segment-based text
+        self.logger.warning("No rich text available, falling back to segments")
+        text = ""
+
+        for segment in result.get("segments", []):
+            if "text" in segment and segment["text"]:
+                if "speaker" in segment:
+                    text += f"[{segment['speaker']}]: {segment['text']}\n"
+                else:
+                    text += f"{segment['text']}\n"
+
+        return text.strip()
 
     def _format_as_srt(self, result: Dict) -> str:
         """Format transcript as SRT subtitles.
@@ -97,6 +122,7 @@ class TranscriptFormatter:
             SRT formatted transcript
         """
         if "segments" not in result:
+            self.logger.warning("No segments found for SRT formatting")
             return ""
 
         srt_text = ""
@@ -125,9 +151,19 @@ class TranscriptFormatter:
             Formatted transcript with word-level speaker info
         """
         if "segments" not in result:
+            self.logger.warning("No segments found for word-speaker formatting")
             return ""
 
         formatted_text = ""
+
+        # Count words to ensure we're processing something
+        word_count = 0
+        for segment in result["segments"]:
+            if "words" in segment:
+                word_count += len(segment["words"])
+
+        self.logger.info(f"Formatting {word_count} words with speakers")
+
         for segment in result["segments"]:
             if "words" in segment:
                 for word in segment["words"]:
@@ -149,6 +185,7 @@ class TranscriptFormatter:
             Formatted transcript with segment-level speaker info
         """
         if "segments" not in result:
+            self.logger.warning("No segments found for segment-speaker formatting")
             return ""
 
         formatted_text = ""
@@ -174,9 +211,10 @@ class TranscriptFormatter:
             Formatted transcript with just audio events
         """
         if "audio_events" not in result or not result["audio_events"]:
+            self.logger.warning("No audio events found for formatting")
             return "No audio events detected."
 
-        formatted_text = "Detected Audio Events:\n"
+        formatted_text = f"Detected Audio Events ({len(result['audio_events'])}):\n"
         for i, event in enumerate(result["audio_events"], 1):
             start_time = self._format_time(event.get("start", 0))
             end_time = self._format_time(event.get("end", 0))
