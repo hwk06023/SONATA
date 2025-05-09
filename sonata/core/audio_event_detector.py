@@ -8,7 +8,7 @@ import io
 import sys
 import logging
 from contextlib import redirect_stdout, redirect_stderr
-from typing import Dict, Any, List, Tuple, Optional, Union
+from typing import Dict, Any, List, Tuple, Optional, Union, Set
 from pathlib import Path
 from sonata.models.model_loader import load_audioset
 from scipy.special import softmax
@@ -32,7 +32,14 @@ import tempfile
 import soundfile as sf
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
 
+# Import our new modular structure
+from sonata.core.utils.audio_event import (
+    AudioEvent as ModularAudioEvent,
+    AudioEventDetector as ModularAudioEventDetector,
+)
 
+
+# Keep the original AudioEvent class for backward compatibility
 @dataclass
 class AudioEvent:
     type: str
@@ -50,6 +57,15 @@ class AudioEvent:
 
     def to_tag(self):
         return f"[{self.type}]"
+
+    @classmethod
+    def from_modular(cls, event: ModularAudioEvent) -> "AudioEvent":
+        return cls(
+            type=event.event_type,
+            start_time=event.start_time,
+            end_time=event.end_time,
+            confidence=event.confidence,
+        )
 
 
 class AudioCNN(nn.Module):
@@ -532,9 +548,8 @@ class AudiosetClassifier:
         return probs
 
 
-class AudioEventDetector(AudiosetClassifier):
-    """Detects audio events in audio"""
-
+# Wrapper class that uses the modular implementation internally
+class AudioEventDetector:
     def __init__(
         self,
         model_path: Optional[str] = None,
@@ -548,63 +563,34 @@ class AudioEventDetector(AudiosetClassifier):
         """Initialize the audio event detector.
 
         Args:
-            model_path: Path to custom model (optional)
-            threshold: Detection threshold (0.0-1.0)
-            device: Computing device (cuda/cpu)
-            event_types: List of event types to detect (defaults to all)
-            custom_thresholds: Dictionary mapping event types to custom threshold values (optional)
-            window_size: Size of the analysis window in seconds
+            model_path: Path to the model
+            threshold: Default detection threshold
+            device: Device to use for inference
+            event_types: List of event types to detect
+            custom_thresholds: Custom thresholds for specific event types
+            window_size: Size of processing window in seconds
             hop_size: Hop size between windows in seconds
         """
-        # Default to CPU if no device specified
-        if device is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        # Set up comprehensive warning suppression
-        original_level = logging.getLogger().level
-        stdout_buffer = io.StringIO()
-        stderr_buffer = io.StringIO()
-
-        try:
-            # Temporarily suppress all logging
-            logging.getLogger().setLevel(logging.ERROR)
-
-            # Redirect both stdout and stderr during initialization
-            with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-                # Initialize parent class
-                super().__init__(model_dir=model_path, device=device)
-        finally:
-            # Restore original logging level
-            logging.getLogger().setLevel(original_level)
-
+        self.logger = logging.getLogger(__name__)
         self.threshold = threshold
+
+        # Use device if provided, otherwise use CUDA if available
+        if device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
         self.device = device
+        self.event_types = event_types
+        self.custom_thresholds = custom_thresholds or AUDIO_EVENT_THRESHOLDS
+        self.window_size = window_size
+        self.hop_size = hop_size
 
-        # Map model outputs to event types
-        self.event_class_map = AUDIOSET_CLASS_MAPPING
+        # Initialize the modular detector
+        self.detector = ModularAudioEventDetector(
+            model_path=model_path,
+            device=self.device,
+        )
 
-        # Filter event types if specified
-        if event_types:
-            # Keep only the requested event types
-            self.event_class_map = {
-                k: v for k, v in self.event_class_map.items() if v in event_types
-            }
-
-        # Load class-specific thresholds from constants
-        self.class_thresholds = dict(AUDIO_EVENT_THRESHOLDS)
-
-        # Apply custom thresholds if provided
-        if custom_thresholds:
-            # Update default thresholds with custom values
-            self.class_thresholds.update(custom_thresholds)
-            logging.info(
-                f"Applied custom thresholds for {len(custom_thresholds)} event types"
-            )
-
-        # Use windowing for segmented analysis
-        self.use_windowing = True
-        self.window_size = window_size  # seconds
-        self.hop_size = hop_size  # seconds
+        self.logger.info(f"Initialized AudioEventDetector using {self.device}")
 
     def detect_events(
         self,
@@ -612,643 +598,85 @@ class AudioEventDetector(AudiosetClassifier):
         sr: int = 16000,
         show_progress: bool = True,
     ) -> List[AudioEvent]:
-        """
-        Detect audio events in the given audio with improved multi-event detection.
-
-        This method uses windowing to better detect short events and employs
-        class-specific thresholds for improved detection of secondary events.
-        """
-        audio_duration = None
-        audio_data = None
-
-        # Handle string path to audio file
-        if isinstance(audio, str):
-            # Load audio file
-            try:
-                if show_progress:
-                    print(
-                        f"[AudioDetector] Loading audio from file: {audio}", flush=True
-                    )
-                logging.debug(f"Loading audio from file: {audio}")
-                y, sr = librosa.load(audio, sr=sr)
-                audio_duration = len(y) / sr  # Calculate audio duration
-                audio_data = y
-                audio = y
-                if show_progress:
-                    print("[AudioDetector] Audio loaded successfully.", flush=True)
-            except Exception as e:
-                logging.error(f"Failed to load audio file: {str(e)}")
-                return []
-        elif isinstance(audio, (torch.Tensor, np.ndarray)):
-            # If we have raw audio data, estimate its duration
-            if isinstance(audio, torch.Tensor):
-                audio_np = audio.cpu().numpy()
-            else:
-                audio_np = audio
-
-            audio_data = audio_np
-            # Make sure it's at least 1D
-            if len(audio_np.shape) >= 1:
-                audio_duration = audio_np.shape[-1] / sr
-            else:
-                audio_duration = 0
-
-        # Initialize detections list
-        all_detections = []
-
-        # Process the full audio first to get global events like "speech", "music", etc.
-        if show_progress:
-            print("[AudioDetector] Processing full audio through model...", flush=True)
-
-        full_audio_probs = self.detect_from_array(
-            audio, sr, show_progress=show_progress
-        )
-
-        # Get global events (those that span the entire audio)
-        global_detections = self._process_probabilities(
-            full_audio_probs,
-            audio_duration=audio_duration,
-            segment_start=0.0,
-            segment_end=audio_duration if audio_duration else 0.0,
-            show_progress=show_progress,
-        )
-
-        if show_progress:
-            print(
-                f"[AudioDetector] Found {len(global_detections)} global audio events.",
-                flush=True,
-            )
-
-        # Add global detections to our list
-        all_detections.extend(global_detections)
-
-        # Process with windowing for better short event detection
-        if (
-            self.use_windowing
-            and audio_data is not None
-            and audio_duration > self.window_size * 2
-        ):
-            # Only use windowing for longer audio clips
-            if show_progress:
-                print(
-                    "[AudioDetector] Performing windowed analysis for short events...",
-                    flush=True,
-                )
-
-            # Segment the audio into overlapping windows
-            window_samples = int(self.window_size * sr)
-            hop_samples = int(self.hop_size * sr)
-
-            # Determine total number of segments
-            total_segments = max(
-                1, int(np.ceil((len(audio_data) - window_samples) / hop_samples)) + 1
-            )
-
-            # Create progress tracking variables
-            progress_callback = getattr(self, "_progress_callback", None)
-
-            if show_progress:
-                if progress_callback:
-                    # Use external callback if available
-                    iterator = range(
-                        0, len(audio_data) - window_samples + 1, hop_samples
-                    )
-                else:
-                    # Use tqdm progress bar if no callback
-                    iterator = tqdm(
-                        range(0, len(audio_data) - window_samples + 1, hop_samples),
-                        desc="[AudioDetector] Processing segments",
-                        unit="segment",
-                        total=total_segments,
-                    )
-            else:
-                iterator = range(0, len(audio_data) - window_samples + 1, hop_samples)
-
-            # Process each window
-            window_detections = []
-
-            for i, start_sample in enumerate(iterator):
-                # Extract segment
-                segment = audio_data[start_sample : start_sample + window_samples]
-
-                # Calculate segment timestamps
-                segment_start = start_sample / sr
-                segment_end = min(segment_start + self.window_size, audio_duration)
-
-                # Process segment through model
-                segment_probs = self.detect_from_array(segment, sr, show_progress=False)
-
-                # Process segment probabilities with segment-specific timestamps
-                segment_events = self._process_probabilities(
-                    segment_probs,
-                    audio_duration=self.window_size,
-                    segment_start=segment_start,
-                    segment_end=segment_end,
-                    show_progress=False,
-                    use_lower_thresholds=True,  # Use lower thresholds for short events
-                )
-
-                # Add to window detections
-                window_detections.extend(segment_events)
-
-                # Update progress using callback if available
-                if progress_callback and show_progress:
-                    progress_callback(i, total_segments)
-
-            # Filter window detections to avoid duplicates
-            if window_detections:
-                # Group events by type
-                event_groups = {}
-                for event in window_detections:
-                    if event.type not in event_groups:
-                        event_groups[event.type] = []
-                    event_groups[event.type].append(event)
-
-                # For each event type, merge overlapping events and keep the highest confidence
-                for event_type, events in event_groups.items():
-                    # Sort by start time
-                    events.sort(key=lambda e: e.start_time)
-
-                    i = 0
-                    while i < len(events):
-                        # Start with current event
-                        current = events[i]
-
-                        # Look for overlapping events to merge
-                        j = i + 1
-                        while j < len(events):
-                            if events[j].start_time <= current.end_time:
-                                # Overlapping event found
-                                # Expand time range if needed
-                                current.start_time = min(
-                                    current.start_time, events[j].start_time
-                                )
-                                current.end_time = max(
-                                    current.end_time, events[j].end_time
-                                )
-                                # Take highest confidence
-                                current.confidence = max(
-                                    current.confidence, events[j].confidence
-                                )
-                                # Remove the merged event
-                                events.pop(j)
-                            else:
-                                j += 1
-
-                        i += 1
-
-                    # Add merged events to final detection list
-                    all_detections.extend(events)
-
-        # Remove duplicate global vs window detections
-        final_detections = self._remove_duplicate_events(all_detections)
-
-        if show_progress:
-            print(
-                f"[AudioDetector] Detection complete. Found {len(final_detections)} audio events.",
-                flush=True,
-            )
-
-        # Optional: refine event timestamps if we have audio data
-        if audio_data is not None and len(final_detections) > 0:
-            final_detections = self._refine_event_timestamps(
-                audio_data, sr, final_detections
-            )
-
-        return final_detections
-
-    def _process_probabilities(
-        self,
-        probs: np.ndarray,
-        audio_duration: Optional[float],
-        segment_start: float = 0.0,
-        segment_end: float = 0.0,
-        show_progress: bool = False,
-        use_lower_thresholds: bool = False,
-    ) -> List[AudioEvent]:
-        """Process model probabilities to extract audio events with appropriate timestamps."""
-        detections = []
-
-        if show_progress:
-            print("[AudioDetector] Analyzing detection results...", flush=True)
-            sys.stdout.flush()
-            cls_items = list(self.labels.items())
-            iterator = tqdm(
-                cls_items,
-                desc="[AudioDetector] Processing detections",
-                unit="class",
-                file=sys.stdout,
-            )
-        else:
-            iterator = self.labels.items()
-
-        for cls_idx, event_type in iterator:
-            try:
-                cls_idx_int = int(
-                    cls_idx
-                )  # Convert string indices to integers if needed
-
-                # Always check for custom thresholds regardless of use_lower_thresholds flag
-                event_threshold = self.class_thresholds.get(event_type, self.threshold)
-
-                # Check if we have enough dimensions and indices in bounds
-                if len(probs.shape) > 1 and cls_idx_int < probs.shape[1]:
-                    # For multiple segments/batches (batch processing)
-                    for i in range(probs.shape[0]):
-                        prob = probs[i, cls_idx_int]
-                        if prob > event_threshold:
-                            # Create AudioEvent with segment timestamps
-                            if audio_duration and probs.shape[0] > 1:
-                                # Divide the segment duration by the number of sub-segments
-                                sub_segment_duration = (
-                                    segment_end - segment_start
-                                ) / probs.shape[0]
-                                sub_start_time = segment_start + (
-                                    i * sub_segment_duration
-                                )
-                                sub_end_time = segment_start + (
-                                    (i + 1) * sub_segment_duration
-                                )
-                                start_time = sub_start_time
-                                end_time = sub_end_time
-                            else:
-                                # Use segment boundaries
-                                start_time = segment_start
-                                end_time = segment_end
-
-                            detections.append(
-                                AudioEvent(
-                                    type=event_type,
-                                    start_time=start_time,
-                                    end_time=end_time,
-                                    confidence=float(prob),
-                                )
-                            )
-                elif cls_idx_int < len(probs):
-                    # For single segment/batch
-                    prob = probs[cls_idx_int]
-                    if prob > event_threshold:
-                        # Event spans the segment
-                        detections.append(
-                            AudioEvent(
-                                type=event_type,
-                                start_time=segment_start,
-                                end_time=segment_end,
-                                confidence=float(prob),
-                            )
-                        )
-            except (ValueError, IndexError, TypeError) as e:
-                logging.warning(f"Error processing class index {cls_idx}: {str(e)}")
-                continue
-
-        return detections
-
-    def _remove_duplicate_events(self, events: List[AudioEvent]) -> List[AudioEvent]:
-        """Remove duplicate events, keeping the highest confidence version."""
-        # Group events by type
-        event_map = {}
-
-        for event in events:
-            event_type = event.type
-
-            # Create new entry for this type if it doesn't exist
-            if event_type not in event_map:
-                event_map[event_type] = []
-
-            # Add this event to its type group
-            event_map[event_type].append(event)
-
-        # Process each event type to remove/merge duplicates
-        final_events = []
-
-        for event_type, type_events in event_map.items():
-            # If this event type only has one instance, keep it
-            if len(type_events) == 1:
-                final_events.append(type_events[0])
-                continue
-
-            # Sort by confidence (highest first)
-            type_events.sort(key=lambda e: e.confidence, reverse=True)
-
-            # Apply same overlap detection to all event types (including speech)
-            # For other events, take non-overlapping ones or higher confidence ones
-            events_to_keep = []
-            for event in type_events:
-                # Check if this event overlaps with any already kept event
-                overlaps = False
-                for kept_event in events_to_keep:
-                    # Check for significant overlap
-                    if (
-                        event.start_time < kept_event.end_time
-                        and event.end_time > kept_event.start_time
-                    ):
-                        # If they overlap significantly, keep the higher confidence one
-                        overlap_duration = min(
-                            event.end_time, kept_event.end_time
-                        ) - max(event.start_time, kept_event.start_time)
-                        event_duration = event.end_time - event.start_time
-
-                        # If overlap is significant and current event is lower confidence
-                        if (
-                            overlap_duration / event_duration > 0.5
-                            and event.confidence <= kept_event.confidence
-                        ):
-                            overlaps = True
-                            break
-
-                if not overlaps:
-                    events_to_keep.append(event)
-
-            final_events.extend(events_to_keep)
-
-        return final_events
-
-    def _refine_event_timestamps(
-        self, audio: np.ndarray, sr: int, events: List[AudioEvent]
-    ) -> List[AudioEvent]:
-        """
-        Refines timestamps for detected events based on audio features.
-
-        This uses energy-based segmentation to try to locate when certain
-        audio events might occur, particularly for short, high-energy events.
-        """
-        # Only process if we have meaningful audio data
-        if audio is None or len(audio) == 0:
-            return events
-
-        try:
-            # Calculate audio duration
-            audio_duration = len(audio) / sr
-
-            # These events can be better localized through energy/spectral analysis
-            energy_based_events = {
-                "laughter",
-                "baby_laughter",
-                "giggle",
-                "chuckle",
-                "clapping",
-                "bark",
-                "slam",
-                "explosion",
-                "gunshot",
-                "bang",
-                "crash",
-                "breaking",
-                "knock",
-                "footsteps",
-                "cough",
-                "sneeze",
-                "throat_clearing",
-            }
-
-            # These need onset detection (they typically have sharp attacks)
-            onset_based_events = {
-                "cough",
-                "sneeze",
-                "throat_clearing",
-                "clapping",
-                "knock",
-                "slam",
-                "bang",
-                "crash",
-                "explosion",
-            }
-
-            # These need a different approach - they're more tonal
-            tonal_events = {
-                "sigh",
-                "breathing",
-                "wheeze",
-                "whistle",
-                "music",
-                "singing",
-            }
-
-            # Calculate overall energy envelope
-            frame_length = int(sr * 0.025)  # 25ms frames
-            hop_length = int(sr * 0.010)  # 10ms hop
-
-            # Energy-based features
-            energy = librosa.feature.rms(
-                y=audio, frame_length=frame_length, hop_length=hop_length
-            )[0]
-
-            # Onset strength for onset-based events
-            onset_env = librosa.onset.onset_strength(
-                y=audio, sr=sr, hop_length=hop_length
-            )
-
-            # Convert frames to time
-            frames_time = librosa.frames_to_time(
-                np.arange(len(energy)), sr=sr, hop_length=hop_length
-            )
-
-            # Automatically adapt thresholds based on energy distribution
-            energy_mean = np.mean(energy)
-            energy_std = np.std(energy)
-            energy_threshold = energy_mean + 1.5 * energy_std
-
-            onset_mean = np.mean(onset_env)
-            onset_std = np.std(onset_env)
-            onset_threshold = onset_mean + 2.0 * onset_std
-
-            # Find regions above threshold
-            energy_is_above = energy > energy_threshold
-            onset_is_above = onset_env > onset_threshold
-
-            # Energy-based regions
-            energy_transitions = np.diff(energy_is_above.astype(int))
-            energy_onsets = np.where(energy_transitions == 1)[0]
-            energy_offsets = np.where(energy_transitions == -1)[0]
-
-            # Onset-based regions
-            onset_peaks = librosa.util.peak_pick(
-                onset_env,
-                pre_max=3,
-                post_max=3,
-                pre_avg=3,
-                post_avg=5,
-                delta=0.5,
-                wait=10,
-            )
-
-            # Create energy-based time regions
-            energy_regions = []
-            for i, onset in enumerate(energy_onsets):
-                offset_idx = len(energy_offsets)
-                # Find the next offset after this onset
-                for j, offset in enumerate(energy_offsets):
-                    if offset > onset:
-                        offset_idx = j
-                        break
-
-                if offset_idx < len(energy_offsets):
-                    offset = energy_offsets[offset_idx]
-                    onset_time = frames_time[onset]
-                    offset_time = frames_time[offset]
-
-                    # Only consider significant regions
-                    if offset_time - onset_time > 0.1:  # At least 100ms
-                        region_energy = np.mean(energy[onset:offset])
-                        energy_regions.append((onset_time, offset_time, region_energy))
-
-            # Create onset-based time markers
-            onset_times = frames_time[onset_peaks]
-            onset_values = onset_env[onset_peaks]
-            onset_regions = []
-
-            for i, time in enumerate(onset_times):
-                # Create a short region around each onset
-                onset_regions.append(
-                    (
-                        max(0, time - 0.1),  # Start 100ms before peak
-                        min(audio_duration, time + 0.3),  # End 300ms after peak
-                        onset_values[i],  # Onset strength as "energy" measure
-                    )
-                )
-
-            # Process each event to refine timestamps
-            refined_events = []
-
-            for event in events:
-                event_type = event.type
-
-                # Skip processing for continuous events like speech, music
-                if event_type in ["speech", "male_speech", "female_speech", "music"]:
-                    refined_events.append(event)
-                    continue
-
-                # For energy-based events
-                if event_type in energy_based_events and energy_regions:
-                    # Find regions that overlap with this event's current timespan
-                    relevant_regions = []
-                    for start, end, region_energy in energy_regions:
-                        if end > event.start_time and start < event.end_time:
-                            relevant_regions.append((start, end, region_energy))
-
-                    # If we found relevant regions
-                    if relevant_regions:
-                        # Sort by energy (highest first)
-                        relevant_regions.sort(key=lambda r: r[2], reverse=True)
-
-                        # Take the highest energy region
-                        best_region = relevant_regions[0]
-
-                        # Create a refined event
-                        refined_events.append(
-                            AudioEvent(
-                                type=event_type,
-                                start_time=best_region[0],
-                                end_time=best_region[1],
-                                confidence=event.confidence,
-                            )
-                        )
-                    else:
-                        # Keep original event
-                        refined_events.append(event)
-
-                # For onset-based events, additional processing
-                elif event_type in onset_based_events and onset_regions:
-                    # Find onset regions that overlap with this event's timespan
-                    relevant_onsets = []
-                    for start, end, onset_strength in onset_regions:
-                        if end > event.start_time and start < event.end_time:
-                            relevant_onsets.append((start, end, onset_strength))
-
-                    if relevant_onsets:
-                        # Sort by strength (highest first)
-                        relevant_onsets.sort(key=lambda r: r[2], reverse=True)
-
-                        # Take the strongest onset
-                        best_onset = relevant_onsets[0]
-
-                        # Create refined event
-                        refined_events.append(
-                            AudioEvent(
-                                type=event_type,
-                                start_time=best_onset[0],
-                                end_time=best_onset[1],
-                                confidence=event.confidence,
-                            )
-                        )
-                    else:
-                        # Keep original event
-                        refined_events.append(event)
-                else:
-                    # Keep the original event timing
-                    refined_events.append(event)
-
-            return refined_events
-        except Exception as e:
-            logging.warning(f"Error refining event timestamps: {str(e)}")
-            # Return original events if refinement fails
-            return events
-
-    def _merge_events_nms(
-        self, events: List[AudioEvent], iou_threshold: float = 0.5
-    ) -> List[AudioEvent]:
-        """
-        Merge audio events using confidence-based non-maximum suppression.
+        """Detect audio events in the input audio.
 
         Args:
-            events: List of detected audio events from all scales
-            iou_threshold: Intersection over Union threshold for considering events as overlapping
+            audio: Audio input as file path, tensor, or array
+            sr: Sample rate of the audio
+            show_progress: Whether to show progress information
 
         Returns:
-            List of merged audio events
+            List of detected AudioEvent objects
         """
-        if not events:
-            return []
+        try:
+            # Initialize event list
+            detected_events = []
 
-        # Group events by type
-        events_by_type = {}
-        for event in events:
-            if event.type not in events_by_type:
-                events_by_type[event.type] = []
-            events_by_type[event.type].append(event)
+            # Convert set of event types if provided
+            target_events = set(self.event_types) if self.event_types else None
 
-        final_events = []
+            # Handle different input types
+            if isinstance(audio, str):
+                # Detect events using modular detector
+                modular_events = self.detector.detect_events(
+                    audio_file=audio,
+                    threshold=self.threshold,
+                    segment_size=self.window_size,
+                    hop_size=self.hop_size,
+                    target_sr=sr,
+                    target_events=target_events,
+                )
 
-        # Process each event type separately
-        for event_type, type_events in events_by_type.items():
-            # Sort by confidence (highest first)
-            type_events.sort(key=lambda e: e.confidence, reverse=True)
+                # Convert modular events to original format
+                for event in modular_events:
+                    # Apply custom thresholds if applicable
+                    if (
+                        self.custom_thresholds
+                        and event.event_type in self.custom_thresholds
+                        and event.confidence < self.custom_thresholds[event.event_type]
+                    ):
+                        continue
 
-            # Apply NMS
-            kept_events = []
-            for event in type_events:
-                # Check if this event overlaps with any already kept event
-                should_keep = True
-                for kept_event in kept_events:
-                    # Calculate temporal IoU
-                    intersection_start = max(event.start_time, kept_event.start_time)
-                    intersection_end = min(event.end_time, kept_event.end_time)
+                    detected_events.append(AudioEvent.from_modular(event))
 
-                    if intersection_end <= intersection_start:
-                        continue  # No overlap
+            else:
+                # For tensor/array inputs, convert to file first
+                # This is a limitation of the current implementation
+                self.logger.warning(
+                    "Direct tensor/array input is deprecated. "
+                    "Please use file paths for better performance."
+                )
 
-                    intersection = intersection_end - intersection_start
-                    union = (
-                        (event.end_time - event.start_time)
-                        + (kept_event.end_time - kept_event.start_time)
-                        - intersection
+                import tempfile
+                import soundfile as sf
+
+                # Convert to numpy array if needed
+                if isinstance(audio, torch.Tensor):
+                    audio_np = audio.cpu().numpy()
+                else:
+                    audio_np = audio
+
+                # Save to temporary file
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                    sf.write(tmp.name, audio_np, sr)
+                    tmp_path = tmp.name
+
+                try:
+                    # Detect events using the file path
+                    return self.detect_events(
+                        audio=tmp_path, sr=sr, show_progress=show_progress
                     )
+                finally:
+                    # Clean up temporary file
+                    import os
 
-                    iou = intersection / union if union > 0 else 0
+                    os.unlink(tmp_path)
 
-                    if iou > iou_threshold:
-                        should_keep = False
-                        break
+            return detected_events
 
-                if should_keep:
-                    kept_events.append(event)
-
-            final_events.extend(kept_events)
-
-        # Sort by start time for consistent output
-        final_events.sort(key=lambda e: e.start_time)
-
-        return final_events
+        except Exception as e:
+            self.logger.error(f"Error detecting events: {str(e)}")
+            return []
 
     def detect_events_multi_scale(
         self,
@@ -1259,231 +687,150 @@ class AudioEventDetector(AudiosetClassifier):
         parallel: bool = False,
         show_progress: bool = True,
     ) -> List[AudioEvent]:
-        """
-        Detect audio events using multiple scale windows in parallel.
+        """Detect audio events using multiple window sizes.
 
         Args:
-            audio: Audio file path or loaded audio data
+            audio: Audio input as file path, tensor, or array
             sr: Sample rate of the audio
-            window_sizes: List of window sizes in seconds
-            hop_sizes: List of hop sizes in seconds (must match window_sizes length)
-            parallel: Whether to use parallel processing with ThreadPoolExecutor
-            show_progress: Whether to show progress bars
+            window_sizes: List of window sizes to use
+            hop_sizes: List of hop sizes to use
+            parallel: Whether to process in parallel
+            show_progress: Whether to show progress information
 
         Returns:
-            List of detected audio events after merging results from all scales
+            List of detected AudioEvent objects
         """
         if len(window_sizes) != len(hop_sizes):
             raise ValueError("window_sizes and hop_sizes must have the same length")
 
-        if show_progress:
-            print(
-                f"[DeepDetect] Running multi-scale detection with {len(window_sizes)} window sizes..."
-            )
-
-        # Load audio data once if it's a file path
-        audio_data = audio
-        if isinstance(audio, str):
-            try:
-                if show_progress:
-                    print(f"[DeepDetect] Loading audio from file: {audio}")
-                audio_data, sr = librosa.load(audio, sr=sr)
-                if show_progress:
-                    print("[DeepDetect] Audio loaded successfully")
-            except Exception as e:
-                logging.error(f"[DeepDetect] Failed to load audio file: {str(e)}")
-                return []
-
-        # Define a worker function to ensure each thread has its own parameters
-        def detect_with_scale(window_s, hop_s, scale_name):
-            try:
-                # Create a dedicated detector with its own model instance
-                print(
-                    f"[DeepDetect] Loading model for scale {scale_name}... (may take several minutes on CPU)"
-                )
-                sys.stdout.flush()  # Ensure immediate output
-
-                from sonata.models.model_loader import load_audioset
-
-                detector = AudioEventDetector(
-                    model_path=None,
-                    threshold=self.threshold,
-                    device=self.device,
-                    event_types=None,
-                    custom_thresholds=dict(self.class_thresholds),
-                    window_size=window_s,
-                    hop_size=hop_s,
-                )
-
-                # Don't share model reference across threads - each thread loads its own
-                # We're not setting detector.model = self.model anymore
-
-                if show_progress:
-                    print(f"[DeepDetect] Starting detection with scale {scale_name}")
-
-                # Get original method reference
-                original_detect = detector.detect_events
-
-                # Create a wrapper to add progress bar
-                def detect_with_progress(audio, sr, show_progress=False):
-                    # For file paths, get estimated duration for progress calculation
-                    audio_duration = None
-                    if isinstance(audio, str):
-                        try:
-                            y, sr = librosa.load(audio, sr=sr, duration=5)
-                            audio_info = sf.info(audio)
-                            audio_duration = audio_info.duration
-                        except Exception:
-                            pass
-                    elif isinstance(audio, np.ndarray):
-                        audio_duration = len(audio) / sr
-
-                    # Create progress bar for this scale
-                    if audio_duration:
-                        # Estimate number of segments based on window_s and hop_s
-                        estimated_segments = max(
-                            1, int((audio_duration - window_s) / hop_s) + 1
-                        )
-                        pbar = tqdm(
-                            total=estimated_segments,
-                            desc=f"[DeepDetect] Scale {scale_name}",
-                            unit="segments",
-                            leave=True,
-                            position=0,
-                            file=sys.stdout,
-                        )
-
-                        # Define progress updater
-                        def progress_callback(current, total):
-                            pbar.update(1)
-
-                        # Temporarily attach callback to detector
-                        detector._progress_callback = progress_callback
-
-                        # Call original method
-                        result = original_detect(audio, sr, show_progress=False)
-
-                        # Close progress bar
-                        pbar.close()
-                        return result
-                    else:
-                        # If duration can't be determined, just use original method
-                        return original_detect(audio, sr, show_progress=show_progress)
-
-                # Override detect_events with progress version
-                detector.detect_events = detect_with_progress
-
-                # Run detection with this scale's parameters
-                events = detector.detect_events(audio_data, sr, show_progress=True)
-
-                if show_progress:
-                    print(
-                        f"[DeepDetect] Scale {scale_name}: detected {len(events)} events"
-                    )
-
-                return events
-            except Exception as e:
-                logging.error(f"[DeepDetect] Error in scale {scale_name}: {str(e)}")
-                if "Cannot copy out of meta tensor" in str(e) or "no data!" in str(e):
-                    # This is a PyTorch model loading issue - print a more helpful message
-                    print(
-                        f"[DeepDetect] PyTorch model loading issue with scale {scale_name}. This may occur when GPU memory is insufficient."
-                    )
-                    print(
-                        f"[DeepDetect] Attempting fallback to CPU for scale {scale_name}"
-                    )
-                    try:
-                        # Create another detector but force CPU device
-                        fallback_detector = AudioEventDetector(
-                            model_path=None,
-                            threshold=self.threshold,
-                            device="cpu",  # Force CPU for fallback
-                            event_types=None,
-                            custom_thresholds=dict(self.class_thresholds),
-                            window_size=window_s,
-                            hop_size=hop_s,
-                        )
-
-                        # Run detection with fallback detector
-                        fallback_events = fallback_detector.detect_events(
-                            audio_data, sr, show_progress=False
-                        )
-                        if show_progress:
-                            print(
-                                f"[DeepDetect] Fallback successful for scale {scale_name}: detected {len(fallback_events)} events"
-                            )
-                        return fallback_events
-                    except Exception as fallback_e:
-                        logging.error(
-                            f"[DeepDetect] Fallback attempt failed for scale {scale_name}: {str(fallback_e)}"
-                        )
-                        print(
-                            f"[DeepDetect] Fallback failed for scale {scale_name}. Skipping this scale."
-                        )
-                return []
-
-        # Use parallel or sequential processing based on the parallel flag
         all_events = []
 
         if parallel:
-            # Use ThreadPoolExecutor for parallel processing
-            if show_progress:
-                print(
-                    "[DeepDetect] Using parallel processing (ThreadPool) for detection"
-                )
+            import concurrent.futures
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future_to_scale = {}
+                futures = []
 
-                # Submit all tasks
                 for i, (window_size, hop_size) in enumerate(
                     zip(window_sizes, hop_sizes)
                 ):
-                    scale_name = f"w={window_size}s, h={hop_size}s"
-                    future = executor.submit(
-                        detect_with_scale,
-                        window_size,
-                        hop_size,
-                        scale_name,
-                    )
-                    future_to_scale[future] = scale_name
+                    # Save the original values
+                    original_window = self.window_size
+                    original_hop = self.hop_size
 
-                # Collect results as they complete
-                for future in concurrent.futures.as_completed(future_to_scale):
-                    scale_name = future_to_scale[future]
-                    try:
-                        events = future.result()
-                        logging.info(
-                            f"[DeepDetect] Scale {scale_name}: {len(events)} events"
+                    # Set new values
+                    self.window_size = window_size
+                    self.hop_size = hop_size
+
+                    # Submit the task
+                    futures.append(
+                        executor.submit(
+                            self.detect_events, audio=audio, sr=sr, show_progress=False
                         )
-                        all_events.extend(events)
-                    except Exception as e:
-                        logging.error(
-                            f"[DeepDetect] Failed to get results from scale {scale_name}: {str(e)}"
-                        )
+                    )
+
+                    # Restore original values
+                    self.window_size = original_window
+                    self.hop_size = original_hop
+
+                # Collect results
+                for future in concurrent.futures.as_completed(futures):
+                    events = future.result()
+                    all_events.extend(events)
         else:
-            # Use sequential processing to avoid model sharing issues
-            if show_progress:
-                print("[DeepDetect] Using sequential processing for detection")
-
+            # Sequential processing
             for i, (window_size, hop_size) in enumerate(zip(window_sizes, hop_sizes)):
-                scale_name = f"w={window_size}s, h={hop_size}s"
                 if show_progress:
-                    print(f"[DeepDetect] Processing scale {scale_name}")
-
-                events = detect_with_scale(window_size, hop_size, scale_name)
-                all_events.extend(events)
-                if show_progress:
+                    scale_name = f"Scale {i+1}/{len(window_sizes)}"
                     print(
-                        f"[DeepDetect] Completed scale {scale_name}: {len(events)} events"
+                        f"Processing with {scale_name}: window={window_size}s, hop={hop_size}s"
                     )
 
-        # Merge results using confidence-based non-maximum suppression
+                # Save the original values
+                original_window = self.window_size
+                original_hop = self.hop_size
+
+                # Set new values
+                self.window_size = window_size
+                self.hop_size = hop_size
+
+                # Detect events
+                events = self.detect_events(
+                    audio=audio, sr=sr, show_progress=show_progress
+                )
+
+                all_events.extend(events)
+
+                # Restore original values
+                self.window_size = original_window
+                self.hop_size = original_hop
+
+        # Merge events using non-maximum suppression
         merged_events = self._merge_events_nms(all_events)
 
-        if show_progress:
-            print(
-                f"[DeepDetect] Merged {len(all_events)} events from all scales into {len(merged_events)} final events"
-            )
-
         return merged_events
+
+    def _merge_events_nms(
+        self, events: List[AudioEvent], iou_threshold: float = 0.5
+    ) -> List[AudioEvent]:
+        """Merge events using non-maximum suppression.
+
+        Args:
+            events: List of events
+            iou_threshold: Intersection over union threshold
+
+        Returns:
+            List of merged events
+        """
+        if not events:
+            return []
+
+        # Group events by type
+        event_groups = {}
+        for event in events:
+            if event.type not in event_groups:
+                event_groups[event.type] = []
+            event_groups[event.type].append(event)
+
+        merged_events = []
+
+        # Process each group
+        for event_type, group in event_groups.items():
+            # Sort by confidence
+            sorted_events = sorted(group, key=lambda e: e.confidence, reverse=True)
+
+            kept_events = []
+
+            while sorted_events:
+                # Take the highest confidence event
+                best_event = sorted_events.pop(0)
+                kept_events.append(best_event)
+
+                # Filter out events with high overlap
+                remaining_events = []
+                for event in sorted_events:
+                    # Calculate IoU
+                    intersection_start = max(best_event.start_time, event.start_time)
+                    intersection_end = min(best_event.end_time, event.end_time)
+
+                    if intersection_end <= intersection_start:
+                        # No overlap
+                        remaining_events.append(event)
+                        continue
+
+                    intersection = intersection_end - intersection_start
+                    best_duration = best_event.end_time - best_event.start_time
+                    event_duration = event.end_time - event.start_time
+                    union = best_duration + event_duration - intersection
+
+                    iou = intersection / union if union > 0 else 0
+
+                    if iou < iou_threshold:
+                        remaining_events.append(event)
+
+                sorted_events = remaining_events
+
+            merged_events.extend(kept_events)
+
+        # Sort by start time
+        return sorted(merged_events, key=lambda e: e.start_time)
