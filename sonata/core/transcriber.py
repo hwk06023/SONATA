@@ -24,7 +24,8 @@ import subprocess
 from textgrids import TextGrid
 import re
 import numpy as np
-from sklearn.cluster import AgglomerativeClustering
+from sklearn.cluster import KMeans
+import speechbrain as sb
 
 class IntegratedTranscriber:
     def __init__(
@@ -55,6 +56,11 @@ class IntegratedTranscriber:
             "hop_sizes": [0.1, 0.5, 1.0],
         }
         self.logger = logging.getLogger(__name__)
+        self.ecapa_model = sb.pretrained.EncoderClassifier.from_hparams(
+            source="speechbrain/spkrec-ecapa-voxceleb",
+            savedir="pretrained_models/spkrec-ecapa-voxceleb",
+            run_opts={"device": self.device},
+        )
 
         # Set up comprehensive warning suppression
         original_level = logging.getLogger().level
@@ -250,8 +256,26 @@ class IntegratedTranscriber:
         
         result_segments.sort(key=lambda x: x["start"])
 
+        segment_embeddings = []
         for segment in result_segments:
-            print(segment["start"], segment["end"], segment["text"])
+            segment_audio = waveform[:, int(segment["start"] * sample_rate):int(segment["end"] * sample_rate)]
+            segment_embedding = self.ecapa_model.encode_batch(segment_audio.to(self.device))
+            segment_embedding = segment_embedding.squeeze().cpu().numpy()
+            segment_embeddings.append(segment_embedding)
+        segment_embeddings = np.array(segment_embeddings)
+        for i in range(len(segment_embeddings)):
+            print(segment_embeddings[i])
+
+        print("="*100)
+        # Cluster embeddings
+        clustering = KMeans(n_clusters=num_speakers, random_state=42)
+        speaker_labels = clustering.fit_predict(segment_embeddings)
+
+        for i, segment in enumerate(result_segments):
+            segment["speaker"] = speaker_labels[i].item()
+        
+        print(result_segments)
+        
         result = {
             "segments": result_segments,
         }
