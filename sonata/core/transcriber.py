@@ -27,6 +27,7 @@ import numpy as np
 from sklearn.cluster import KMeans
 import speechbrain as sb
 
+
 class IntegratedTranscriber:
     def __init__(
         self,
@@ -133,13 +134,15 @@ class IntegratedTranscriber:
         os.makedirs(data_directory, exist_ok=True)
         os.makedirs(align_directory, exist_ok=True)
         subprocess.run(["cp", audio_path, f"{data_directory}/audio.wav"])
-        
+
         waveform, sample_rate = torchaudio.load(audio_path)
         waveform = waveform.mean(dim=0, keepdim=True)  # Convert to mono if needed
 
         if not os.path.exists(f"{data_directory}/audio.lab"):
             # Transcribe audio with whisper into .lab format
-            model = whisperx.load_model("large-v3", device=self.device, compute_type="float32", language="ko")
+            model = whisperx.load_model(
+                "large-v3", device=self.device, compute_type="float32", language="ko"
+            )
             transcription = model.transcribe(audio_path)
             text = ""
             for segment in transcription["segments"]:
@@ -156,15 +159,24 @@ class IntegratedTranscriber:
             # Validate the audio and text corpus first
             subprocess.run(["mfa", "validate", data_directory, "korean_mfa"])
             # Use MFA to get .TextGrid format
-            subprocess.run(["mfa", "align", data_directory, "korean_mfa", "korean_mfa", align_directory])
+            subprocess.run(
+                [
+                    "mfa",
+                    "align",
+                    data_directory,
+                    "korean_mfa",
+                    "korean_mfa",
+                    align_directory,
+                ]
+            )
 
         # Use TextGrid to get speaker segments
         os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-        
+
         tg = TextGrid()
         tg.read(f"{align_directory}/audio.TextGrid")
-        word_items = tg['words']
-        
+        word_items = tg["words"]
+
         # Use TextGrid to get speaker segments
         # Clean the textgrid words
         word_len = len(word_items)
@@ -172,11 +184,11 @@ class IntegratedTranscriber:
         for i in range(word_len):
             if word_items[i].text:
                 words.append(word_items[i])
-        
+
         # Clean the text
-        actual_words = list(map(lambda x: re.sub(r'[^가-힣0-9]', '', x), text.split(" ")))
+        actual_words = list(map(lambda x: re.sub(r"[^가-힣0-9]", "", x), text.split(" ")))
         actual_words = [w for w in actual_words if w]
-        
+
         # Get word timestamps
         # TODO: Fix bug
         start_times = np.zeros(len(actual_words))
@@ -189,7 +201,7 @@ class IntegratedTranscriber:
                 cur_idx += len(words[word_idx].text)
                 word_idx += 1
             end_times[i] = words[word_idx - 1].xmax
-        
+
         # Debug: Saving word audio
         # for i in range(len(actual_words)):
         #     word_audio = waveform[:, int(start_times[i] * sample_rate):int(end_times[i] * sample_rate)]
@@ -242,43 +254,78 @@ class IntegratedTranscriber:
         # Integrate results
         result_segments = []
         for i in range(len(actual_words)):
-            result_segments.append({
-                "start": start_times[i],
-                "end": end_times[i],
-                "text": actual_words[i],
-            })
+            result_segments.append(
+                {
+                    "start": start_times[i],
+                    "end": end_times[i],
+                    "text": actual_words[i],
+                }
+            )
         for event in audio_events:
-            result_segments.append({
-                "start": event.start_time,
-                "end": event.end_time,
-                "text": event.type,
-            })
-        
+            result_segments.append(
+                {
+                    "start": event.start_time,
+                    "end": event.end_time,
+                    "text": event.type,
+                }
+            )
+
         result_segments.sort(key=lambda x: x["start"])
-
-        segment_embeddings = []
-        for segment in result_segments:
-            segment_audio = waveform[:, int(segment["start"] * sample_rate):int(segment["end"] * sample_rate)]
-            segment_embedding = self.ecapa_model.encode_batch(segment_audio.to(self.device))
-            segment_embedding = segment_embedding.squeeze().cpu().numpy()
-            segment_embeddings.append(segment_embedding)
-        segment_embeddings = np.array(segment_embeddings)
-        for i in range(len(segment_embeddings)):
-            print(segment_embeddings[i])
-
-        print("="*100)
-        # Cluster embeddings
-        clustering = KMeans(n_clusters=num_speakers, random_state=42)
-        speaker_labels = clustering.fit_predict(segment_embeddings)
-
-        for i, segment in enumerate(result_segments):
-            segment["speaker"] = speaker_labels[i].item()
-        
         print(result_segments)
-        
-        result = {
-            "segments": result_segments,
-        }
+
+        if diarize:
+            self.logger.info("Running speaker diarization...")
+            try:
+                # Initialize diarizer
+                diarizer = SpeakerDiarizer(device=self.device)
+
+                # Use word timestamps from ASR to improve diarization
+                self.logger.info("Using ASR word timestamps to assist with diarization")
+                diarize_segments = diarizer.diarize(
+                    audio_path=audio_path,
+                    num_speakers=num_speakers,
+                    show_progress=True,
+                    save_steps=save_diarization_steps,
+                    result_segments=result_segments,
+                )
+
+                # Convert speaker segments to the format expected by assign_word_speakers
+                speaker_segments = []
+                for segment in diarize_segments:
+                    speaker_segments.append(
+                        {
+                            "start": segment.start,
+                            "end": segment.end,
+                            "speaker": segment.speaker,
+                            "score": segment.score,
+                        }
+                    )
+
+                # Assign speakers to words
+                result = self._assign_word_speakers(speaker_segments, result_segments)
+            except Exception as e:
+                error_msg = f"Speaker diarization failed: {str(e)}"
+                self.logger.error(error_msg)
+                self.logger.error(traceback.format_exc())
+                result = result_segments
+        else:
+            result = {"segments": result_segments}
+
+        # Integrate word timestamps with audio events
+        try:
+            integrated_result = self._integrate_results(result_segments, audio_events)
+            if isinstance(result, list):
+                result = {"segments": result}
+            result["integrated_transcript"] = integrated_result
+            result["audio_events"] = [event.to_dict() for event in audio_events]
+        except Exception as e:
+            error_msg = f"Failed to integrate results: {str(e)}"
+            self.logger.error(error_msg)
+            self.logger.error(traceback.format_exc())
+            if isinstance(result, list):
+                result = {"segments": result}
+            result["integrated_transcript"] = {"plain_text": "", "rich_text": []}
+            result["audio_events"] = []
 
         return result
 
@@ -354,7 +401,7 @@ class IntegratedTranscriber:
                 {
                     "time": start_time,
                     "type": "word_start",
-                    "content": word["word"],
+                    "content": word["text"],
                     "speaker": speaker,
                     "confidence": word.get("confidence", 1.0),
                 }
@@ -365,7 +412,7 @@ class IntegratedTranscriber:
                 {
                     "time": end_time,
                     "type": "word_end",
-                    "content": word["word"],
+                    "content": word["text"],
                     "speaker": speaker,
                 }
             )
