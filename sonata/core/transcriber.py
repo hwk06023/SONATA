@@ -5,27 +5,19 @@ import logging
 import sys
 import traceback
 from contextlib import redirect_stdout, redirect_stderr
-from typing import Dict, List, Union, Tuple, Optional
-import concurrent.futures
+from typing import Dict, List, Optional
 from sonata.core.asr import ASRProcessor
 from sonata.core.audio_event_detector import AudioEventDetector, AudioEvent
-from sonata.core.speaker_diarization import SpeakerDiarizer, SpeakerSegment
+from sonata.core.speaker_diarization import SpeakerDiarizer
 from sonata.constants import (
     AUDIO_EVENT_THRESHOLD,
     DEFAULT_MODEL,
     DEFAULT_LANGUAGE,
     DEFAULT_DEVICE,
     DEFAULT_COMPUTE_TYPE,
-    LanguageCode,
 )
-import whisperx
-import torch, torchaudio
-import subprocess
-from textgrids import TextGrid
-import re
-import numpy as np
-from sklearn.cluster import KMeans
 import speechbrain as sb
+
 
 class IntegratedTranscriber:
     def __init__(
@@ -56,7 +48,7 @@ class IntegratedTranscriber:
             "hop_sizes": [0.1, 0.5, 1.0],
         }
         self.logger = logging.getLogger(__name__)
-        self.ecapa_model = sb.pretrained.EncoderClassifier.from_hparams(
+        self.ecapa_model = sb.inference.EncoderClassifier.from_hparams(
             source="speechbrain/spkrec-ecapa-voxceleb",
             savedir="pretrained_models/spkrec-ecapa-voxceleb",
             run_opts={"device": self.device},
@@ -119,85 +111,29 @@ class IntegratedTranscriber:
                 "integrated_transcript": {"plain_text": "", "rich_text": []},
             }
 
-        if not ".wav" in audio_path:
-            err_msg = f"Audio file must be a .wav file: {audio_path}"
-            self.logger.error(err_msg)
-            return {
-                "error": err_msg,
-                "integrated_transcript": {"plain_text": "", "rich_text": []},
-            }
+        if not isinstance(batch_size, int) or batch_size <= 0:
+            self.logger.warning(f"Invalid batch_size: {batch_size}. Using default (16)")
+            batch_size = 16
 
-        audio_name = audio_path.split("/")[-1].split(".wav")[0]
-        data_directory = f"mfa/{audio_name}"
-        align_directory = f"mfa/{audio_name}_align"
-        os.makedirs(data_directory, exist_ok=True)
-        os.makedirs(align_directory, exist_ok=True)
-        subprocess.run(["cp", audio_path, f"{data_directory}/audio.wav"])
-        
-        waveform, sample_rate = torchaudio.load(audio_path)
-        waveform = waveform.mean(dim=0, keepdim=True)  # Convert to mono if needed
+        # Set threshold for the detector
+        self.audio_detector.threshold = audio_threshold
 
-        if not os.path.exists(f"{data_directory}/audio.lab"):
-            # Transcribe audio with whisper into .lab format
-            model = whisperx.load_model("large-v3", device=self.device, compute_type="float32", language="ko")
-            transcription = model.transcribe(audio_path)
-            text = ""
-            for segment in transcription["segments"]:
-                text += segment["text"]
+        # Run ASR first
+        self.logger.info("Running speech recognition...")
+        try:
+            result_segments: List[Dict] = self.asr.process_audio(
+                audio_path=audio_path,
+                language=language,
+                batch_size=batch_size,
+                show_progress=True,
+            )
+        except Exception as e:
+            error_msg = f"ASR processing failed: {str(e)}"
+            self.logger.error(error_msg)
+            self.logger.error(traceback.format_exc())
+            result_segments = []
 
-            # Save .lab file
-            with open(f"{data_directory}/audio.lab", "w") as f:
-                f.write(text)
-        else:
-            with open(f"{data_directory}/audio.lab", "r") as f:
-                text = f.read()
-
-        if not os.path.exists(f"{align_directory}/audio.TextGrid"):
-            # Validate the audio and text corpus first
-            subprocess.run(["mfa", "validate", data_directory, "korean_mfa"])
-            # Use MFA to get .TextGrid format
-            subprocess.run(["mfa", "align", data_directory, "korean_mfa", "korean_mfa", align_directory])
-
-        # Use TextGrid to get speaker segments
-        os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-        
-        tg = TextGrid()
-        tg.read(f"{align_directory}/audio.TextGrid")
-        word_items = tg['words']
-        
-        # Use TextGrid to get speaker segments
-        # Clean the textgrid words
-        word_len = len(word_items)
-        words = []
-        for i in range(word_len):
-            if word_items[i].text:
-                words.append(word_items[i])
-        
-        # Clean the text
-        actual_words = list(map(lambda x: re.sub(r'[^가-힣0-9]', '', x), text.split(" ")))
-        actual_words = [w for w in actual_words if w]
-        
-        # Get word timestamps
-        # TODO: Fix bug
-        start_times = np.zeros(len(actual_words))
-        end_times = np.zeros(len(actual_words))
-        word_idx = 0
-        for i, actual_word in enumerate(actual_words):
-            cur_idx = 0
-            start_times[i] = words[word_idx].xmin
-            while cur_idx < len(actual_word):
-                cur_idx += len(words[word_idx].text)
-                word_idx += 1
-            end_times[i] = words[word_idx - 1].xmax
-        
-        # Debug: Saving word audio
-        # for i in range(len(actual_words)):
-        #     word_audio = waveform[:, int(start_times[i] * sample_rate):int(end_times[i] * sample_rate)]
-        #     torchaudio.save(f"temp/{actual_words[i]}.wav", word_audio, sample_rate)
-
-        # Use speaker segments to get word timestamps
-
-        # Detect audio events
+        # Then run audio event detection with progress indicators
         self.logger.info("\nRunning audio event detection...")
         try:
             if self.deep_detect:
@@ -240,45 +176,97 @@ class IntegratedTranscriber:
             audio_events = []
 
         # Integrate results
-        result_segments = []
-        for i in range(len(actual_words)):
-            result_segments.append({
-                "start": start_times[i],
-                "end": end_times[i],
-                "text": actual_words[i],
-            })
         for event in audio_events:
-            result_segments.append({
-                "start": event.start_time,
-                "end": event.end_time,
-                "text": event.type,
-            })
-        
+            result_segments.append(
+                {
+                    "start": event.start_time,
+                    "end": event.end_time,
+                    "content": event.type,
+                    "type": "audio_event",
+                }
+            )
+
         result_segments.sort(key=lambda x: x["start"])
 
-        segment_embeddings = []
-        for segment in result_segments:
-            segment_audio = waveform[:, int(segment["start"] * sample_rate):int(segment["end"] * sample_rate)]
-            segment_embedding = self.ecapa_model.encode_batch(segment_audio.to(self.device))
-            segment_embedding = segment_embedding.squeeze().cpu().numpy()
-            segment_embeddings.append(segment_embedding)
-        segment_embeddings = np.array(segment_embeddings)
-        for i in range(len(segment_embeddings)):
-            print(segment_embeddings[i])
+        if diarize:
+            self.logger.info("Running speaker diarization...")
+            try:
+                # Initialize diarizer
+                diarizer = SpeakerDiarizer(device=self.device)
 
-        print("="*100)
-        # Cluster embeddings
-        clustering = KMeans(n_clusters=num_speakers, random_state=42)
-        speaker_labels = clustering.fit_predict(segment_embeddings)
+                # Use word timestamps from ASR to improve diarization
+                self.logger.info("Using ASR word timestamps to assist with diarization")
+                diarize_segments = diarizer.diarize(
+                    audio_path=audio_path,
+                    num_speakers=num_speakers,
+                    show_progress=True,
+                    save_steps=save_diarization_steps,
+                    result_segments=result_segments,
+                )
 
-        for i, segment in enumerate(result_segments):
-            segment["speaker"] = speaker_labels[i].item()
-        
-        print(result_segments)
-        
-        result = {
-            "segments": result_segments,
-        }
+                # Convert speaker segments to the format expected by assign_word_speakers
+                speaker_segments = []
+                for segment in diarize_segments:
+                    speaker_segments.append(
+                        {
+                            "start": segment.start,
+                            "end": segment.end,
+                            "speaker": segment.speaker,
+                        }
+                    )
+                # Assign speakers to words
+                result = self._assign_word_speakers(speaker_segments, result_segments)
+
+                # Assign speakers to segments directly
+                for segment in result_segments:
+                    if "type" in segment and segment["type"] == "voice":
+                        segment_start = segment.get("start", 0)
+                        segment_end = segment.get("end", 0)
+
+                        # Find matching speaker segment with most overlap
+                        max_overlap = 0
+                        assigned_speaker = None
+
+                        for spk_segment in speaker_segments:
+                            spk_start = spk_segment["start"]
+                            spk_end = spk_segment["end"]
+
+                            # Calculate overlap
+                            overlap_start = max(segment_start, spk_start)
+                            overlap_end = min(segment_end, spk_end)
+                            overlap = max(0, overlap_end - overlap_start)
+
+                            # Check if this speaker has more overlap
+                            if overlap > max_overlap:
+                                max_overlap = overlap
+                                assigned_speaker = spk_segment["speaker"]
+
+                        # Assign speaker to segment
+                        if assigned_speaker:
+                            segment["speaker"] = assigned_speaker
+            except Exception as e:
+                error_msg = f"Speaker diarization failed: {str(e)}"
+                self.logger.error(error_msg)
+                self.logger.error(traceback.format_exc())
+                result = result_segments
+        else:
+            result = {"segments": result_segments}
+
+        # Integrate word timestamps with audio events
+        try:
+            integrated_result = self._integrate_results(result_segments, audio_events)
+            if isinstance(result, list):
+                result = {"segments": result}
+            result["integrated_transcript"] = integrated_result
+            result["audio_events"] = [event.to_dict() for event in audio_events]
+        except Exception as e:
+            error_msg = f"Failed to integrate results: {str(e)}"
+            self.logger.error(error_msg)
+            self.logger.error(traceback.format_exc())
+            if isinstance(result, list):
+                result = {"segments": result}
+            result["integrated_transcript"] = {"plain_text": "", "rich_text": []}
+            result["audio_events"] = []
 
         return result
 
@@ -354,7 +342,7 @@ class IntegratedTranscriber:
                 {
                     "time": start_time,
                     "type": "word_start",
-                    "content": word["word"],
+                    "content": word["content"],
                     "speaker": speaker,
                     "confidence": word.get("confidence", 1.0),
                 }
@@ -365,7 +353,7 @@ class IntegratedTranscriber:
                 {
                     "time": end_time,
                     "type": "word_end",
-                    "content": word["word"],
+                    "content": word["content"],
                     "speaker": speaker,
                 }
             )
@@ -400,6 +388,8 @@ class IntegratedTranscriber:
         current_text = ""
         open_audio_events = set()
         active_speaker = None
+        prev_start = 0
+        prev_end = 0
 
         for event in timeline:
             event_type = event["type"]
@@ -449,8 +439,8 @@ class IntegratedTranscriber:
             rich_text.append(
                 {
                     "content": current_text.strip(),
-                    "start": prev_start if "prev_start" in locals() else 0,
-                    "end": prev_end if "prev_end" in locals() else 0,
+                    "start": prev_start,
+                    "end": prev_end,
                     "speaker": active_speaker,
                     "audio_events": list(open_audio_events),
                 }
@@ -501,7 +491,6 @@ class IntegratedTranscriber:
                         "start": word.get("start", 0),
                         "end": word.get("end", 0),
                         "speaker": word.get("speaker", None),
-                        "score": word.get("score", 0.5),  # Use score directly from ASR
                     }
                     word_timestamps.append(word_data)
 
@@ -589,7 +578,6 @@ class IntegratedTranscriber:
                         "start": word["start"],
                         "content": word["word"],
                         "speaker": word["speaker"],
-                        "score": word["score"],
                     }
                 )
 
