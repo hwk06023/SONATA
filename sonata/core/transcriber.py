@@ -48,7 +48,7 @@ class IntegratedTranscriber:
             "hop_sizes": [0.1, 0.5, 1.0],
         }
         self.logger = logging.getLogger(__name__)
-        self.ecapa_model = sb.pretrained.EncoderClassifier.from_hparams(
+        self.ecapa_model = sb.inference.EncoderClassifier.from_hparams(
             source="speechbrain/spkrec-ecapa-voxceleb",
             savedir="pretrained_models/spkrec-ecapa-voxceleb",
             run_opts={"device": self.device},
@@ -181,12 +181,12 @@ class IntegratedTranscriber:
                 {
                     "start": event.start_time,
                     "end": event.end_time,
-                    "text": event.type,
+                    "content": event.type,
+                    "type": "audio_event",
                 }
             )
 
         result_segments.sort(key=lambda x: x["start"])
-        print("result_segments", result_segments)
 
         if diarize:
             self.logger.info("Running speaker diarization...")
@@ -212,12 +212,38 @@ class IntegratedTranscriber:
                             "start": segment.start,
                             "end": segment.end,
                             "speaker": segment.speaker,
-                            "score": segment.score,
                         }
                     )
-
                 # Assign speakers to words
                 result = self._assign_word_speakers(speaker_segments, result_segments)
+
+                # Assign speakers to segments directly
+                for segment in result_segments:
+                    if "type" in segment and segment["type"] == "voice":
+                        segment_start = segment.get("start", 0)
+                        segment_end = segment.get("end", 0)
+
+                        # Find matching speaker segment with most overlap
+                        max_overlap = 0
+                        assigned_speaker = None
+
+                        for spk_segment in speaker_segments:
+                            spk_start = spk_segment["start"]
+                            spk_end = spk_segment["end"]
+
+                            # Calculate overlap
+                            overlap_start = max(segment_start, spk_start)
+                            overlap_end = min(segment_end, spk_end)
+                            overlap = max(0, overlap_end - overlap_start)
+
+                            # Check if this speaker has more overlap
+                            if overlap > max_overlap:
+                                max_overlap = overlap
+                                assigned_speaker = spk_segment["speaker"]
+
+                        # Assign speaker to segment
+                        if assigned_speaker:
+                            segment["speaker"] = assigned_speaker
             except Exception as e:
                 error_msg = f"Speaker diarization failed: {str(e)}"
                 self.logger.error(error_msg)
@@ -226,25 +252,21 @@ class IntegratedTranscriber:
         else:
             result = {"segments": result_segments}
 
-        print("result1", result)
-
         # Integrate word timestamps with audio events
-        # try:
-        #     integrated_result = self._integrate_results(result_segments, audio_events)
-        #     if isinstance(result, list):
-        #         result = {"segments": result}
-        #     result["integrated_transcript"] = integrated_result
-        #     result["audio_events"] = [event.to_dict() for event in audio_events]
-        # except Exception as e:
-        #     error_msg = f"Failed to integrate results: {str(e)}"
-        #     self.logger.error(error_msg)
-        #     self.logger.error(traceback.format_exc())
-        #     if isinstance(result, list):
-        #         result = {"segments": result}
-        #     result["integrated_transcript"] = {"plain_text": "", "rich_text": []}
-        #     result["audio_events"] = []
-
-        # print("result2", result)
+        try:
+            integrated_result = self._integrate_results(result_segments, audio_events)
+            if isinstance(result, list):
+                result = {"segments": result}
+            result["integrated_transcript"] = integrated_result
+            result["audio_events"] = [event.to_dict() for event in audio_events]
+        except Exception as e:
+            error_msg = f"Failed to integrate results: {str(e)}"
+            self.logger.error(error_msg)
+            self.logger.error(traceback.format_exc())
+            if isinstance(result, list):
+                result = {"segments": result}
+            result["integrated_transcript"] = {"plain_text": "", "rich_text": []}
+            result["audio_events"] = []
 
         return result
 
@@ -320,7 +342,7 @@ class IntegratedTranscriber:
                 {
                     "time": start_time,
                     "type": "word_start",
-                    "content": word["text"],
+                    "content": word["content"],
                     "speaker": speaker,
                     "confidence": word.get("confidence", 1.0),
                 }
@@ -331,7 +353,7 @@ class IntegratedTranscriber:
                 {
                     "time": end_time,
                     "type": "word_end",
-                    "content": word["text"],
+                    "content": word["content"],
                     "speaker": speaker,
                 }
             )
@@ -366,6 +388,8 @@ class IntegratedTranscriber:
         current_text = ""
         open_audio_events = set()
         active_speaker = None
+        prev_start = 0
+        prev_end = 0
 
         for event in timeline:
             event_type = event["type"]
@@ -415,8 +439,8 @@ class IntegratedTranscriber:
             rich_text.append(
                 {
                     "content": current_text.strip(),
-                    "start": prev_start if "prev_start" in locals() else 0,
-                    "end": prev_end if "prev_end" in locals() else 0,
+                    "start": prev_start,
+                    "end": prev_end,
                     "speaker": active_speaker,
                     "audio_events": list(open_audio_events),
                 }
@@ -436,24 +460,8 @@ class IntegratedTranscriber:
     def save_result(self, result: Dict, output_path: str):
         """Save the transcription result to a JSON file."""
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-
-        # Convert numpy types to native Python types for JSON serialization
-        def convert_numpy_types(obj):
-            if isinstance(obj, dict):
-                return {k: convert_numpy_types(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_numpy_types(item) for item in obj]
-            elif hasattr(obj, "item") and callable(
-                getattr(obj, "item")
-            ):  # For numpy types
-                return obj.item()
-            else:
-                return obj
-
-        result_converted = convert_numpy_types(result)
-
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(result_converted, f, ensure_ascii=False, indent=2)
+            json.dump(result, f, ensure_ascii=False, indent=2)
 
     def get_formatted_transcript(
         self, result: Dict, format_type: str = "default"
@@ -483,7 +491,6 @@ class IntegratedTranscriber:
                         "start": word.get("start", 0),
                         "end": word.get("end", 0),
                         "speaker": word.get("speaker", None),
-                        "score": word.get("score", 0.5),  # Use score directly from ASR
                     }
                     word_timestamps.append(word_data)
 
@@ -571,7 +578,6 @@ class IntegratedTranscriber:
                         "start": word["start"],
                         "content": word["word"],
                         "speaker": word["speaker"],
-                        "score": word["score"],
                     }
                 )
 

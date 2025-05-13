@@ -60,7 +60,7 @@ class SpeakerDiarizer:
         try:
             import speechbrain as sb
 
-            self.ecapa_model = sb.pretrained.EncoderClassifier.from_hparams(
+            self.ecapa_model = sb.inference.EncoderClassifier.from_hparams(
                 source="speechbrain/spkrec-ecapa-voxceleb",
                 savedir="pretrained_models/spkrec-ecapa-voxceleb",
                 run_opts={"device": self.device},
@@ -69,41 +69,6 @@ class SpeakerDiarizer:
         except Exception as e:
             self.logger.warning(f"Could not load ECAPA-TDNN model: {str(e)}")
             self.has_ecapa_model = False
-
-    def _get_vad_segments(self, waveform, sample_rate, show_progress=True):
-        """Get voice activity segments using Silero VAD with enhanced parameters"""
-        if show_progress:
-            print("Running voice activity detection...")
-
-        if sample_rate != 16000:
-            waveform = torchaudio.functional.resample(waveform, sample_rate, 16000)
-            sample_rate = 16000
-
-        # Use more sensitive parameters for better recall
-        speech_timestamps = self.vad_get_speech_timestamps(
-            waveform,
-            self.vad_model,
-            sampling_rate=sample_rate,
-            min_speech_duration_ms=200,  # Reduced from 250ms
-            min_silence_duration_ms=400,  # Reduced from 500ms
-            window_size_samples=512,
-            speech_pad_ms=200,  # Increased padding
-            threshold=0.3,  # Lower threshold for better recall
-        )
-
-        segments = []
-        for seg in speech_timestamps:
-            start = seg["start"] / sample_rate
-            end = seg["end"] / sample_rate
-            segments.append((start, end))
-
-        # Merge segments that are very close
-        merged_segments = self._merge_close_segments(segments, gap_threshold=0.5)
-
-        if show_progress:
-            print(f"Found {len(merged_segments)} speech segments after merging")
-
-        return merged_segments
 
     def _merge_close_segments(self, segments, gap_threshold=0.5):
         """Merge segments that are separated by small gaps"""
@@ -309,6 +274,42 @@ class SpeakerDiarizer:
         if show_progress:
             iterator = tqdm(segments, desc="Processing segments", unit="segment")
 
+        def stack_frames(
+            waveform_input, frame_length=512, frame_shift=160, stack_size=3
+        ):
+            if isinstance(waveform_input, torch.Tensor):
+                waveform_np = waveform_input.cpu().numpy()
+            else:
+                waveform_np = waveform_input
+
+            # Skip stacking if the segment is too short
+            if len(waveform_np) < frame_length + (stack_size - 1) * frame_shift:
+                return waveform_input
+
+            frames = []
+            for i in range(0, len(waveform_np) - frame_length + 1, frame_shift):
+                frame = waveform_np[i : i + frame_length]
+                frames.append(frame)
+
+            if len(frames) < stack_size:
+                return waveform_input
+
+            stacked_frames = []
+            for i in range(len(frames) - stack_size + 1):
+                stacked_frame = np.concatenate(frames[i : i + stack_size])
+                stacked_frames.append(stacked_frame)
+
+            stacked_waveform = np.concatenate(stacked_frames)
+
+            if isinstance(waveform_input, torch.Tensor):
+                stacked_waveform = torch.tensor(
+                    stacked_waveform,
+                    device=waveform_input.device,
+                    dtype=waveform_input.dtype,
+                )
+
+            return stacked_waveform
+
         for start, end in iterator:
             start_sample = int(start * sample_rate)
             end_sample = int(end * sample_rate)
@@ -323,11 +324,6 @@ class SpeakerDiarizer:
 
             segment_waveform = waveform[start_sample:end_sample]
 
-            # Skip segments that are too short
-            duration = (end_sample - start_sample) / sample_rate
-            if duration < 0.3:  # Minimum 300ms
-                continue
-
             # Resample if needed
             if sample_rate != 16000:
                 if isinstance(segment_waveform, torch.Tensor):
@@ -339,15 +335,18 @@ class SpeakerDiarizer:
                         segment_waveform, orig_sr=sample_rate, target_sr=16000
                     )
 
+            # Apply frame stacking to improve embedding quality for short utterances
+            stacked_segment_waveform = stack_frames(segment_waveform)
+
             wavlm_embedding = None
             ecapa_embedding = None
 
             # 1. Process with WavLM
             try:
-                if isinstance(segment_waveform, torch.Tensor):
-                    segment_waveform_np = segment_waveform.cpu().numpy()
+                if isinstance(stacked_segment_waveform, torch.Tensor):
+                    segment_waveform_np = stacked_segment_waveform.cpu().numpy()
                 else:
-                    segment_waveform_np = segment_waveform
+                    segment_waveform_np = stacked_segment_waveform
 
                 inputs = self.wavlm_processor(
                     segment_waveform_np, sampling_rate=16000, return_tensors="pt"
@@ -366,19 +365,20 @@ class SpeakerDiarizer:
             # 2. Process with ECAPA-TDNN if available
             if self.has_ecapa_model:
                 try:
-                    if not isinstance(segment_waveform, torch.Tensor):
-                        segment_tensor = torch.tensor(segment_waveform).float()
+                    if not isinstance(stacked_segment_waveform, torch.Tensor):
+                        segment_tensor = torch.tensor(stacked_segment_waveform).float()
                     else:
-                        segment_tensor = segment_waveform
+                        segment_tensor = stacked_segment_waveform
 
                     # Make mono and apply correct shape
                     if len(segment_tensor.shape) == 1:
                         segment_tensor = segment_tensor.unsqueeze(0)
 
+                    # Move to device consistently like WavLM
+                    segment_tensor = segment_tensor.to(self.device)
+
                     with torch.no_grad():
-                        ecapa_embedding = self.ecapa_model.encode_batch(
-                            segment_tensor.to(self.device)
-                        )
+                        ecapa_embedding = self.ecapa_model.encode_batch(segment_tensor)
                         ecapa_embedding = ecapa_embedding.squeeze().cpu().numpy()
                         ecapa_embeddings.append(ecapa_embedding)
                 except Exception as e:
@@ -396,6 +396,15 @@ class SpeakerDiarizer:
             embeddings = ecapa_embeddings
             if show_progress:
                 print(f"Using ECAPA-TDNN embeddings for {len(embeddings)} segments")
+                if len(embeddings) > 0:
+                    print(f"ECAPA embedding shape: {np.array(embeddings).shape}")
+                    print(f"ECAPA embedding type: {type(embeddings[0])}")
+                    print(
+                        f"ECAPA embedding sample (first 5 values): {embeddings[0][:5]}"
+                    )
+                    print(
+                        f"ECAPA embedding stats - min: {np.min(embeddings):.4f}, max: {np.max(embeddings):.4f}, mean: {np.mean(embeddings):.4f}"
+                    )
         elif len(wavlm_embeddings) == len(timings):
             # Fall back to WavLM embeddings
             embeddings = wavlm_embeddings
@@ -422,6 +431,7 @@ class SpeakerDiarizer:
 
         if show_progress:
             print(f"Extracted {len(embeddings)} speaker embeddings")
+            print(f"Final embeddings array shape: {np.array(embeddings).shape}")
 
         return np.array(embeddings), timings
 
@@ -860,7 +870,7 @@ class SpeakerDiarizer:
         num_speakers=None,
         show_progress=True,
         save_steps=False,
-        word_timestamps=None,
+        result_segments=None,
     ):
         """Main diarization method with improved processing pipeline
 
@@ -881,101 +891,25 @@ class SpeakerDiarizer:
             output_dir = f"{audio_basename}_steps"
             os.makedirs(output_dir, exist_ok=True)
 
-        # 1. Load audio
         waveform, sample_rate = torchaudio.load(audio_path)
         waveform = waveform.mean(dim=0, keepdim=True)  # Convert to mono if needed
 
-        # 2. VAD to get speech segments (still needed even with word timestamps)
-        vad_segments = self._get_vad_segments(waveform[0], sample_rate, show_progress)
-
-        if save_steps:
-            vad_txt = os.path.join(output_dir, "01_vad_segments.txt")
-            vad_desc = "Voice Activity Detection (VAD) Segments\nEach line represents the start and end time (in seconds) of a detected speech segment.\nFormat: start_time,end_time"
-            with open(vad_txt, "w") as f:
-                f.write(f"# {vad_desc}\n")
-                f.write("#" + "-" * 50 + "\n")
-                for start, end in vad_segments:
-                    f.write(f"{start},{end}\n")
-
-        if len(vad_segments) == 0:
-            self.logger.warning("No speech segments detected in audio")
-            return []
-
-        # 3. Create analysis segments based on input method
-        if word_timestamps:
+        # 1. Create analysis segments based on input method
+        if result_segments:
             if show_progress:
                 print("Using ASR word timestamps to create analysis segments")
-
-            # Extract boundaries from word timestamps
-            word_boundaries = []
-            for word in word_timestamps:
-                word_boundaries.append(word.get("start", 0))
-                word_boundaries.append(word.get("end", 0))
-
-            # Filter and sort unique time points
-            word_boundaries = sorted(set(word_boundaries))
 
             # Create analysis segments between consecutive word boundaries
             # but ensure they fall within VAD segments
             analysis_segments = []
-            for i in range(len(word_boundaries) - 1):
-                start = word_boundaries[i]
-                end = word_boundaries[i + 1]
-
-                # Skip if too short
-                if end - start < 0.1:
-                    continue
-
-                # Check if this segment overlaps with a VAD segment
-                for vad_start, vad_end in vad_segments:
-                    # If segment is within VAD or significantly overlaps
-                    if (start >= vad_start and end <= vad_end) or (
-                        start < vad_end
-                        and end > vad_start
-                        and min(vad_end, end) - max(vad_start, start) > 0.2
-                    ):
-                        analysis_segments.append((start, end))
-                        break
+            for word in result_segments:
+                if word.get("type") == "voice":
+                    analysis_segments.append((word.get("start", 0), word.get("end", 0)))
+            analysis_segments = sorted(set(analysis_segments))
 
             if save_steps:
-                seg_txt = os.path.join(output_dir, "03_analysis_segments_from_asr.txt")
+                seg_txt = os.path.join(output_dir, "01_analysis_segments_from_asr.txt")
                 seg_desc = "Analysis Segments from ASR\nSegments created using word timestamps from ASR.\nFormat: start_time,end_time"
-                with open(seg_txt, "w") as f:
-                    f.write(f"# {seg_desc}\n")
-                    f.write("#" + "-" * 50 + "\n")
-                    for start, end in analysis_segments:
-                        f.write(f"{start},{end}\n")
-        else:
-            # Traditional approach: detect speaker changes and combine with VAD
-            if show_progress:
-                print("Using traditional speaker change detection")
-
-            # Detect speaker changes within VAD segments
-            change_points = self._detect_speaker_changes(
-                waveform[0], sample_rate, vad_segments, show_progress=show_progress
-            )
-
-            if save_steps:
-                cp_txt = os.path.join(output_dir, "02_change_points.txt")
-                cp_desc = "Speaker Change Points (in seconds)\nEach value represents a time point where one speaker changes to another."
-                self._save_to_txt(change_points, cp_txt, cp_desc)
-
-            # Create analysis segments from VAD and change points
-            all_boundaries = sorted(
-                set(
-                    [s[0] for s in vad_segments]
-                    + [s[1] for s in vad_segments]
-                    + change_points
-                )
-            )
-            analysis_segments = [
-                (all_boundaries[i], all_boundaries[i + 1])
-                for i in range(len(all_boundaries) - 1)
-            ]
-
-            if save_steps:
-                seg_txt = os.path.join(output_dir, "03_analysis_segments.txt")
-                seg_desc = "Analysis Segments\nFinal analysis segments created by combining VAD segments and speaker change points.\nFormat: start_time,end_time"
                 with open(seg_txt, "w") as f:
                     f.write(f"# {seg_desc}\n")
                     f.write("#" + "-" * 50 + "\n")
@@ -985,13 +919,23 @@ class SpeakerDiarizer:
         if show_progress:
             print(f"Created {len(analysis_segments)} analysis segments")
 
-        # 4. Extract enhanced speaker embeddings
+        # Filter out segments that are too short (less than 0.25 seconds)
+        analysis_segments = [
+            (start, end) for start, end in analysis_segments if end - start >= 0.25
+        ]
+
+        if show_progress:
+            print(
+                f"After filtering short segments: {len(analysis_segments)} analysis segments"
+            )
+
+        # 2. Extract enhanced speaker embeddings
         embeddings, segment_timings = self._extract_embeddings(
             waveform[0], sample_rate, analysis_segments, show_progress
         )
 
         if save_steps:
-            timing_txt = os.path.join(output_dir, "04_segment_timings.txt")
+            timing_txt = os.path.join(output_dir, "02_segment_timings.txt")
             timing_desc = "Embedding Segment Timings\nEach line represents the start and end time (in seconds) of audio segments used for speaker embedding extraction.\nFormat: start_time,end_time"
             with open(timing_txt, "w") as f:
                 f.write(f"# {timing_desc}\n")
@@ -1000,7 +944,7 @@ class SpeakerDiarizer:
                     f.write(f"{start},{end}\n")
 
             # Just save embedding shape info since embeddings are large
-            emb_txt = os.path.join(output_dir, "04_embeddings_shape.txt")
+            emb_txt = os.path.join(output_dir, "03_embeddings_shape.txt")
             emb_desc = "Speaker Embedding Information\nEmbeddings are vectors representing the voice characteristics of speakers.\nOne embedding vector is generated for each audio segment."
             with open(emb_txt, "w") as f:
                 f.write(f"# {emb_desc}\n")
@@ -1014,34 +958,34 @@ class SpeakerDiarizer:
             self.logger.warning("Failed to extract any speaker embeddings")
             return []
 
-        # 5. Enhanced clustering to determine speakers
+        # 3. Enhanced clustering to determine speakers
         speaker_labels = self._cluster_speakers(embeddings, num_speakers, show_progress)
 
         if save_steps:
-            labels_txt = os.path.join(output_dir, "05_speaker_labels.txt")
-            labels_desc = "Speaker Clustering Results\nEach line represents the speaker label for the corresponding segment.\nThese labels correspond to the segments in 04_segment_timings.txt."
+            labels_txt = os.path.join(output_dir, "04_speaker_labels.txt")
+            labels_desc = "Speaker Clustering Results\nEach line represents the speaker label for the corresponding segment.\nThese labels correspond to the segments in 02_segment_timings.txt."
             self._save_to_txt(speaker_labels, labels_txt, labels_desc)
 
-        # 6. Detect overlapped speech
+        # 4. Detect overlapped speech
         overlap_segments = self._detect_overlapped_speech(
             waveform[0], sample_rate, segment_timings
         )
 
         if save_steps:
-            overlap_txt = os.path.join(output_dir, "06_overlap_segments.txt")
+            overlap_txt = os.path.join(output_dir, "05_overlap_segments.txt")
             overlap_desc = "Overlapped Speech Segment Indices\nIndices of segments where multiple speakers are detected speaking simultaneously."
             self._save_to_txt(overlap_segments, overlap_txt, overlap_desc)
 
         if show_progress and overlap_segments:
             print(f"Detected {len(overlap_segments)} potentially overlapped segments")
 
-        # 7. Create final speaker segments with overlap information
+        # 5. Create final speaker segments with overlap information
         speaker_segments = self._create_speaker_segments(
             segment_timings, speaker_labels
         )
 
         if save_steps:
-            segments_txt = os.path.join(output_dir, "07_speaker_segments.txt")
+            segments_txt = os.path.join(output_dir, "06_speaker_segments.txt")
             segments_desc = "Final Speaker Segments (without overlap information)\nFormat: start_time,end_time,speaker_id,is_overlap"
             with open(segments_txt, "w") as f:
                 f.write(f"# {segments_desc}\n")
@@ -1049,7 +993,7 @@ class SpeakerDiarizer:
                 for seg in speaker_segments:
                     f.write(f"{seg.start},{seg.end},{seg.speaker},{seg.is_overlap}\n")
 
-        # 8. Add overlap information to segments
+        # 6. Add overlap information to segments
         for overlap_idx in overlap_segments:
             if overlap_idx < len(speaker_segments):
                 speaker_segments[overlap_idx].is_overlap = True
@@ -1066,7 +1010,7 @@ class SpeakerDiarizer:
                         ]
 
         if save_steps:
-            final_txt = os.path.join(output_dir, "08_final_segments.txt")
+            final_txt = os.path.join(output_dir, "07_final_segments.txt")
             final_desc = "Final Speaker Segments with Overlap Information\nFormat: start_time,end_time,speaker_id,is_overlap,overlap_speakers"
             with open(final_txt, "w") as f:
                 f.write(f"# {final_desc}\n")
