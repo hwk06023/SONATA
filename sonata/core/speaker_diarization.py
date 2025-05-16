@@ -1,17 +1,24 @@
 import torch
 import numpy as np
 import librosa
+import logging
+import os
+import re
 from transformers import Wav2Vec2FeatureExtractor, WavLMForXVector
 from typing import List, Dict, Optional, Tuple, Union
 import torchaudio
-from sklearn.cluster import AgglomerativeClustering, SpectralClustering
+from sklearn.cluster import AgglomerativeClustering, SpectralClustering, KMeans, Birch
+from sklearn.mixture import GaussianMixture
+from sklearn.metrics import silhouette_score, calinski_harabasz_score
+from sklearn.decomposition import PCA
+from scipy import sparse
+from scipy.sparse.linalg import eigsh
+from scipy.spatial.distance import cosine
 from dataclasses import dataclass
-import logging
-import os
 from tqdm import tqdm
 import warnings
-from scipy.spatial.distance import cosine
-from scipy import signal
+import speechbrain as sb
+from konlpy.tag import Mecab
 
 # Filter PyTorch transformer attention warnings
 warnings.filterwarnings(
@@ -37,17 +44,8 @@ class SpeakerDiarizer:
 
     def _load_models(self):
         self.logger.info("Loading diarization models...")
-        # 1. Silero VAD
-        self.vad_model, utils = torch.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            force_reload=False,
-            verbose=False,
-        )
-        self.vad_get_speech_timestamps = utils[0]
-        self.vad_model.to(self.device)
 
-        # 2. WavLM XVector for speaker embeddings
+        # WavLM XVector for speaker embeddings
         self.wavlm_processor = Wav2Vec2FeatureExtractor.from_pretrained(
             "microsoft/wavlm-base-plus-sv"
         )
@@ -56,10 +54,8 @@ class SpeakerDiarizer:
         )
         self.wavlm_model.to(self.device)
 
-        # 3. Load ECAPA-TDNN for better embeddings
+        # ECAPA-TDNN for better embeddings
         try:
-            import speechbrain as sb
-
             self.ecapa_model = sb.inference.EncoderClassifier.from_hparams(
                 source="speechbrain/spkrec-ecapa-voxceleb",
                 savedir="pretrained_models/spkrec-ecapa-voxceleb",
@@ -337,11 +333,8 @@ class SpeakerDiarizer:
 
             # Apply frame stacking to improve embedding quality for short utterances
             stacked_segment_waveform = stack_frames(segment_waveform)
-
             wavlm_embedding = None
-            ecapa_embedding = None
 
-            # 1. Process with WavLM
             try:
                 if isinstance(stacked_segment_waveform, torch.Tensor):
                     segment_waveform_np = stacked_segment_waveform.cpu().numpy()
@@ -362,72 +355,21 @@ class SpeakerDiarizer:
                     f"Failed to extract WavLM embedding for segment {start}-{end}: {str(e)}"
                 )
 
-            # 2. Process with ECAPA-TDNN if available
-            if self.has_ecapa_model:
-                try:
-                    if not isinstance(stacked_segment_waveform, torch.Tensor):
-                        segment_tensor = torch.tensor(stacked_segment_waveform).float()
-                    else:
-                        segment_tensor = stacked_segment_waveform
-
-                    # Make mono and apply correct shape
-                    if len(segment_tensor.shape) == 1:
-                        segment_tensor = segment_tensor.unsqueeze(0)
-
-                    # Move to device consistently like WavLM
-                    segment_tensor = segment_tensor.to(self.device)
-
-                    with torch.no_grad():
-                        ecapa_embedding = self.ecapa_model.encode_batch(segment_tensor)
-                        ecapa_embedding = ecapa_embedding.squeeze().cpu().numpy()
-                        ecapa_embeddings.append(ecapa_embedding)
-                except Exception as e:
-                    self.logger.warning(
-                        f"Failed to extract ECAPA embedding for segment {start}-{end}: {str(e)}"
-                    )
-
-            # If either embedding was extracted, add the timing
-            if wavlm_embedding is not None or ecapa_embedding is not None:
+            # If WavLM embedding was extracted, add the timing
+            if wavlm_embedding is not None:
                 timings.append((start, end))
 
-        # Determine which embeddings to use based on availability
-        if self.has_ecapa_model and len(ecapa_embeddings) == len(timings):
-            # Prefer ECAPA-TDNN embeddings
-            embeddings = ecapa_embeddings
-            if show_progress:
-                print(f"Using ECAPA-TDNN embeddings for {len(embeddings)} segments")
-                if len(embeddings) > 0:
-                    print(f"ECAPA embedding shape: {np.array(embeddings).shape}")
-                    print(f"ECAPA embedding type: {type(embeddings[0])}")
-                    print(
-                        f"ECAPA embedding sample (first 5 values): {embeddings[0][:5]}"
-                    )
-                    print(
-                        f"ECAPA embedding stats - min: {np.min(embeddings):.4f}, max: {np.max(embeddings):.4f}, mean: {np.mean(embeddings):.4f}"
-                    )
-        elif len(wavlm_embeddings) == len(timings):
-            # Fall back to WavLM embeddings
-            embeddings = wavlm_embeddings
-            if show_progress:
-                print(f"Using WavLM embeddings for {len(embeddings)} segments")
-        else:
-            # If counts don't match, use available embeddings and adjust timings
-            if len(ecapa_embeddings) > len(wavlm_embeddings):
-                embeddings = ecapa_embeddings
-                # Adjust timing list to match
-                timings = timings[: len(embeddings)]
-                if show_progress:
-                    print(
-                        f"Using partial ECAPA-TDNN embeddings ({len(embeddings)} out of {len(timings)} segments)"
-                    )
-            else:
-                embeddings = wavlm_embeddings
-                # Adjust timing list to match
-                timings = timings[: len(embeddings)]
-                if show_progress:
-                    print(
-                        f"Using partial WavLM embeddings ({len(embeddings)} out of {len(timings)} segments)"
-                    )
+        # Always use WavLM embeddings
+        embeddings = wavlm_embeddings
+        if show_progress:
+            print(f"Using WavLM embeddings for {len(embeddings)} segments")
+            if len(embeddings) > 0:
+                print(f"WavLM embedding shape: {np.array(embeddings).shape}")
+                print(f"WavLM embedding type: {type(embeddings[0])}")
+                print(f"WavLM embedding sample (first 5 values): {embeddings[0][:5]}")
+                print(
+                    f"WavLM embedding stats - min: {np.min(embeddings):.4f}, max: {np.max(embeddings):.4f}, mean: {np.mean(embeddings):.4f}"
+                )
 
         if show_progress:
             print(f"Extracted {len(embeddings)} speaker embeddings")
@@ -462,143 +404,124 @@ class SpeakerDiarizer:
             np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
         )
 
+        # if len(norm_embeddings) > 50:
+        #     pca = PCA(n_components=min(64, norm_embeddings.shape[1]), random_state=42)
+        #     norm_embeddings = pca.fit_transform(norm_embeddings)
+
         # Try multiple clustering methods with proper version handling
         clustering_methods = []
-
-        # Check if scikit-learn supports all parameters (handle version compatibility)
-        try:
-            # Try creating with affinity and check if it raises an error
-            test_clustering = AgglomerativeClustering(
-                n_clusters=2, metric="cosine", linkage="average"
-            )
-            # If no error, add the full method
-            clustering_methods.append(
-                {
-                    "name": "Agglomerative (Cosine)",
-                    "method": AgglomerativeClustering(
-                        n_clusters=num_speakers, metric="cosine", linkage="average"
-                    ),
-                }
-            )
-
-            # Add agglomerative with different linkages
-            clustering_methods.append(
-                {
-                    "name": "Agglomerative (Ward)",
-                    "method": AgglomerativeClustering(
-                        n_clusters=num_speakers, metric="euclidean", linkage="ward"
-                    ),
-                }
-            )
-
-            clustering_methods.append(
-                {
-                    "name": "Agglomerative (Complete)",
-                    "method": AgglomerativeClustering(
-                        n_clusters=num_speakers, metric="cosine", linkage="complete"
-                    ),
-                }
-            )
-        except TypeError:
-            # Fallback to simpler parameters
-            clustering_methods.append(
-                {
-                    "name": "Agglomerative (Basic)",
-                    "method": AgglomerativeClustering(n_clusters=num_speakers),
-                }
-            )
-
-        # Try spectral clustering with similar version check
-        try:
-            clustering_methods.append(
-                {
-                    "name": "Spectral",
-                    "method": SpectralClustering(
-                        n_clusters=num_speakers,
-                        affinity="nearest_neighbors",
-                        n_neighbors=min(len(norm_embeddings) // 3, 10),
-                        random_state=42,
-                    ),
-                }
-            )
-
-            # Add spectral with different affinity
-            clustering_methods.append(
-                {
-                    "name": "Spectral (RBF)",
-                    "method": SpectralClustering(
-                        n_clusters=num_speakers,
-                        affinity="rbf",
-                        gamma=0.1,
-                        random_state=42,
-                    ),
-                }
-            )
-        except TypeError:
-            # Fallback to simpler spectral clustering
-            try:
-                clustering_methods.append(
-                    {
-                        "name": "Spectral (Basic)",
-                        "method": SpectralClustering(
-                            n_clusters=num_speakers, random_state=42
-                        ),
-                    }
-                )
-            except:
-                # Skip if not available
-                pass
-
-        # Try K-means
-        try:
-            from sklearn.cluster import KMeans
-
-            clustering_methods.append(
-                {
-                    "name": "K-Means",
-                    "method": KMeans(
-                        n_clusters=num_speakers,
-                        init="k-means++",
-                        n_init=10,
-                        random_state=42,
-                    ),
-                }
-            )
-        except Exception:
-            pass
-
-        # Try Gaussian Mixture Model
-        try:
-            from sklearn.mixture import GaussianMixture
-
-            clustering_methods.append(
-                {
-                    "name": "Gaussian Mixture",
-                    "method": GaussianMixture(
-                        n_components=num_speakers,
-                        covariance_type="full",
-                        random_state=42,
-                        max_iter=100,
-                    ),
-                }
-            )
-        except Exception:
-            pass
-
-        # Try BIRCH
-        try:
-            from sklearn.cluster import Birch
-
-            clustering_methods.append(
-                {
-                    "name": "BIRCH",
-                    "method": Birch(
-                        n_clusters=num_speakers, threshold=0.1, branching_factor=50
-                    ),
-                }
-            )
-        except Exception:
-            pass
+        clustering_methods.append(
+            {
+                "name": "Agglomerative (Cosine)",
+                "method": AgglomerativeClustering(
+                    n_clusters=num_speakers, metric="cosine", linkage="average"
+                ),
+            }
+        )
+        clustering_methods.append(
+            {
+                "name": "Agglomerative (Ward)",
+                "method": AgglomerativeClustering(
+                    n_clusters=num_speakers, metric="euclidean", linkage="ward"
+                ),
+            }
+        )
+        clustering_methods.append(
+            {
+                "name": "Agglomerative (Complete)",
+                "method": AgglomerativeClustering(
+                    n_clusters=num_speakers, metric="cosine", linkage="complete"
+                ),
+            }
+        )
+        clustering_methods.append(
+            {
+                "name": "Agglomerative (Basic)",
+                "method": AgglomerativeClustering(n_clusters=num_speakers),
+            }
+        )
+        clustering_methods.append(
+            {
+                "name": "Spectral",
+                "method": SpectralClustering(
+                    n_clusters=num_speakers,
+                    affinity="nearest_neighbors",
+                    n_neighbors=min(len(norm_embeddings) // 3, 10),
+                    random_state=42,
+                ),
+            }
+        )
+        clustering_methods.append(
+            {
+                "name": "Spectral (RBF)",
+                "method": SpectralClustering(
+                    n_clusters=num_speakers,
+                    affinity="rbf",
+                    gamma=0.15,
+                    n_init=20,
+                    assign_labels="kmeans",
+                    random_state=42,
+                ),
+            }
+        )
+        clustering_methods.append(
+            {
+                "name": "Spectral (Basic)",
+                "method": SpectralClustering(
+                    n_clusters=num_speakers,
+                    assign_labels="discretize",
+                    random_state=42,
+                ),
+            }
+        )
+        clustering_methods.append(
+            {
+                "name": "Spectral (arpack)",
+                "method": SpectralClustering(
+                    n_clusters=num_speakers,
+                    affinity="nearest_neighbors",
+                    n_neighbors=min(max(5, len(norm_embeddings) // 4), 8),
+                    assign_labels="discretize",
+                    n_init=15,
+                    eigen_solver="arpack",
+                    random_state=42,
+                ),
+            }
+        )
+        clustering_methods.append(
+            {
+                "name": "K-Means",
+                "method": KMeans(
+                    n_clusters=num_speakers,
+                    init="k-means++",
+                    n_init=20,
+                    max_iter=500,
+                    tol=1e-5,
+                    random_state=42,
+                ),
+            }
+        )
+        clustering_methods.append(
+            {
+                "name": "Gaussian Mixture",
+                "method": GaussianMixture(
+                    n_components=num_speakers,
+                    covariance_type="full",
+                    reg_covar=1e-5,
+                    n_init=10,
+                    random_state=42,
+                    max_iter=200,
+                ),
+            }
+        )
+        clustering_methods.append(
+            {
+                "name": "BIRCH",
+                "method": Birch(
+                    n_clusters=num_speakers, threshold=0.1, branching_factor=50
+                ),
+            }
+        )
 
         best_labels = None
         best_score = -1
@@ -606,82 +529,46 @@ class SpeakerDiarizer:
 
         # Try each clustering method
         for method_info in clustering_methods:
-            try:
-                # Apply clustering
-                method = method_info["method"]
+            # Apply clustering
+            method = method_info["method"]
 
-                # Handle methods like GMM that use fit_predict vs fit and predict
-                if hasattr(method, "fit_predict"):
-                    labels = method.fit_predict(norm_embeddings)
-                elif hasattr(method, "fit") and hasattr(method, "predict"):
-                    method.fit(norm_embeddings)
-                    labels = method.predict(norm_embeddings)
-                else:
-                    continue
+            # Handle methods like GMM that use fit_predict vs fit and predict
+            if hasattr(method, "fit_predict"):
+                labels = method.fit_predict(norm_embeddings)
+            elif hasattr(method, "fit") and hasattr(method, "predict"):
+                method.fit(norm_embeddings)
+                labels = method.predict(norm_embeddings)
+            else:
+                continue
 
-                # Skip if only one cluster was found
-                if len(set(labels)) <= 1:
-                    continue
+            # Skip if only one cluster was found
+            if len(set(labels)) <= 1:
+                continue
 
-                # If not enough clusters, skip
-                if len(set(labels)) < num_speakers // 2:
-                    continue
+            # If not enough clusters, skip
+            if len(set(labels)) < num_speakers // 2:
+                continue
 
-                # Evaluate clustering quality
-                try:
-                    from sklearn.metrics import (
-                        silhouette_score,
-                        calinski_harabasz_score,
-                    )
+            sil_score = silhouette_score(norm_embeddings, labels, metric="cosine")
+            ch_score = calinski_harabasz_score(norm_embeddings, labels)
 
-                    sil_score = silhouette_score(
-                        norm_embeddings, labels, metric="cosine"
-                    )
-                    ch_score = calinski_harabasz_score(norm_embeddings, labels)
+            # Combined score (weighted average)
+            combined_score = (0.9 * sil_score) + (0.1 * (ch_score / 10000))
 
-                    # Combined score (weighted average)
-                    combined_score = (0.7 * sil_score) + (0.3 * (ch_score / 10000))
+            if show_progress:
+                print(
+                    f"{method_info['name']}: silhouette={sil_score:.4f}, CH={ch_score:.4f}, clusters={len(set(labels))}"
+                )
 
-                    if show_progress:
-                        print(
-                            f"{method_info['name']}: silhouette={sil_score:.4f}, CH={ch_score:.4f}, clusters={len(set(labels))}"
-                        )
-
-                    if combined_score > best_score:
-                        best_score = combined_score
-                        best_labels = labels
-                        best_method = method_info["name"]
-                except Exception as e:
-                    if show_progress:
-                        print(
-                            f"Error evaluating clusters for {method_info['name']}: {str(e)}"
-                        )
-                    # Use these labels if we don't have any yet
-                    if best_labels is None:
-                        best_labels = labels
-                        best_method = method_info["name"]
-            except Exception as e:
-                if show_progress:
-                    print(f"Error with {method_info['name']} clustering: {str(e)}")
+            if combined_score > best_score:
+                best_score = combined_score
+                best_labels = labels
+                best_method = method_info["name"]
 
         if best_labels is None:
-            # Fallback to simplest clustering
-            try:
-                # Most basic form that should work with any scikit-learn version
-                clustering = AgglomerativeClustering(n_clusters=num_speakers)
-                best_labels = clustering.fit_predict(norm_embeddings)
-                best_method = "Fallback Agglomerative"
-            except Exception as last_error:
-                if show_progress:
-                    print(
-                        f"All clustering methods failed. Last error: {str(last_error)}"
-                    )
-                # Create simple labels if everything fails
-                best_labels = np.zeros(len(norm_embeddings), dtype=int)
-                for i in range(1, min(num_speakers, len(norm_embeddings))):
-                    if i < len(norm_embeddings):
-                        best_labels[i] = i % num_speakers
-                best_method = "Emergency Fallback (Sequential Assignment)"
+            clustering = AgglomerativeClustering(n_clusters=num_speakers)
+            best_labels = clustering.fit_predict(norm_embeddings)
+            best_method = "Warning: best method not found, using Fallback Agglomerative"
 
         if show_progress:
             print(f"Selected clustering method: {best_method}")
@@ -694,61 +581,48 @@ class SpeakerDiarizer:
 
     def _estimate_num_speakers(self, embeddings, show_progress=True):
         """Estimate number of speakers using eigenvalue analysis"""
-        try:
-            # Normalize embeddings
-            norm_embeddings = embeddings / (
-                np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
-            )
 
-            # Compute similarity matrix
-            similarity_matrix = 1 - np.array(
-                [
-                    [cosine(emb1, emb2) for emb2 in norm_embeddings]
-                    for emb1 in norm_embeddings
-                ]
-            )
+        # Normalize embeddings
+        norm_embeddings = embeddings / (
+            np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
+        )
 
-            # Apply adaptive threshold to create affinity matrix
-            threshold = np.mean(similarity_matrix) * 0.5
-            affinity_matrix = (similarity_matrix > threshold).astype(float)
+        # Compute similarity matrix
+        similarity_matrix = 1 - np.array(
+            [
+                [cosine(emb1, emb2) for emb2 in norm_embeddings]
+                for emb1 in norm_embeddings
+            ]
+        )
 
-            # Compute Laplacian
-            from sklearn.cluster import SpectralClustering
-            from scipy import sparse
+        # Apply adaptive threshold to create affinity matrix
+        threshold = np.mean(similarity_matrix) * 0.5
+        affinity_matrix = (similarity_matrix > threshold).astype(float)
 
-            if not sparse.issparse(affinity_matrix):
-                affinity_matrix = sparse.csr_matrix(affinity_matrix)
+        # Compute Laplacian
+        if not sparse.issparse(affinity_matrix):
+            affinity_matrix = sparse.csr_matrix(affinity_matrix)
 
-            laplacian = SpectralClustering(
-                n_clusters=2, affinity="precomputed"
-            )._get_laplacian(affinity_matrix)
+        laplacian = SpectralClustering(
+            n_clusters=2, affinity="precomputed"
+        )._get_laplacian(affinity_matrix)
 
-            # Get eigenvalues
-            from scipy.sparse.linalg import eigsh
+        eigenvalues, _ = eigsh(laplacian, k=min(10, laplacian.shape[0] - 1), which="SM")
 
-            eigenvalues, _ = eigsh(
-                laplacian, k=min(10, laplacian.shape[0] - 1), which="SM"
-            )
+        # Find the elbow point in eigenvalues
+        eigenvalues = sorted(eigenvalues)
+        diffs = np.diff(eigenvalues)
 
-            # Find the elbow point in eigenvalues
-            eigenvalues = sorted(eigenvalues)
-            diffs = np.diff(eigenvalues)
+        # Find largest gap in eigenvalues
+        largest_gap_idx = np.argmax(diffs) + 1
 
-            # Find largest gap in eigenvalues
-            largest_gap_idx = np.argmax(diffs) + 1
+        # Estimate is the index of largest gap + 1 (since we're looking at gaps)
+        estimated_speakers = largest_gap_idx + 1
 
-            # Estimate is the index of largest gap + 1 (since we're looking at gaps)
-            estimated_speakers = largest_gap_idx + 1
+        # Ensure we're within reasonable bounds
+        estimated_speakers = max(2, min(8, estimated_speakers))
 
-            # Ensure we're within reasonable bounds
-            estimated_speakers = max(2, min(8, estimated_speakers))
-
-            return estimated_speakers
-        except Exception as e:
-            if show_progress:
-                print(f"Error estimating speaker count: {str(e)}")
-            # Default fallback
-            return max(2, min(3, len(embeddings) // 20))
+        return estimated_speakers
 
     def _detect_overlapped_speech(self, waveform, sample_rate, segments):
         """Detect segments with overlapped speech"""
@@ -864,6 +738,122 @@ class SpeakerDiarizer:
             else:
                 f.write(str(data))
 
+    def _chunk_korean_segments(self, result_segments: List[Dict]) -> List[Dict]:
+        """
+        Groups Korean speech segments into grammatically connected chunks
+
+        Args:
+            result_segments: List containing word segments
+                [{'start': float, 'end': float, 'content': str, 'type': str}, ...]
+
+        Returns:
+            Merged segment list
+        """
+        voice_segments = [seg for seg in result_segments if seg.get("type") == "voice"]
+
+        if not voice_segments:
+            return result_segments
+
+        mecab = Mecab()
+        chunked_segments = []
+        current_chunk = None
+        pending_segments = []
+        all_morphs = []
+
+        for segment in voice_segments:
+            content = segment["content"]
+            morphs = mecab.pos(content)
+            all_morphs.append((segment, morphs))
+
+        i = 0
+        while i < len(all_morphs):
+            segment, morphs = all_morphs[i]
+
+            if current_chunk is None:
+                current_chunk = {
+                    "start": segment["start"],
+                    "end": segment["end"],
+                    "content": segment["content"],
+                    "type": segment["type"],
+                }
+                i += 1
+                continue
+
+            should_merge = False
+
+            if i + 1 < len(all_morphs):
+                next_segment, next_morphs = all_morphs[i + 1]
+                should_merge = self._check_grammatical_connection(morphs, next_morphs)
+
+            if should_merge:
+                current_chunk["end"] = next_segment["end"]
+                current_chunk["content"] += " " + next_segment["content"]
+                i += 1
+            else:
+                chunked_segments.append(current_chunk)
+                current_chunk = None
+
+        if current_chunk is not None:
+            chunked_segments.append(current_chunk)
+
+        non_voice_segments = [
+            seg for seg in result_segments if seg.get("type") != "voice"
+        ]
+        chunked_segments.extend(non_voice_segments)
+
+        chunked_segments.sort(key=lambda x: x["start"])
+
+        return chunked_segments
+
+    @staticmethod
+    def _check_grammatical_connection(
+        morphs1: List[Tuple[str, str]], morphs2: List[Tuple[str, str]]
+    ) -> bool:
+        """
+        Checks if two morpheme sequences are grammatically connected
+
+        Args:
+            morphs1: First word's morpheme analysis result [(word, part_of_speech), ...]
+            morphs2: Second word's morpheme analysis result [(word, part_of_speech), ...]
+
+        Returns:
+            True if words are grammatically connected, False otherwise
+        """
+        if not morphs1 or not morphs2:
+            return False
+
+        last_pos = morphs1[-1][1]
+        first_pos = morphs2[0][1]
+
+        if last_pos.startswith("N") and first_pos.startswith("J"):
+            return True
+
+        if last_pos.startswith("N") and (
+            first_pos.startswith("V") or first_pos.startswith("VA")
+        ):
+            return True
+
+        if last_pos.startswith("MM") and first_pos.startswith("N"):
+            return True
+
+        if last_pos.startswith("MA") and (
+            first_pos.startswith("V") or first_pos.startswith("VA")
+        ):
+            return True
+
+        if (
+            last_pos.startswith("V") or last_pos.startswith("VA")
+        ) and first_pos.startswith("E"):
+            return True
+
+        if last_pos == "SN" and first_pos.startswith("N"):
+            return True
+
+        if last_pos == "NNP" and first_pos == "NNP":
+            return True
+
+        return False
+
     def diarize(
         self,
         audio_path,
@@ -871,6 +861,7 @@ class SpeakerDiarizer:
         show_progress=True,
         save_steps=False,
         result_segments=None,
+        language=None,
     ):
         """Main diarization method with improved processing pipeline
 
@@ -880,6 +871,7 @@ class SpeakerDiarizer:
             show_progress: Whether to show progress information
             save_steps: Whether to save intermediate outputs
             word_timestamps: Optional word timestamps from ASR to skip change detection
+            language: Language code for language-specific processing (e.g., 'ko' for Korean)
         """
         if show_progress:
             print(f"Starting enhanced diarization for: {audio_path}")
@@ -893,6 +885,12 @@ class SpeakerDiarizer:
 
         waveform, sample_rate = torchaudio.load(audio_path)
         waveform = waveform.mean(dim=0, keepdim=True)  # Convert to mono if needed
+
+        print(f"result_segments: {result_segments}")
+
+        # 0. Chunk Korean segments
+        if language == "ko":
+            result_segments = self._chunk_korean_segments(result_segments)
 
         # 1. Create analysis segments based on input method
         if result_segments:
@@ -919,9 +917,9 @@ class SpeakerDiarizer:
         if show_progress:
             print(f"Created {len(analysis_segments)} analysis segments")
 
-        # Filter out segments that are too short (less than 0.25 seconds)
+        # Filter out segments that are too short (Outlier)
         analysis_segments = [
-            (start, end) for start, end in analysis_segments if end - start >= 0.25
+            (start, end) for start, end in analysis_segments if end - start >= 0.2
         ]
 
         if show_progress:

@@ -809,8 +809,7 @@ class ASRProcessor:
 
         if not os.path.exists(f"{data_directory}/audio.lab"):
             # Transcribe audio with whisper into .lab format
-            model = whisperx.load_audio(audio_path)
-            transcription = model.transcribe(
+            transcription = self.model.transcribe(
                 audio_path, batch_size=batch_size, language=language
             )
 

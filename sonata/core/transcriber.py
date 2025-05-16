@@ -212,6 +212,7 @@ class IntegratedTranscriber:
                     show_progress=True,
                     save_steps=save_diarization_steps,
                     result_segments=result_segments,
+                    language=language,
                 )
 
                 # Convert speaker segments to the format expected by assign_word_speakers
