@@ -67,8 +67,14 @@ sonata-asr path/to/audio.wav
 # 화자 분할 기능 사용
 sonata-asr path/to/audio.wav --diarize
 
+# 오디오 이벤트 감지 기능 사용
+sonata-asr path/to/audio.wav --audio
+
 # 화자 수를 알고 있는 경우 설정
 sonata-asr path/to/audio.wav --diarize --num-speakers 3
+
+# 화자 분할과 오디오 이벤트 감지 기능 함께 사용
+sonata-asr path/to/audio.wav --diarize --audio
 ```
 
 #### 주요 CLI 옵션:
@@ -87,6 +93,7 @@ sonata-asr path/to/audio.wav --diarize --num-speakers 3
   --num-speakers NUM          정확한 화자 수 설정 (선택 사항)
 
 오디오 이벤트:
+  --audio                     오디오 이벤트 감지 활성화
   --threshold VALUE           오디오 이벤트 감지 임계값 (0.0-1.0)
   --custom-thresholds FILE    사용자 정의 오디오 이벤트 임계값이 포함된 JSON 파일 경로
   --deep-detect               다중 스케일 오디오 이벤트 감지 활성화 (정확도 향상)

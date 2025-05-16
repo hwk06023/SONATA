@@ -50,6 +50,11 @@ def parse_args():
         "-e", "--audio-model", help="Path to audio event detection model"
     )
     parser.add_argument(
+        "--audio",
+        action="store_true",
+        help="Enable audio event detection to capture non-verbal cues and sounds",
+    )
+    parser.add_argument(
         "-t",
         "--threshold",
         type=float,
@@ -173,10 +178,18 @@ def show_usage_and_exit():
     print(
         "  --diarize               Enable speaker diarization to identify different speakers"
     )
+    print(
+        "  --audio                 Enable audio event detection to capture non-verbal cues and sounds"
+    )
     print("\nDiarization options:")
     print("  --num-speakers [NUM]    Set exact number of speakers (optional)")
     print(
         "  --save-steps            Save intermediate diarization step outputs for analysis"
+    )
+    print("\nAudio Event options:")
+    print("  --threshold [VALUE]     Set threshold for audio event detection (0.0-1.0)")
+    print(
+        "  --deep-detect           Enable multi-scale audio event detection for better accuracy"
     )
     print("\nFor more options:")
     print("  sonata-asr --help")
@@ -188,6 +201,8 @@ def show_usage_and_exit():
     print("  sonata-asr input.wav --format concise")
     print("  sonata-asr input.wav --diarize")
     print("  sonata-asr input.wav --diarize --num-speakers 3")
+    print("  sonata-asr input.wav --audio")
+    print("  sonata-asr input.wav --audio --threshold 0.6")
     sys.exit(1)
 
 
@@ -334,6 +349,7 @@ def process_file(transcriber, input_path, output_path, args):
                 diarize=args.diarize,
                 num_speakers=args.num_speakers,
                 save_diarization_steps=args.save_steps if args.diarize else False,
+                detect_audio_events=args.audio,
             )
 
             # Add segment info
@@ -381,6 +397,7 @@ def process_file(transcriber, input_path, output_path, args):
             diarize=args.diarize,
             num_speakers=args.num_speakers,
             save_diarization_steps=args.save_steps if args.diarize else False,
+            detect_audio_events=args.audio,
         )
 
         # Save result

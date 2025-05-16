@@ -65,8 +65,14 @@ sonata-asr path/to/audio.wav
 # With speaker diarization
 sonata-asr path/to/audio.wav --diarize
 
+# With audio event detection
+sonata-asr path/to/audio.wav --audio
+
 # Set number of speakers if known
 sonata-asr path/to/audio.wav --diarize --num-speakers 3
+
+# Combine diarization and audio event detection
+sonata-asr path/to/audio.wav --diarize --audio
 ```
 
 #### Common CLI Options:
@@ -85,6 +91,7 @@ Diarization:
   --num-speakers NUM          Set exact number of speakers (optional)
 
 Audio Events:
+  --audio                     Enable audio event detection
   --threshold VALUE           Threshold for audio event detection (0.0-1.0)
   --custom-thresholds FILE    Path to JSON file with custom audio event thresholds
   --deep-detect               Enable multi-scale audio event detection for better accuracy

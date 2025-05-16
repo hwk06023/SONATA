@@ -67,8 +67,14 @@ sonata-asr path/to/audio.wav
 # 使用 speaker diarization 功能
 sonata-asr path/to/audio.wav --diarize
 
+# 使用音频事件检测功能
+sonata-asr path/to/audio.wav --audio
+
 # 当知道说话人数量时设置
 sonata-asr path/to/audio.wav --diarize --num-speakers 3
+
+# 结合说话人分离和音频事件检测功能
+sonata-asr path/to/audio.wav --diarize --audio
 ```
 
 #### 主要 CLI 选项：
@@ -87,6 +93,7 @@ Diarization：
   --num-speakers NUM          设置准确的说话人数量（可选）
 
 Audio Event：
+  --audio                     启用音频事件检测
   --threshold VALUE           音频事件检测阈值（0.0-1.0）
   --custom-thresholds FILE    包含自定义音频事件阈值的JSON文件路径
   --deep-detect               启用多尺度音频事件检测（提高准确性）

@@ -87,6 +87,7 @@ class IntegratedTranscriber:
         diarize: bool = False,
         num_speakers: Optional[int] = None,
         save_diarization_steps: bool = False,
+        detect_audio_events: bool = False,
     ) -> Dict:
         """Process audio to get transcription with audio events integrated.
 
@@ -98,6 +99,7 @@ class IntegratedTranscriber:
             diarize: Whether to perform speaker diarization
             num_speakers: Number of speakers for diarization (optional)
             save_diarization_steps: Whether to save intermediate outputs for each diarization step
+            detect_audio_events: Whether to perform audio event detection
 
         Returns:
             Dictionary containing the complete transcription results
@@ -133,47 +135,55 @@ class IntegratedTranscriber:
             self.logger.error(traceback.format_exc())
             result_segments = []
 
-        # Then run audio event detection with progress indicators
-        self.logger.info("\nRunning audio event detection...")
-        try:
-            if self.deep_detect:
-                self.logger.info(
-                    "Using multi-scale deep detection for better paralinguistic feature detection..."
-                )
-                # Use custom window and hop sizes if provided
-                window_sizes = self.deep_detect_params.get(
-                    "window_sizes", [0.2, 1.0, 2.5]
-                )
-                hop_sizes = self.deep_detect_params.get("hop_sizes", [0.1, 0.5, 1.0])
-                parallel = self.deep_detect_params.get("parallel", False)
-                show_detailed_progress = self.deep_detect_params.get(
-                    "show_progress", False
-                )
+        # Then run audio event detection with progress indicators if enabled
+        audio_events = []
+        if detect_audio_events:
+            self.logger.info("\nRunning audio event detection...")
+            try:
+                if self.deep_detect:
+                    self.logger.info(
+                        "Using multi-scale deep detection for better paralinguistic feature detection..."
+                    )
+                    # Use custom window and hop sizes if provided
+                    window_sizes = self.deep_detect_params.get(
+                        "window_sizes", [0.2, 1.0, 2.5]
+                    )
+                    hop_sizes = self.deep_detect_params.get(
+                        "hop_sizes", [0.1, 0.5, 1.0]
+                    )
+                    parallel = self.deep_detect_params.get("parallel", False)
+                    show_detailed_progress = self.deep_detect_params.get(
+                        "show_progress", False
+                    )
 
-                print(f"Using {len(window_sizes)} window sizes: {window_sizes}")
-                if parallel:
-                    print(f"Using parallel processing mode (ThreadPool)")
-                if show_detailed_progress:
-                    print(f"Using detailed progress bars for scale monitoring")
+                    print(f"Using {len(window_sizes)} window sizes: {window_sizes}")
+                    if parallel:
+                        print(f"Using parallel processing mode (ThreadPool)")
+                    if show_detailed_progress:
+                        print(f"Using detailed progress bars for scale monitoring")
 
-                audio_events = self.audio_detector.detect_events_multi_scale(
-                    audio=audio_path,
-                    window_sizes=window_sizes,
-                    hop_sizes=hop_sizes,
-                    parallel=parallel,
-                    show_progress=show_detailed_progress,
-                )
-            else:
-                # Use standard detection with single window size
-                audio_events = self.audio_detector.detect_events(
-                    audio=audio_path,
-                    show_progress=True,
-                )
-        except Exception as e:
-            error_msg = f"Audio event detection failed: {str(e)}"
-            self.logger.error(error_msg)
-            self.logger.error(traceback.format_exc())
-            audio_events = []
+                    audio_events = self.audio_detector.detect_events_multi_scale(
+                        audio=audio_path,
+                        window_sizes=window_sizes,
+                        hop_sizes=hop_sizes,
+                        parallel=parallel,
+                        show_progress=show_detailed_progress,
+                    )
+                else:
+                    # Use standard detection with single window size
+                    audio_events = self.audio_detector.detect_events(
+                        audio=audio_path,
+                        show_progress=True,
+                    )
+            except Exception as e:
+                error_msg = f"Audio event detection failed: {str(e)}"
+                self.logger.error(error_msg)
+                self.logger.error(traceback.format_exc())
+                audio_events = []
+        else:
+            self.logger.info(
+                "\nAudio event detection is disabled. Use --audio flag to enable it."
+            )
 
         # Integrate results
         for event in audio_events:

@@ -67,8 +67,14 @@ sonata-asr path/to/audio.wav
 # speaker diarization 機能を使用
 sonata-asr path/to/audio.wav --diarize
 
+# オーディオイベント検出機能を使用
+sonata-asr path/to/audio.wav --audio
+
 # 話者数がわかっている場合は設定
 sonata-asr path/to/audio.wav --diarize --num-speakers 3
+
+# 話者分離とオーディオイベント検出を組み合わせて使用
+sonata-asr path/to/audio.wav --diarize --audio
 ```
 
 #### 主な CLI オプション：
@@ -87,6 +93,7 @@ Diarization：
   --num-speakers NUM          正確な話者数を設定（オプション）
 
 Audio Event：
+  --audio                     オーディオイベント検出を有効化
   --threshold VALUE           オーディオイベント検出のしきい値（0.0-1.0）
   --custom-thresholds FILE    カスタムオーディオイベントしきい値を含むJSONファイルのパス
   --deep-detect               マルチスケールオーディオイベント検出を有効化（精度向上）
