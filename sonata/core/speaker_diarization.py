@@ -156,6 +156,8 @@ class SpeakerDiarizer:
 
                     # Convert to numpy and normalize
                     embedding = embedding.cpu().numpy()
+                    # Reshape embedding from (1, 192) to (192,) - needed to fix dimensionality
+                    embedding = embedding.squeeze()
                     embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
 
                     embeddings.append(embedding)
@@ -210,6 +212,13 @@ class SpeakerDiarizer:
 
         if embeddings.size == 0:
             return []
+
+        # Check if embeddings is 3D and reshape to 2D if needed
+        if len(embeddings.shape) == 3:
+            print(f"Reshaping embeddings from {embeddings.shape} to 2D...")
+            # If shape is (N, 1, D), reshape to (N, D)
+            embeddings = embeddings.reshape(embeddings.shape[0], -1)
+            print(f"New embeddings shape: {embeddings.shape}")
 
         # Estimate number of speakers if not provided
         if num_speakers is None:
@@ -759,11 +768,6 @@ class SpeakerDiarizer:
 
         if show_progress:
             print(f"Created {len(analysis_segments)} analysis segments")
-
-        # Filter out segments that are too short (Outlier)
-        analysis_segments = [
-            (start, end) for start, end in analysis_segments if end - start >= 0.2
-        ]
 
         if show_progress:
             print(

@@ -19,3 +19,4 @@ pyannote.pipeline>=2.3
 networkx>=2.6.3
 hf_xet>=0.1.0 
 praat-textgrids>=1.4.0
+git+https://github.com/NVIDIA/NeMo.git@main#egg=nemo_toolkit[asr] 
