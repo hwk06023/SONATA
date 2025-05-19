@@ -59,7 +59,7 @@ def parse_args():
         "-m",
         "--model",
         default="large-v3",
-        help="WhisperX model size (default: large-v3)",
+        help="Whisper model size (default: large-v3)",
     )
     parser.add_argument(
         "-d",

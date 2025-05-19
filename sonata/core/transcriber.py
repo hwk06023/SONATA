@@ -126,7 +126,6 @@ class IntegratedTranscriber:
             result_segments: List[Dict] = self.asr.process_audio(
                 audio_path=audio_path,
                 language=language,
-                batch_size=batch_size,
                 show_progress=True,
             )
         except Exception as e:

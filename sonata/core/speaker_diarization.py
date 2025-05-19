@@ -233,7 +233,6 @@ class SpeakerDiarizer:
         """Cluster change points that are close to each other"""
         if not change_points:
             return []
-
         # Sort change points
         sorted_changes = sorted(change_points)
 
@@ -749,9 +748,12 @@ class SpeakerDiarizer:
         Returns:
             Merged segment list
         """
+        self.logger.info(f"Initial segments: {len(result_segments)} segments")
         voice_segments = [seg for seg in result_segments if seg.get("type") == "voice"]
+        self.logger.info(f"Voice segments: {len(voice_segments)} segments")
 
         if not voice_segments:
+            self.logger.info("No voice segments found, returning original segments")
             return result_segments
 
         mecab = Mecab()
@@ -763,8 +765,10 @@ class SpeakerDiarizer:
         for segment in voice_segments:
             content = segment["content"]
             morphs = mecab.pos(content)
+            self.logger.debug(f"Morphemes for '{content}': {morphs}")
             all_morphs.append((segment, morphs))
 
+        self.logger.info(f"Analyzing {len(all_morphs)} segments for chunking")
         i = 0
         while i < len(all_morphs):
             segment, morphs = all_morphs[i]
@@ -776,6 +780,7 @@ class SpeakerDiarizer:
                     "content": segment["content"],
                     "type": segment["type"],
                 }
+                self.logger.debug(f"Starting new chunk: {current_chunk}")
                 i += 1
                 continue
 
@@ -784,24 +789,37 @@ class SpeakerDiarizer:
             if i + 1 < len(all_morphs):
                 next_segment, next_morphs = all_morphs[i + 1]
                 should_merge = self._check_grammatical_connection(morphs, next_morphs)
+                self.logger.debug(
+                    f"Checking connection between '{segment['content']}' and '{next_segment['content']}': {should_merge}"
+                )
 
             if should_merge:
+                old_content = current_chunk["content"]
                 current_chunk["end"] = next_segment["end"]
                 current_chunk["content"] += " " + next_segment["content"]
+                self.logger.debug(
+                    f"Merged chunk: '{old_content}' + '{next_segment['content']}' = '{current_chunk['content']}'"
+                )
                 i += 1
             else:
+                self.logger.debug(f"Saving chunk: {current_chunk}")
                 chunked_segments.append(current_chunk)
                 current_chunk = None
 
         if current_chunk is not None:
+            self.logger.debug(f"Saving final chunk: {current_chunk}")
             chunked_segments.append(current_chunk)
 
         non_voice_segments = [
             seg for seg in result_segments if seg.get("type") != "voice"
         ]
+        self.logger.info(f"Non-voice segments: {len(non_voice_segments)} segments")
         chunked_segments.extend(non_voice_segments)
 
         chunked_segments.sort(key=lambda x: x["start"])
+        self.logger.info(
+            f"Final chunked segments: {len(chunked_segments)} segments (from original {len(result_segments)})"
+        )
 
         return chunked_segments
 
@@ -885,8 +903,6 @@ class SpeakerDiarizer:
 
         waveform, sample_rate = torchaudio.load(audio_path)
         waveform = waveform.mean(dim=0, keepdim=True)  # Convert to mono if needed
-
-        print(f"result_segments: {result_segments}")
 
         # 0. Chunk Korean segments
         if language == "ko":

@@ -38,7 +38,7 @@ def parse_args():
         "-m",
         "--model",
         default=DEFAULT_MODEL,
-        help=f"WhisperX model size (default: {DEFAULT_MODEL})",
+        help=f"Whisper model size (default: {DEFAULT_MODEL})",
     )
     parser.add_argument(
         "-d",

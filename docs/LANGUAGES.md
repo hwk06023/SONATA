@@ -6,7 +6,7 @@ nav_order: 5
 
 # Supported Languages
 
-SONATA leverages WhisperX (based on Whisper large-v3) to provide high-quality speech recognition across multiple languages with varying levels of transcription accuracy.
+SONATA leverages Whisper Large V3 to provide high-quality speech recognition across multiple languages with varying levels of transcription accuracy.
 
 ## Language Performance
 
@@ -100,7 +100,7 @@ Several factors influence transcription accuracy:
 
 The SONATA team continuously works to improve language support through:
 
-1. Integration of the latest WhisperX/Whisper models as they become available
+1. Integration of the latest Whisper models as they become available
 2. Fine-tuning for specific languages and domains
 3. Expanding audio event detection capabilities across languages
 4. Improved handling of code-switching (language mixing within a single audio file)

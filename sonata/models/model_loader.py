@@ -3,7 +3,13 @@ import logging
 import numpy as np
 import librosa
 from pathlib import Path
-from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
+from transformers import (
+    AutoFeatureExtractor,
+    AutoModelForAudioClassification,
+    AutoModelForSpeechSeq2Seq,
+    AutoProcessor,
+    pipeline,
+)
 
 
 def load_audioset(model_dir=None, device="cpu"):
@@ -90,3 +96,52 @@ def load_audioset(model_dir=None, device="cpu"):
     except Exception as e:
         logging.error(f"Failed to load AudioSet model: {str(e)}")
         raise
+
+
+def transcribe_with_model(audio_path, device="cpu", language=None):
+    """
+    Load Whisper Large V3 model for ASR and transcribe audio
+
+    Args:
+        audio_path: Path to the audio file to transcribe
+        device: Device to load model on ('cpu' or 'cuda')
+        language: Language code for transcription (e.g., 'en', 'ko'). If None, will use auto-detection.
+
+    Returns:
+        Transcription result
+    """
+    torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+
+    # TODO: Add support for other models
+    model_id = "openai/whisper-large-v3"
+
+    model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
+    )
+    model.to(device)
+
+    processor = AutoProcessor.from_pretrained(model_id)
+
+    pipe = pipeline(
+        "automatic-speech-recognition",
+        model=model,
+        tokenizer=processor.tokenizer,
+        feature_extractor=processor.feature_extractor,
+        torch_dtype=torch_dtype,
+        device=device,
+    )
+
+    # Set up parameters for transcription
+    transcription_kwargs = {}
+
+    # Add language parameter if specified - use direct language codes
+    if language:
+        transcription_kwargs["language"] = language
+
+    # Add timestamp parameter
+    transcription_kwargs["return_timestamps"] = True
+
+    # Run inference
+    result = pipe(audio_path, **transcription_kwargs)
+    print("Transcription result:", result["text"])
+    return result

@@ -16,7 +16,7 @@ SONATA(SOund and Narrative Advanced Transcription Assistant) is advanced ASR sys
 
 ## ✨ Features
 
-- 🎙️ High-accuracy speech-to-text transcription using WhisperX
+- 🎙️ High-accuracy speech-to-text transcription using Whisper Large V3
 - 😀 Recognition of 523+ emotive sounds and non-verbal cues
 - 🌍 Multi-language support with 99+ languages
 - 👥 SOTA speaker diarization using Silero VAD and WavLM embeddings
@@ -81,7 +81,7 @@ sonata-asr path/to/audio.wav --diarize --audio
 General:
   -o, --output FILE           Save transcript to specified JSON file
   -l, --language LANG         Language code (en, ko, zh, ja, fr, de, es, it, pt, ru)
-  -m, --model NAME            WhisperX model size (tiny, small, medium, large-v3, etc.)
+  -m, --model NAME            Whisper model size (tiny, small, medium, large-v3, etc.)
   -d, --device DEVICE         Device to run models on (cpu, cuda)
   --text-output               Save transcript to text file (defaults to input_name.txt)
   --preprocess                Preprocess audio (convert format and trim silence)
@@ -178,7 +178,7 @@ This project is licensed under the GNU General Public License v3.0.
 
 ## 🙏 Acknowledgements
 
-- [WhisperX](https://github.com/m-bain/whisperX) - Fast speech recognition
+- [Whisper](https://github.com/openai/whisper) - High-accuracy speech recognition
 - [AudioSet AST](https://github.com/YuanGongND/ast) - Audio event detection
   - [MIT/ast-finetuned-audioset-10-10-0.4593](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) - Pretrained model for audio event classification
 - [Silero VAD](https://github.com/snakers4/silero-vad) - Voice activity detection for speaker diarization

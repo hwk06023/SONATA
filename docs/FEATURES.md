@@ -11,7 +11,7 @@ SONATA offers a comprehensive suite of audio transcription and analysis features
 
 ## 🎙️ High-Accuracy Speech Recognition
 
-SONATA uses WhisperX, an enhanced version of Whisper that provides:
+SONATA uses Whisper Large V3 for speech recognition, providing:
 
 - State-of-the-art transcription accuracy across multiple languages
 - Word-level timestamps for precise text alignment

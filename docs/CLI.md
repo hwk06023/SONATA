@@ -32,7 +32,7 @@ This will transcribe the audio file using default settings and save the results 
 
 | Option | Description |
 |--------|-------------|
-| `-m, --model MODEL` | WhisperX model size to use: tiny, base, small, medium, large, large-v2, large-v3 (default: large-v3) |
+| `-m, --model MODEL` | Whisper model size to use: tiny, base, small, medium, large, large-v2, large-v3 (default: large-v3) |
 | `-d, --device DEVICE` | Device to run on: cpu, cuda, mps (default: cpu) |
 | `-e, --audio-model PATH` | Path to custom audio event detection model |
 | `-t, --threshold FLOAT` | Threshold for audio event detection (default: 0.5) |
