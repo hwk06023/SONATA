@@ -106,7 +106,7 @@ def parse_args():
     parser.add_argument(
         "--diarize",
         action="store_true",
-        help="Enable SOTA speaker diarization using Silero VAD and WavLM embeddings",
+        help="Enable SOTA speaker diarization using Silero VAD and NVIDIA TitaNet embeddings",
     )
     parser.add_argument(
         "--num-speakers",

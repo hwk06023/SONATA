@@ -4,9 +4,9 @@ import librosa
 import logging
 import os
 import re
-from transformers import Wav2Vec2FeatureExtractor, WavLMForXVector
 from typing import List, Dict, Optional, Tuple, Union
 import torchaudio
+import soundfile as sf
 from sklearn.cluster import AgglomerativeClustering, SpectralClustering, KMeans, Birch
 from sklearn.mixture import GaussianMixture
 from sklearn.metrics import silhouette_score, calinski_harabasz_score
@@ -19,6 +19,15 @@ from tqdm import tqdm
 import warnings
 import speechbrain as sb
 from konlpy.tag import Mecab
+
+# NeMo toolkit import
+try:
+    import nemo.collections.asr as nemo_asr
+except ImportError:
+    print(
+        "NeMo toolkit is not installed. Please install it using: pip install nemo_toolkit['all']"
+    )
+    nemo_asr = None
 
 # Filter PyTorch transformer attention warnings
 warnings.filterwarnings(
@@ -43,267 +52,51 @@ class SpeakerDiarizer:
         self._load_models()
 
     def _load_models(self):
-        self.logger.info("Loading diarization models...")
+        print("Loading diarization models...")
 
-        # WavLM XVector for speaker embeddings
-        self.wavlm_processor = Wav2Vec2FeatureExtractor.from_pretrained(
-            "microsoft/wavlm-base-plus-sv"
-        )
-        self.wavlm_model = WavLMForXVector.from_pretrained(
-            "microsoft/wavlm-base-plus-sv"
-        )
-        self.wavlm_model.to(self.device)
+        if nemo_asr is None:
+            raise ImportError(
+                "NeMo toolkit is required but not installed. Please install nemo_toolkit['all']"
+            )
 
-        # ECAPA-TDNN for better embeddings
         try:
-            self.ecapa_model = sb.inference.EncoderClassifier.from_hparams(
-                source="speechbrain/spkrec-ecapa-voxceleb",
-                savedir="pretrained_models/spkrec-ecapa-voxceleb",
-                run_opts={"device": self.device},
+            print("Loading NVIDIA TitaNet model using NeMo toolkit...")
+            # Load TitaNet model using NeMo toolkit for speaker embeddings
+            self.titanet_model = (
+                nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(
+                    "nvidia/speakerverification_en_titanet_large"
+                )
             )
-            self.has_ecapa_model = True
+
+            # Move model to appropriate device
+            if self.device == "cuda" and torch.cuda.is_available():
+                self.titanet_model = self.titanet_model.cuda()
+            else:
+                self.titanet_model = self.titanet_model.cpu()
+
+            print(f"Successfully loaded TitaNet model on {self.device}")
+            print(f"TitaNet model type: {type(self.titanet_model)}")
+
         except Exception as e:
-            self.logger.warning(f"Could not load ECAPA-TDNN model: {str(e)}")
-            self.has_ecapa_model = False
-
-    def _merge_close_segments(self, segments, gap_threshold=0.5):
-        """Merge segments that are separated by small gaps"""
-        if not segments:
-            return []
-
-        # Sort segments by start time
-        sorted_segments = sorted(segments, key=lambda x: x[0])
-
-        merged = []
-        current_start, current_end = sorted_segments[0]
-
-        for start, end in sorted_segments[1:]:
-            # If this segment starts soon after the previous one ends
-            if start - current_end <= gap_threshold:
-                # Extend the current segment
-                current_end = end
-            else:
-                # Add the current segment to results and start a new one
-                merged.append((current_start, current_end))
-                current_start, current_end = start, end
-
-        # Add the last segment
-        merged.append((current_start, current_end))
-
-        return merged
-
-    def _detect_speaker_changes(
-        self,
-        waveform,
-        sample_rate,
-        vad_segments,
-        window_size=0.75,  # Reduced for more precision
-        hop_size=0.35,  # Reduced for more granularity
-        show_progress=True,
-    ):
-        """Detect speaker changes within VAD segments using embedding similarity"""
-        if show_progress:
-            print("Detecting speaker changes...")
-
-        changes = []
-
-        # Create iterator with progress bar if needed
-        iterator = vad_segments
-        if show_progress:
-            iterator = tqdm(vad_segments, desc="Processing segments", unit="segment")
-
-        for start, end in iterator:
-            if end - start < window_size * 3:
-                continue
-
-            # Extract segment waveform
-            segment_start_sample = int(start * sample_rate)
-            segment_end_sample = int(end * sample_rate)
-            segment_waveform = waveform[segment_start_sample:segment_end_sample]
-
-            # Convert tensor to numpy if needed
-            if isinstance(segment_waveform, torch.Tensor):
-                segment_waveform = segment_waveform.cpu().numpy()
-
-            # Use embedding-based change detection for segments
-            emb_changes = self._detect_changes_with_embeddings(
-                segment_waveform, sample_rate, window_size, hop_size
-            )
-
-            # Convert local changes to global timeline
-            emb_changes = [start + t for t in emb_changes]
-
-            # Cluster close change points to avoid duplicates
-            changes.extend(self._cluster_change_points(emb_changes, threshold=0.35))
-
-        # Filter out changes too close to segment boundaries
-        filtered_changes = []
-        min_boundary_dist = 0.3
-
-        for change in changes:
-            is_near_boundary = False
-            for start, end in vad_segments:
-                if (
-                    abs(change - start) < min_boundary_dist
-                    or abs(change - end) < min_boundary_dist
-                ):
-                    is_near_boundary = True
-                    break
-            if not is_near_boundary:
-                filtered_changes.append(change)
-
-        if show_progress:
-            print(f"Detected {len(filtered_changes)} speaker change points")
-
-        return sorted(filtered_changes)
-
-    def _detect_changes_with_embeddings(
-        self, waveform, sample_rate, window_size, hop_size
-    ):
-        """Detect speaker changes using embedding similarity"""
-        if not self.has_ecapa_model:
-            return []
-
-        changes = []
-        duration = len(waveform) / sample_rate
-
-        # Skip if segment is too short
-        if duration < window_size * 2:
-            return []
-
-        # Create sliding windows
-        windows = []
-        for t in np.arange(0, duration - window_size, hop_size):
-            start_sample = int(t * sample_rate)
-            end_sample = int((t + window_size) * sample_rate)
-            if end_sample <= len(waveform):
-                windows.append((t, t + window_size, waveform[start_sample:end_sample]))
-
-        # Skip if too few windows
-        if len(windows) < 3:
-            return []
-
-        # Extract embeddings for each window
-        embeddings = []
-        for start_time, end_time, window_samples in windows:
-            try:
-                # Convert to tensor
-                if not isinstance(window_samples, torch.Tensor):
-                    window_tensor = torch.tensor(window_samples).float()
-                else:
-                    window_tensor = window_samples
-
-                # Make mono and apply correct shape
-                if len(window_tensor.shape) == 1:
-                    window_tensor = window_tensor.unsqueeze(0)
-
-                # Resample if needed
-                if sample_rate != 16000:
-                    window_tensor = torchaudio.functional.resample(
-                        window_tensor, sample_rate, 16000
-                    )
-
-                with torch.no_grad():
-                    embedding = self.ecapa_model.encode_batch(
-                        window_tensor.to(self.device)
-                    )
-                    embedding = embedding.squeeze().cpu().numpy()
-                    embeddings.append(embedding)
-            except Exception as e:
-                # If extraction fails, use a dummy embedding to maintain indices
-                embeddings.append(None)
-
-        # Check for distance between adjacent windows
-        for i in range(1, len(windows) - 1):
-            if embeddings[i - 1] is None or embeddings[i + 1] is None:
-                continue
-
-            # Compute distances
-            prev_dist = cosine(embeddings[i - 1], embeddings[i])
-            next_dist = cosine(embeddings[i], embeddings[i + 1])
-
-            # Check if this is a likely change point
-            if prev_dist > 0.15 and next_dist > 0.15:  # Tuned threshold
-                midpoint = (windows[i][0] + windows[i][1]) / 2
-                changes.append(midpoint)
-
-        return changes
-
-    def _cluster_change_points(self, change_points, threshold=0.35):
-        """Cluster change points that are close to each other"""
-        if not change_points:
-            return []
-        # Sort change points
-        sorted_changes = sorted(change_points)
-
-        # Cluster close change points
-        clusters = []
-        current_cluster = [sorted_changes[0]]
-
-        for point in sorted_changes[1:]:
-            if point - current_cluster[-1] < threshold:
-                current_cluster.append(point)
-            else:
-                # Add the average of the current cluster
-                clusters.append(sum(current_cluster) / len(current_cluster))
-                current_cluster = [point]
-
-        # Add the last cluster
-        if current_cluster:
-            clusters.append(sum(current_cluster) / len(current_cluster))
-
-        return clusters
+            print(f"Failed to load TitaNet model via NeMo: {str(e)}")
+            raise RuntimeError(f"Failed to load TitaNet model: {str(e)}")
 
     def _extract_embeddings(self, waveform, sample_rate, segments, show_progress=True):
-        """Extract speaker embeddings for each segment with multiple models"""
+        """Extract speaker embeddings for each segment using NeMo TitaNet model"""
         if show_progress:
-            print("Extracting speaker embeddings...")
+            print("Extracting speaker embeddings with TitaNet...")
 
         embeddings = []
         timings = []
-        wavlm_embeddings = []
-        ecapa_embeddings = []
 
         # Create iterator with progress bar if needed
         iterator = segments
         if show_progress:
             iterator = tqdm(segments, desc="Processing segments", unit="segment")
 
-        def stack_frames(
-            waveform_input, frame_length=512, frame_shift=160, stack_size=3
-        ):
-            if isinstance(waveform_input, torch.Tensor):
-                waveform_np = waveform_input.cpu().numpy()
-            else:
-                waveform_np = waveform_input
-
-            # Skip stacking if the segment is too short
-            if len(waveform_np) < frame_length + (stack_size - 1) * frame_shift:
-                return waveform_input
-
-            frames = []
-            for i in range(0, len(waveform_np) - frame_length + 1, frame_shift):
-                frame = waveform_np[i : i + frame_length]
-                frames.append(frame)
-
-            if len(frames) < stack_size:
-                return waveform_input
-
-            stacked_frames = []
-            for i in range(len(frames) - stack_size + 1):
-                stacked_frame = np.concatenate(frames[i : i + stack_size])
-                stacked_frames.append(stacked_frame)
-
-            stacked_waveform = np.concatenate(stacked_frames)
-
-            if isinstance(waveform_input, torch.Tensor):
-                stacked_waveform = torch.tensor(
-                    stacked_waveform,
-                    device=waveform_input.device,
-                    dtype=waveform_input.dtype,
-                )
-
-            return stacked_waveform
+        errors_count = 0  # Track number of errors for reporting
+        temp_dir = os.path.join(os.getcwd(), "temp_audio_segments")
+        os.makedirs(temp_dir, exist_ok=True)
 
         for start, end in iterator:
             start_sample = int(start * sample_rate)
@@ -319,60 +112,94 @@ class SpeakerDiarizer:
 
             segment_waveform = waveform[start_sample:end_sample]
 
-            # Resample if needed
-            if sample_rate != 16000:
-                if isinstance(segment_waveform, torch.Tensor):
-                    segment_waveform = torchaudio.functional.resample(
-                        segment_waveform, sample_rate, 16000
-                    )
-                else:
-                    segment_waveform = librosa.resample(
-                        segment_waveform, orig_sr=sample_rate, target_sr=16000
-                    )
-
-            # Apply frame stacking to improve embedding quality for short utterances
-            stacked_segment_waveform = stack_frames(segment_waveform)
-            wavlm_embedding = None
+            # Skip very short segments as they might cause issues
+            if len(segment_waveform) < 1600:  # Less than 0.1s at 16kHz
+                if show_progress:
+                    print(f"Skipping segment {start}-{end} as it's too short")
+                continue
 
             try:
-                if isinstance(stacked_segment_waveform, torch.Tensor):
-                    segment_waveform_np = stacked_segment_waveform.cpu().numpy()
+                # Resample if needed
+                if sample_rate != 16000:
+                    if isinstance(segment_waveform, torch.Tensor):
+                        segment_waveform = torchaudio.functional.resample(
+                            segment_waveform, sample_rate, 16000
+                        )
+                    else:
+                        segment_waveform = librosa.resample(
+                            segment_waveform, orig_sr=sample_rate, target_sr=16000
+                        )
+
+                # Convert segment to numpy if it's a tensor
+                if isinstance(segment_waveform, torch.Tensor):
+                    segment_waveform_np = segment_waveform.cpu().numpy()
                 else:
-                    segment_waveform_np = stacked_segment_waveform
+                    segment_waveform_np = segment_waveform
 
-                inputs = self.wavlm_processor(
-                    segment_waveform_np, sampling_rate=16000, return_tensors="pt"
-                )
-                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                # NeMo TitaNet model requires a temporary WAV file
+                temp_wav = os.path.join(temp_dir, f"segment_{start}_{end}.wav")
 
+                # Save segment as a WAV file - ensure it's in the right format
+                sample_rate_16k = 16000
+                if segment_waveform_np.ndim == 1:
+                    # Ensure audio is mono and has the right shape for torchaudio.save
+                    audio_data = segment_waveform_np.reshape(1, -1)
+                    torchaudio.save(temp_wav, torch.tensor(audio_data), sample_rate_16k)
+                else:
+                    torchaudio.save(
+                        temp_wav, torch.tensor(segment_waveform_np), sample_rate_16k
+                    )
+
+                # Extract embedding using NeMo's TitaNet model
                 with torch.no_grad():
-                    outputs = self.wavlm_model(**inputs)
-                    wavlm_embedding = outputs.embeddings.cpu().numpy().squeeze()
-                    wavlm_embeddings.append(wavlm_embedding)
+                    embedding = self.titanet_model.get_embedding(temp_wav)
+
+                    # Convert to numpy and normalize
+                    embedding = embedding.cpu().numpy()
+                    embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
+
+                    embeddings.append(embedding)
+                    timings.append((start, end))
+
+                # Clean up the temporary file
+                if os.path.exists(temp_wav):
+                    os.remove(temp_wav)
+
             except Exception as e:
-                self.logger.warning(
-                    f"Failed to extract WavLM embedding for segment {start}-{end}: {str(e)}"
-                )
-
-            # If WavLM embedding was extracted, add the timing
-            if wavlm_embedding is not None:
-                timings.append((start, end))
-
-        # Always use WavLM embeddings
-        embeddings = wavlm_embeddings
-        if show_progress:
-            print(f"Using WavLM embeddings for {len(embeddings)} segments")
-            if len(embeddings) > 0:
-                print(f"WavLM embedding shape: {np.array(embeddings).shape}")
-                print(f"WavLM embedding type: {type(embeddings[0])}")
-                print(f"WavLM embedding sample (first 5 values): {embeddings[0][:5]}")
+                errors_count += 1
                 print(
-                    f"WavLM embedding stats - min: {np.min(embeddings):.4f}, max: {np.max(embeddings):.4f}, mean: {np.mean(embeddings):.4f}"
+                    f"Failed to extract TitaNet embedding for segment {start}-{end}: {str(e)}"
                 )
+                # Only log detailed error for the first few failures
+                if errors_count <= 3:
+                    print(f"Detailed error: {str(e)}")
+                # Skip this segment and continue
+                continue
+
+        # Clean up temp directory if it's empty
+        try:
+            if len(os.listdir(temp_dir)) == 0:
+                os.rmdir(temp_dir)
+        except:
+            pass
 
         if show_progress:
-            print(f"Extracted {len(embeddings)} speaker embeddings")
-            print(f"Final embeddings array shape: {np.array(embeddings).shape}")
+            print(
+                f"Using TitaNet embeddings for {len(embeddings)} segments (errors: {errors_count})"
+            )
+            if len(embeddings) > 0:
+                embeddings_array = np.array(embeddings)
+                print(f"TitaNet embedding shape: {embeddings_array.shape}")
+                print(f"TitaNet embedding type: {type(embeddings[0])}")
+                print(f"TitaNet embedding sample (first 5 values): {embeddings[0][:5]}")
+                print(
+                    f"TitaNet embedding stats - min: {np.min(embeddings_array):.4f}, max: {np.max(embeddings_array):.4f}, mean: {np.mean(embeddings_array):.4f}"
+                )
+
+        if len(embeddings) == 0:
+            print("Failed to extract any speaker embeddings")
+            if errors_count > 0:
+                print(f"Encountered {errors_count} errors during embedding extraction")
 
         return np.array(embeddings), timings
 
