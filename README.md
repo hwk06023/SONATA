@@ -89,6 +89,7 @@ General:
 Diarization:
   --diarize                   Enable SOTA speaker diarization using Silero VAD and WavLM
   --num-speakers NUM          Set exact number of speakers (optional)
+  --diarize-model MODEL       Speaker embedding model (titanet, wavlm-base-plus-sv)
 
 Audio Events:
   --audio                     Enable audio event detection
@@ -123,12 +124,15 @@ SONATA can detect over 500 different audio events, from laughter and applause to
 
 ## 👥 Speaker Diarization
 
-SONATA provides state-of-the-art speaker diarization to identify and separate different speakers in recordings. The system uses Silero VAD for speech detection and WavLM embeddings for speaker identification, making it ideal for transcribing multi-speaker content like meetings, interviews, and podcasts.
+SONATA provides state-of-the-art speaker diarization to identify and separate different speakers in recordings. The system supports multiple speaker embedding models, including NVIDIA's TitaNet (default) and Microsoft's WavLM, combined with Silero VAD for speech detection, making it ideal for transcribing multi-speaker content like meetings, interviews, and podcasts.
 
 Using speaker diarization is simple:
 ```bash
-# Basic diarization
+# Basic diarization (uses TitaNet by default)
 sonata-asr path/to/audio.wav --diarize
+
+# Use Microsoft WavLM model for better speaker embedding
+sonata-asr path/to/audio.wav --diarize --diarize-model wavlm-base-plus-sv
 
 # Set number of speakers if known
 sonata-asr path/to/audio.wav --diarize --num-speakers 3
