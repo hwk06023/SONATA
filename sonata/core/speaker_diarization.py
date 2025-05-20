@@ -329,20 +329,15 @@ class SpeakerDiarizer:
             np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
         )
 
-        # Apply dimension reduction - consider different dimensions for WavLM and TitaNet
+        # Apply dimension reduction - only for TitaNet, preserve WavLM's original dimensions
         embedding_dim = norm_embeddings.shape[1]
         if len(norm_embeddings) > 50:
             if self.model_type == "wavlm-base-plus-sv":
-                # For WavLM with larger dimensions, reduce more aggressively
-                pca_components = min(128, embedding_dim)
-                pca = PCA(n_components=pca_components, random_state=42)
-                norm_embeddings = pca.fit_transform(norm_embeddings)
+                # Do not apply PCA for WavLM, preserve all 768 dimensions
                 if show_progress:
-                    print(
-                        f"Applied PCA for WavLM: {embedding_dim} -> {pca_components} dimensions"
-                    )
+                    print(f"Preserving original WavLM dimensions: {embedding_dim}")
             else:
-                # Maintain existing approach for TitaNet
+                # Apply PCA for TitaNet as before
                 pca = PCA(n_components=min(64, embedding_dim), random_state=42)
                 norm_embeddings = pca.fit_transform(norm_embeddings)
                 if show_progress:
