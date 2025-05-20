@@ -594,8 +594,7 @@ class SpeakerDiarizer:
 
         mecab = Mecab()
         chunked_segments = []
-        current_chunk = None
-        pending_segments = []
+        processed_indices = set()
         all_morphs = []
 
         for segment in voice_segments:
@@ -605,53 +604,64 @@ class SpeakerDiarizer:
             all_morphs.append((segment, morphs))
 
         self.logger.info(f"Analyzing {len(all_morphs)} segments for chunking")
+
         i = 0
         while i < len(all_morphs):
-            segment, morphs = all_morphs[i]
-
-            if current_chunk is None:
-                current_chunk = {
-                    "start": segment["start"],
-                    "end": segment["end"],
-                    "content": segment["content"],
-                    "type": segment["type"],
-                }
-                self.logger.debug(f"Starting new chunk: {current_chunk}")
+            if i in processed_indices:
                 i += 1
                 continue
 
-            should_merge = False
+            segment, morphs = all_morphs[i]
+            current_chunk = {
+                "start": segment["start"],
+                "end": segment["end"],
+                "content": segment["content"],
+                "type": segment["type"],
+            }
+            processed_indices.add(i)
 
-            if i + 1 < len(all_morphs):
-                next_segment, next_morphs = all_morphs[i + 1]
-                should_merge = self._check_grammatical_connection(morphs, next_morphs)
-                self.logger.debug(
-                    f"Checking connection between '{segment['content']}' and '{next_segment['content']}': {should_merge}"
+            # Look ahead for segments to merge
+            j = i + 1
+            while j < len(all_morphs):
+                if j in processed_indices:
+                    j += 1
+                    continue
+
+                prev_segment, prev_morphs = all_morphs[j - 1]
+                next_segment, next_morphs = all_morphs[j]
+
+                # Check time gap between segments
+                time_gap = next_segment["start"] - prev_segment["end"]
+                if time_gap > 0.5:
+                    print(
+                        f"Skipping chunking due to large time gap (>{0.5}s): '{prev_segment['content']}' -> '{next_segment['content']}'"
+                    )
+                    break
+
+                should_merge = self._check_grammatical_connection(
+                    prev_morphs, next_morphs
                 )
 
-            if should_merge:
-                old_content = current_chunk["content"]
-                current_chunk["end"] = next_segment["end"]
-                current_chunk["content"] += " " + next_segment["content"]
-                self.logger.debug(
-                    f"Merged chunk: '{old_content}' + '{next_segment['content']}' = '{current_chunk['content']}'"
-                )
-                i += 1
-            else:
-                self.logger.debug(f"Saving chunk: {current_chunk}")
-                chunked_segments.append(current_chunk)
-                current_chunk = None
+                if should_merge:
+                    current_chunk["end"] = next_segment["end"]
+                    current_chunk["content"] += " " + next_segment["content"]
+                    processed_indices.add(j)
+                    print(f"Merged: '{current_chunk['content']}'")
+                    j += 1
+                else:
+                    break
 
-        if current_chunk is not None:
-            self.logger.debug(f"Saving final chunk: {current_chunk}")
             chunked_segments.append(current_chunk)
+            i = j if j > i + 1 else i + 1
 
+        # Add non-voice segments
         non_voice_segments = [
             seg for seg in result_segments if seg.get("type") != "voice"
         ]
         self.logger.info(f"Non-voice segments: {len(non_voice_segments)} segments")
         chunked_segments.extend(non_voice_segments)
 
+        # Sort all segments by start time
         chunked_segments.sort(key=lambda x: x["start"])
         self.logger.info(
             f"Final chunked segments: {len(chunked_segments)} segments (from original {len(result_segments)})"
@@ -708,6 +718,416 @@ class SpeakerDiarizer:
 
         return False
 
+    def _merge_short_segments(self, segments: List[Dict]) -> List[Dict]:
+        """
+        Merge segments shorter than 0.2 seconds with adjacent segments based on linguistic features
+        Also handles demonstrative pronouns for short segments
+
+        Args:
+            segments: List containing speech segments
+                [{'start': float, 'end': float, 'content': str, 'type': str}, ...]
+
+        Returns:
+            List of merged segments
+        """
+        if not segments or len(segments) <= 1:
+            return segments
+
+        print(f"Starting short segment merging: {len(segments)} segments")
+
+        # Filter to voice segments only
+        voice_segments = [
+            seg for seg in segments if seg.get("type") == "voice" and "content" in seg
+        ]
+        non_voice_segments = [
+            seg
+            for seg in segments
+            if seg.get("type") != "voice" or "content" not in seg
+        ]
+
+        # Sort by start time to ensure correct processing
+        voice_segments.sort(key=lambda x: x["start"])
+
+        # Initialize mecab for morphological analysis
+        mecab = Mecab()
+
+        # Define special words for handling
+        demonstrative_pronouns = ["이거", "저거", "그거", "여기", "저기", "거기"]
+        interjections = ["아", "어", "음", "응", "네", "예", "에", "엄", "흠", "헉", "아니", "맞아"]
+
+        # Identify short segments
+        short_segments_indices = []
+        for i, segment in enumerate(voice_segments):
+            if segment["end"] - segment["start"] <= 0.2:
+                short_segments_indices.append(i)
+
+        print(f"Found {len(short_segments_indices)} short segments to merge")
+
+        # Process until no more short segments or no changes
+        while short_segments_indices:
+            # Start with the earliest short segment
+            short_segments_indices.sort(key=lambda i: voice_segments[i]["start"])
+            current_short_idx = short_segments_indices.pop(0)
+
+            # Skip if this segment was already removed in a previous merge
+            if current_short_idx >= len(voice_segments):
+                continue
+
+            current = voice_segments[current_short_idx]
+
+            # Skip if segment duration now exceeds 0.2 seconds
+            # (might happen due to previous merges)
+            if current["end"] - current["start"] > 0.2:
+                print(
+                    f"Skipping segment {current_short_idx} as duration now exceeds 0.2s: '{current['content']}'"
+                )
+                continue
+
+            current_morphs = mecab.pos(current["content"])
+            current_content = current["content"].strip()
+            current_duration = current["end"] - current["start"]
+
+            # Special case: first segment
+            if current_short_idx == 0 and len(voice_segments) > 1:
+                next_seg = voice_segments[1]
+
+                # Check for large time gap
+                if next_seg["start"] - current["end"] >= 1.0:
+                    print(
+                        f"Skipping merge due to large time gap (≥1s): '{current_content}' -> '{next_seg['content']}'"
+                    )
+                    continue
+
+                merged_seg = {
+                    "start": current["start"],
+                    "end": next_seg["end"],
+                    "content": current["content"] + " " + next_seg["content"],
+                    "type": "voice",
+                }
+
+                # Replace with merged segment
+                voice_segments.pop(1)  # Remove next
+                voice_segments[0] = merged_seg  # Replace current with merged
+
+                # Update indices of remaining short segments
+                short_segments_indices = [
+                    i - 1 if i > 1 else i for i in short_segments_indices
+                ]
+
+                continue
+
+            # Special case: last segment
+            if current_short_idx == len(voice_segments) - 1 and len(voice_segments) > 1:
+                prev_seg = voice_segments[current_short_idx - 1]
+
+                # Check for large time gap
+                if current["start"] - prev_seg["end"] >= 1.0:
+                    print(
+                        f"Skipping merge due to large time gap (≥1s): '{prev_seg['content']}' -> '{current_content}'"
+                    )
+                    continue
+
+                merged_seg = {
+                    "start": prev_seg["start"],
+                    "end": current["end"],
+                    "content": prev_seg["content"] + " " + current["content"],
+                    "type": "voice",
+                }
+
+                # Replace with merged segment
+                voice_segments.pop(current_short_idx)  # Remove current
+                voice_segments[
+                    current_short_idx - 1
+                ] = merged_seg  # Replace prev with merged
+
+                # Update indices of remaining short segments
+                short_segments_indices = [
+                    i if i < current_short_idx else i - 1
+                    for i in short_segments_indices
+                ]
+
+                continue
+
+            # Regular case: compare with previous and next
+            if current_short_idx > 0 and current_short_idx < len(voice_segments) - 1:
+                prev_seg = voice_segments[current_short_idx - 1]
+                next_seg = voice_segments[current_short_idx + 1]
+
+                # Calculate time gaps with adjacent segments
+                prev_gap = current["start"] - prev_seg["end"]
+                next_gap = next_seg["start"] - current["end"]
+
+                # Initialize scores with a default value for very short segments
+                # This encourages merging of very short segments even with weaker connections
+                prev_score = (
+                    0.5 if current_duration <= 0.1 else 0
+                )  # Bias for very short segments
+                next_score = (
+                    0.5 if current_duration <= 0.1 else 0
+                )  # Bias for very short segments
+
+                # Only consider merging if gap is less than 1 second
+                if prev_gap < 1.0:
+                    prev_morphs = mecab.pos(prev_seg["content"])
+                    prev_score += self._calculate_connection_score(
+                        prev_morphs, current_morphs
+                    )
+
+                    # Boost score for continuous segments (no gap)
+                    if abs(prev_gap) < 0.01:
+                        prev_score += 1.0
+
+                    # Additional score for similar duration segments
+                    prev_duration = prev_seg["end"] - prev_seg["start"]
+                    if abs(prev_duration - current_duration) < 0.1:
+                        prev_score += 0.5
+                else:
+                    print(
+                        f"Large gap (≥1s) with previous segment: '{prev_seg['content']}' -> '{current_content}'"
+                    )
+
+                if next_gap < 1.0:
+                    next_morphs = mecab.pos(next_seg["content"])
+                    next_score += self._calculate_connection_score(
+                        current_morphs, next_morphs
+                    )
+
+                    # Boost score for continuous segments (no gap)
+                    if abs(next_gap) < 0.01:
+                        next_score += 1.0
+
+                    # Additional score for similar duration segments
+                    next_duration = next_seg["end"] - next_seg["start"]
+                    if abs(next_duration - current_duration) < 0.1:
+                        next_score += 0.5
+                else:
+                    print(
+                        f"Large gap (≥1s) with next segment: '{current_content}' -> '{next_seg['content']}'"
+                    )
+
+                # Get content of segments
+                prev_content = prev_seg["content"].strip()
+                next_content = next_seg["content"].strip()
+
+                # Special case: interjection + demonstrative pronoun combination
+                # Example: "아" + "그거" should be merged, or "어" + "이거" should be merged
+                if next_gap < 1.0 and (
+                    current_content in interjections
+                    and next_content.split()[0] in demonstrative_pronouns
+                ):
+                    next_score += 5.0
+                    print(
+                        f"Strongly boosting connection for interjection+demonstrative: '{current_content}' + '{next_content}'"
+                    )
+                elif prev_gap < 1.0 and (
+                    current_content in demonstrative_pronouns
+                    and prev_content.split()[-1] in interjections
+                ):
+                    prev_score += 5.0
+                    print(
+                        f"Strongly boosting connection for interjection+demonstrative: '{prev_content}' + '{current_content}'"
+                    )
+
+                # Additional heuristics for interjections
+                elif next_gap < 1.0 and current_content in interjections:
+                    # Interjections typically connect more with what follows
+                    next_score += 2.0
+
+                # Check for demonstrative pronouns in current segment
+                elif next_gap < 1.0 and (
+                    current_content in demonstrative_pronouns
+                    or (
+                        len(current_content.split()) > 0
+                        and current_content.split()[-1] in demonstrative_pronouns
+                    )
+                ):
+                    # Demonstrative pronouns connect strongly with the next segment
+                    next_score += 4.0
+                    print(
+                        f"Boosting next connection for demonstrative: '{current_content}'"
+                    )
+
+                # Additional linguistic heuristics for common Korean patterns
+                # Short endings like '요', '죠', '네' often connect with both sides
+                if len(current_content) <= 3 and (
+                    current_content.endswith("요")
+                    or current_content.endswith("죠")
+                    or current_content.endswith("네")
+                ):
+                    # Check previous for noun or adjective
+                    if prev_gap < 1.0 and any(
+                        pos.startswith("N") or pos.startswith("VA")
+                        for word, pos in prev_morphs
+                    ):
+                        prev_score += 2.0
+                        print(
+                            f"Boosting prev connection for ending pattern: '{prev_content}' + '{current_content}'"
+                        )
+
+                # Very short segments (1-2 syllables) generally need merging
+                if len(current_content) <= 2 and current_duration <= 0.15:
+                    # Boost both scores to ensure it gets merged somewhere
+                    base_boost = 1.5
+                    prev_score += base_boost
+                    next_score += base_boost
+                    print(
+                        f"Boosting both connections for very short segment: '{current_content}'"
+                    )
+
+                # Merge with segment that has higher linguistic connection
+                if prev_score >= next_score and prev_score > 0:
+                    # Merge with previous
+                    merged_seg = {
+                        "start": prev_seg["start"],
+                        "end": current["end"],
+                        "content": prev_seg["content"] + " " + current["content"],
+                        "type": "voice",
+                    }
+
+                    print(
+                        f"Merging with previous: '{prev_content}' + '{current_content}' (scores: prev={prev_score:.1f}, next={next_score:.1f})"
+                    )
+
+                    # Replace with merged segment
+                    voice_segments.pop(current_short_idx)  # Remove current
+                    voice_segments[
+                        current_short_idx - 1
+                    ] = merged_seg  # Replace prev with merged
+
+                    # If the merged segment is still short, keep it in the list for further processing
+                    if (
+                        merged_seg["end"] - merged_seg["start"] <= 0.2
+                        and current_short_idx - 1 not in short_segments_indices
+                    ):
+                        short_segments_indices.append(current_short_idx - 1)
+
+                    # Update indices of remaining short segments
+                    short_segments_indices = [
+                        i if i < current_short_idx else i - 1
+                        for i in short_segments_indices
+                    ]
+                elif next_score > 0:
+                    # Merge with next
+                    merged_seg = {
+                        "start": current["start"],
+                        "end": next_seg["end"],
+                        "content": current["content"] + " " + next_seg["content"],
+                        "type": "voice",
+                    }
+
+                    print(
+                        f"Merging with next: '{current_content}' + '{next_content}' (scores: prev={prev_score:.1f}, next={next_score:.1f})"
+                    )
+
+                    # Replace with merged segment
+                    voice_segments.pop(current_short_idx + 1)  # Remove next
+                    voice_segments[
+                        current_short_idx
+                    ] = merged_seg  # Replace current with merged
+
+                    # If the merged segment is still short, keep it in the list for further processing
+                    if (
+                        merged_seg["end"] - merged_seg["start"] <= 0.2
+                        and current_short_idx not in short_segments_indices
+                    ):
+                        short_segments_indices.append(current_short_idx)
+
+                    # Update indices of remaining short segments
+                    short_segments_indices = [
+                        i if i <= current_short_idx else i - 1
+                        for i in short_segments_indices
+                    ]
+                else:
+                    # Don't merge if both scores are 0 (large gaps on both sides)
+                    print(
+                        f"Not merging segment '{current_content}' due to large gaps on both sides"
+                    )
+
+        # Final pass: check for overlapping segments and remove duplicates
+        i = 0
+        while i < len(voice_segments) - 1:
+            current = voice_segments[i]
+            next_seg = voice_segments[i + 1]
+
+            # Check for time overlap
+            if current["end"] > next_seg["start"]:
+                # Take the longer segment
+                if (next_seg["end"] - next_seg["start"]) > (
+                    current["end"] - current["start"]
+                ):
+                    voice_segments.pop(i)  # Remove current
+                else:
+                    voice_segments.pop(i + 1)  # Remove next
+                # Don't increment i as we need to check the next pair
+            else:
+                i += 1
+
+        # Combine voice and non-voice segments and sort by start time
+        result_segments = voice_segments + non_voice_segments
+        result_segments.sort(key=lambda x: x["start"])
+
+        print(f"After merging short segments: {len(result_segments)} segments")
+        return result_segments
+
+    def _calculate_connection_score(
+        self, morphs1: List[Tuple[str, str]], morphs2: List[Tuple[str, str]]
+    ) -> float:
+        """
+        Calculate linguistic connection score between two morpheme sequences
+
+        Args:
+            morphs1: First sequence's morpheme analysis [(word, part_of_speech), ...]
+            morphs2: Second sequence's morpheme analysis [(word, part_of_speech), ...]
+
+        Returns:
+            Connection score (higher means stronger connection)
+        """
+        if not morphs1 or not morphs2:
+            return 0.0
+
+        score = 0.0
+
+        # Basic grammatical connection from existing function
+        if self._check_grammatical_connection(morphs1, morphs2):
+            score += 2.0
+
+        # Additional scoring for specific Korean language patterns
+        last_word = morphs1[-1][0] if morphs1 else ""
+        last_pos = morphs1[-1][1] if morphs1 else ""
+        first_pos = morphs2[0][1] if morphs2 else ""
+
+        # Subject + Verb/Adjective connection is very strong
+        if last_pos == "JKS" and (
+            first_pos.startswith("V") or first_pos.startswith("VA")
+        ):
+            score += 3.0
+
+        # Incomplete predicate ending + continuation
+        if last_pos.startswith("E") and not last_pos == "EF":
+            score += 2.5
+
+        # Modifier + Noun connection
+        if (last_pos == "MM" or last_pos == "ETM") and first_pos.startswith("N"):
+            score += 2.0
+
+        # Conjunction + any continuation
+        if last_pos == "MAJ":
+            score += 1.5
+
+        # Noun + Postposition connection
+        if last_pos.startswith("N") and first_pos.startswith("J"):
+            score += 2.0
+
+        # Named entity continuation
+        if last_pos == "NNP" and first_pos == "NNP":
+            score += 2.5
+
+        # Quotation marker + quotation content
+        if (last_pos == "JKQ" or last_pos == "VCP") and first_pos.startswith("V"):
+            score += 1.5
+
+        return score
+
     def diarize(
         self,
         audio_path,
@@ -743,6 +1163,9 @@ class SpeakerDiarizer:
         # 0. Chunk Korean segments
         if language == "ko":
             result_segments = self._chunk_korean_segments(result_segments)
+            result_segments = self._merge_short_segments(result_segments)
+
+        print(f"After chunking and merging:{result_segments}")
 
         # 1. Create analysis segments based on input method
         if result_segments:
