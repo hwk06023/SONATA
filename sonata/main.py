@@ -118,6 +118,12 @@ def parse_args():
         action="store_true",
         help="Save intermediate output files for each diarization step for analysis",
     )
+    parser.add_argument(
+        "--diarize-model",
+        default="titanet",
+        choices=["titanet", "wavlm-base-plus-sv"],
+        help="Speaker embedding model for diarization (default: titanet)",
+    )
 
     # Deep detection option
     parser.add_argument(
@@ -350,6 +356,7 @@ def process_file(transcriber, input_path, output_path, args):
                 num_speakers=args.num_speakers,
                 save_diarization_steps=args.save_steps if args.diarize else False,
                 detect_audio_events=args.audio,
+                diarize_model=args.diarize_model,
             )
 
             # Add segment info
@@ -398,6 +405,7 @@ def process_file(transcriber, input_path, output_path, args):
             num_speakers=args.num_speakers,
             save_diarization_steps=args.save_steps if args.diarize else False,
             detect_audio_events=args.audio,
+            diarize_model=args.diarize_model,
         )
 
         # Save result

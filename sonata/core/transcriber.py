@@ -88,6 +88,7 @@ class IntegratedTranscriber:
         num_speakers: Optional[int] = None,
         save_diarization_steps: bool = False,
         detect_audio_events: bool = False,
+        diarize_model: str = "titanet",
     ) -> Dict:
         """Process audio to get transcription with audio events integrated.
 
@@ -100,6 +101,7 @@ class IntegratedTranscriber:
             num_speakers: Number of speakers for diarization (optional)
             save_diarization_steps: Whether to save intermediate outputs for each diarization step
             detect_audio_events: Whether to perform audio event detection
+            diarize_model: Speaker embedding model for diarization (default: titanet)
 
         Returns:
             Dictionary containing the complete transcription results
@@ -200,11 +202,13 @@ class IntegratedTranscriber:
         if diarize:
             self.logger.info("Running speaker diarization...")
             try:
-                # Initialize diarizer
-                diarizer = SpeakerDiarizer(device=self.device)
+                # Initialize diarizer with specified model
+                diarizer = SpeakerDiarizer(device=self.device, model_type=diarize_model)
 
                 # Use word timestamps from ASR to improve diarization
-                self.logger.info("Using ASR word timestamps to assist with diarization")
+                self.logger.info(
+                    f"Using ASR word timestamps to assist with diarization (model: {diarize_model})"
+                )
                 diarize_segments = diarizer.diarize(
                     audio_path=audio_path,
                     num_speakers=num_speakers,
@@ -212,6 +216,7 @@ class IntegratedTranscriber:
                     save_steps=save_diarization_steps,
                     result_segments=result_segments,
                     language=language,
+                    model_type=diarize_model,
                 )
 
                 # Convert speaker segments to the format expected by assign_word_speakers

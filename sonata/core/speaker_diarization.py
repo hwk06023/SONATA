@@ -46,45 +46,69 @@ class SpeakerSegment:
 
 
 class SpeakerDiarizer:
-    def __init__(self, device="cpu"):
+    def __init__(self, device="cpu", model_type="titanet"):
         self.device = device
+        self.model_type = model_type
         self.logger = logging.getLogger(__name__)
         self._load_models()
 
     def _load_models(self):
         print("Loading diarization models...")
 
-        if nemo_asr is None:
-            raise ImportError(
-                "NeMo toolkit is required but not installed. Please install nemo_toolkit['all']"
-            )
+        if self.model_type == "wavlm-base-plus-sv":
+            try:
+                import torch
+                from transformers import AutoFeatureExtractor, AutoModel
 
-        try:
-            print("Loading NVIDIA TitaNet model using NeMo toolkit...")
-            # Load TitaNet model using NeMo toolkit for speaker embeddings
-            self.titanet_model = (
-                nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(
-                    "nvidia/speakerverification_en_titanet_large"
+                print("Loading Microsoft WavLM-Base-Plus-SV model...")
+                self.wavlm_processor = AutoFeatureExtractor.from_pretrained(
+                    "microsoft/wavlm-base-plus-sv"
                 )
-            )
+                self.wavlm_model = AutoModel.from_pretrained(
+                    "microsoft/wavlm-base-plus-sv"
+                )
+                if self.device == "cuda" and torch.cuda.is_available():
+                    self.wavlm_model = self.wavlm_model.cuda()
+                else:
+                    self.wavlm_model = self.wavlm_model.cpu()
+                print(f"Successfully loaded WavLM model on {self.device}")
+            except Exception as e:
+                print(f"Failed to load WavLM model: {str(e)}")
+                print("Falling back to TitaNet model")
+                self.model_type = "titanet"
 
-            # Move model to appropriate device
-            if self.device == "cuda" and torch.cuda.is_available():
-                self.titanet_model = self.titanet_model.cuda()
-            else:
-                self.titanet_model = self.titanet_model.cpu()
+        if self.model_type == "titanet":
+            if nemo_asr is None:
+                raise ImportError(
+                    "NeMo toolkit is required but not installed. Please install nemo_toolkit['all']"
+                )
 
-            print(f"Successfully loaded TitaNet model on {self.device}")
-            print(f"TitaNet model type: {type(self.titanet_model)}")
+            try:
+                print("Loading NVIDIA TitaNet model using NeMo toolkit...")
+                # Load TitaNet model using NeMo toolkit for speaker embeddings
+                self.titanet_model = (
+                    nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(
+                        "nvidia/speakerverification_en_titanet_large"
+                    )
+                )
 
-        except Exception as e:
-            print(f"Failed to load TitaNet model via NeMo: {str(e)}")
-            raise RuntimeError(f"Failed to load TitaNet model: {str(e)}")
+                # Move model to appropriate device
+                if self.device == "cuda" and torch.cuda.is_available():
+                    self.titanet_model = self.titanet_model.cuda()
+                else:
+                    self.titanet_model = self.titanet_model.cpu()
+
+                print(f"Successfully loaded TitaNet model on {self.device}")
+                print(f"TitaNet model type: {type(self.titanet_model)}")
+
+            except Exception as e:
+                print(f"Failed to load TitaNet model via NeMo: {str(e)}")
+                raise RuntimeError(f"Failed to load TitaNet model: {str(e)}")
 
     def _extract_embeddings(self, waveform, sample_rate, segments, show_progress=True):
         """Extract speaker embeddings for each segment using NeMo TitaNet model"""
         if show_progress:
-            print("Extracting speaker embeddings with TitaNet...")
+            print(f"Extracting speaker embeddings with {self.model_type}...")
 
         embeddings = []
         timings = []
@@ -136,13 +160,10 @@ class SpeakerDiarizer:
                 else:
                     segment_waveform_np = segment_waveform
 
-                # NeMo TitaNet model requires a temporary WAV file
+                # Create temp WAV file
                 temp_wav = os.path.join(temp_dir, f"segment_{start}_{end}.wav")
-
-                # Save segment as a WAV file - ensure it's in the right format
                 sample_rate_16k = 16000
                 if segment_waveform_np.ndim == 1:
-                    # Ensure audio is mono and has the right shape for torchaudio.save
                     audio_data = segment_waveform_np.reshape(1, -1)
                     torchaudio.save(temp_wav, torch.tensor(audio_data), sample_rate_16k)
                 else:
@@ -150,18 +171,31 @@ class SpeakerDiarizer:
                         temp_wav, torch.tensor(segment_waveform_np), sample_rate_16k
                     )
 
-                # Extract embedding using NeMo's TitaNet model
-                with torch.no_grad():
-                    embedding = self.titanet_model.get_embedding(temp_wav)
+                # Extract embedding using selected model
+                if self.model_type == "wavlm-base-plus-sv":
+                    # Use WavLM model
+                    with torch.no_grad():
+                        audio_input, sr = torchaudio.load(temp_wav)
+                        inputs = self.wavlm_processor(
+                            audio_input, sampling_rate=sr, return_tensors="pt"
+                        )
+                        if self.device == "cuda" and torch.cuda.is_available():
+                            inputs = {k: v.cuda() for k, v in inputs.items()}
+                        outputs = self.wavlm_model(**inputs)
+                        embedding = torch.mean(outputs.last_hidden_state, dim=1)
+                        embedding = embedding.cpu().numpy()
+                        embedding = embedding.squeeze()
+                        embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
+                else:
+                    # Use TitaNet model (default)
+                    with torch.no_grad():
+                        embedding = self.titanet_model.get_embedding(temp_wav)
+                        embedding = embedding.cpu().numpy()
+                        embedding = embedding.squeeze()
+                        embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
 
-                    # Convert to numpy and normalize
-                    embedding = embedding.cpu().numpy()
-                    # Reshape embedding from (1, 192) to (192,) - needed to fix dimensionality
-                    embedding = embedding.squeeze()
-                    embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
-
-                    embeddings.append(embedding)
-                    timings.append((start, end))
+                embeddings.append(embedding)
+                timings.append((start, end))
 
                 # Clean up the temporary file
                 if os.path.exists(temp_wav):
@@ -170,7 +204,7 @@ class SpeakerDiarizer:
             except Exception as e:
                 errors_count += 1
                 print(
-                    f"Failed to extract TitaNet embedding for segment {start}-{end}: {str(e)}"
+                    f"Failed to extract embedding for segment {start}-{end}: {str(e)}"
                 )
                 # Only log detailed error for the first few failures
                 if errors_count <= 3:
@@ -187,15 +221,17 @@ class SpeakerDiarizer:
 
         if show_progress:
             print(
-                f"Using TitaNet embeddings for {len(embeddings)} segments (errors: {errors_count})"
+                f"Using {self.model_type} embeddings for {len(embeddings)} segments (errors: {errors_count})"
             )
             if len(embeddings) > 0:
                 embeddings_array = np.array(embeddings)
-                print(f"TitaNet embedding shape: {embeddings_array.shape}")
-                print(f"TitaNet embedding type: {type(embeddings[0])}")
-                print(f"TitaNet embedding sample (first 5 values): {embeddings[0][:5]}")
+                print(f"{self.model_type} embedding shape: {embeddings_array.shape}")
+                print(f"{self.model_type} embedding type: {type(embeddings[0])}")
                 print(
-                    f"TitaNet embedding stats - min: {np.min(embeddings_array):.4f}, max: {np.max(embeddings_array):.4f}, mean: {np.mean(embeddings_array):.4f}"
+                    f"{self.model_type} embedding sample (first 5 values): {embeddings[0][:5]}"
+                )
+                print(
+                    f"{self.model_type} embedding stats - min: {np.min(embeddings_array):.4f}, max: {np.max(embeddings_array):.4f}, mean: {np.mean(embeddings_array):.4f}"
                 )
 
         if len(embeddings) == 0:
@@ -1136,6 +1172,7 @@ class SpeakerDiarizer:
         save_steps=False,
         result_segments=None,
         language=None,
+        model_type="titanet",
     ):
         """Main diarization method with improved processing pipeline
 
@@ -1146,9 +1183,17 @@ class SpeakerDiarizer:
             save_steps: Whether to save intermediate outputs
             word_timestamps: Optional word timestamps from ASR to skip change detection
             language: Language code for language-specific processing (e.g., 'ko' for Korean)
+            model_type: Model to use for speaker embeddings (default: titanet)
         """
+        # Update model type if passed in
+        if model_type != self.model_type:
+            self.model_type = model_type
+            self._load_models()
+
         if show_progress:
-            print(f"Starting enhanced diarization for: {audio_path}")
+            print(
+                f"Starting enhanced diarization for: {audio_path} using {self.model_type}"
+            )
 
         output_dir = None
         if save_steps:
