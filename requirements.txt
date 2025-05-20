@@ -1,7 +1,7 @@
 numpy>=1.20.0
 torch>=1.10.0
 torchaudio>=2.0.0
-transformers>=4.30.0
+transformers>=4.28.0
 librosa>=0.10.0
 pydub>=0.25.1
 scipy>=1.7.0
