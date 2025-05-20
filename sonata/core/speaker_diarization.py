@@ -175,36 +175,122 @@ class SpeakerDiarizer:
                 # Extract embedding using selected model
                 if self.model_type == "wavlm-base-plus-sv":
                     # Use WavLM model
-                    with torch.no_grad():
-                        audio_input, sr = torchaudio.load(temp_wav)
+                    try:
+                        with torch.no_grad():
+                            print(f"Processing segment {start}-{end} with WavLM")
 
-                        # 오디오 형식 수정 - WavLM에 맞게 차원 변환
-                        if audio_input.dim() > 2:
-                            # 차원이 [1, 1, 1, N]과 같은 형태일 경우
-                            audio_input = audio_input.squeeze()  # 불필요한 차원 제거
+                            # 오디오 로드
+                            audio_input, sr = torchaudio.load(temp_wav)
+                            print(
+                                f"Original audio shape: {audio_input.shape}, sr: {sr}"
+                            )
 
-                        if audio_input.dim() == 1:
-                            # 모노 오디오가 [N] 형태일 경우 [1, N] 형태로 변환
-                            audio_input = audio_input.unsqueeze(0)
+                            # 오디오 형식 수정 - WavLM에 맞게 차원 변환
+                            if audio_input.dim() > 2:
+                                # 차원이 [1, 1, 1, N]과 같은 형태일 경우
+                                audio_input = audio_input.squeeze()  # 불필요한 차원 제거
+                                print(f"After squeeze audio shape: {audio_input.shape}")
 
-                        # 스테레오일 경우 모노로 변환
-                        if audio_input.size(0) > 1:
-                            audio_input = torch.mean(audio_input, dim=0, keepdim=True)
+                            if audio_input.dim() == 1:
+                                # 모노 오디오가 [N] 형태일 경우 [1, N] 형태로 변환
+                                audio_input = audio_input.unsqueeze(0)
+                                print(
+                                    f"After unsqueeze audio shape: {audio_input.shape}"
+                                )
 
-                        # 확인용 로깅
-                        if show_progress and random.random() < 0.05:  # 5% 확률로 로깅
-                            print(f"Audio input shape for WavLM: {audio_input.shape}")
+                            # 스테레오일 경우 모노로 변환
+                            if audio_input.size(0) > 1:
+                                audio_input = torch.mean(
+                                    audio_input, dim=0, keepdim=True
+                                )
+                                print(
+                                    f"After mono conversion audio shape: {audio_input.shape}"
+                                )
 
-                        inputs = self.wavlm_processor(
-                            audio_input, sampling_rate=sr, return_tensors="pt"
+                            # 샘플링 레이트 확인
+                            expected_sr = 16000
+                            if sr != expected_sr:
+                                print(f"Resampling from {sr} to {expected_sr}")
+                                audio_input = torchaudio.functional.resample(
+                                    audio_input, sr, expected_sr
+                                )
+                                sr = expected_sr
+                                print(
+                                    f"After resampling audio shape: {audio_input.shape}"
+                                )
+
+                            # 최소 길이 확인 (너무 짧은 오디오는 문제 발생)
+                            min_samples = 1000  # 최소 샘플 수
+                            if audio_input.size(-1) < min_samples:
+                                print(
+                                    f"Audio too short ({audio_input.size(-1)} samples), padding"
+                                )
+                                padding = torch.zeros(
+                                    1, min_samples - audio_input.size(-1)
+                                )
+                                audio_input = torch.cat([audio_input, padding], dim=1)
+                                print(f"After padding audio shape: {audio_input.shape}")
+
+                            # WavLM 프로세서 적용
+                            print(
+                                f"Final audio input shape for WavLM: {audio_input.shape}"
+                            )
+                            inputs = self.wavlm_processor(
+                                audio_input, sampling_rate=sr, return_tensors="pt"
+                            )
+                            print(f"Processor output keys: {list(inputs.keys())}")
+
+                            # 차원 수정 - 중요: input_values의 차원이 [1, 1, length]일 경우 [1, length]로 변환
+                            if (
+                                "input_values" in inputs
+                                and inputs["input_values"].dim() == 3
+                            ):
+                                inputs["input_values"] = inputs["input_values"].squeeze(
+                                    1
+                                )
+                                print(
+                                    f"Modified input_values shape: {inputs['input_values'].shape}"
+                                )
+
+                            # 모델에 입력
+                            if self.device == "cuda" and torch.cuda.is_available():
+                                inputs = {k: v.cuda() for k, v in inputs.items()}
+
+                            try:
+                                outputs = self.wavlm_model(**inputs)
+                                print(f"Model output keys: {list(outputs.keys())}")
+
+                                embedding = torch.mean(outputs.last_hidden_state, dim=1)
+                                print(f"Embedding shape: {embedding.shape}")
+
+                                embedding = embedding.cpu().numpy()
+                                embedding = embedding.squeeze()
+                                print(f"Final embedding shape: {embedding.shape}")
+
+                                embedding = embedding / (
+                                    np.linalg.norm(embedding) + 1e-10
+                                )
+                            except Exception as model_error:
+                                print(
+                                    f"Error during WavLM model processing: {str(model_error)}"
+                                )
+                                print(
+                                    f"Input shapes - {', '.join([f'{k}: {v.shape}' for k, v in inputs.items()])}"
+                                )
+                                raise
+                    except Exception as e:
+                        print(
+                            f"WavLM processing failed for segment {start}-{end}: {str(e)}"
                         )
-                        if self.device == "cuda" and torch.cuda.is_available():
-                            inputs = {k: v.cuda() for k, v in inputs.items()}
-                        outputs = self.wavlm_model(**inputs)
-                        embedding = torch.mean(outputs.last_hidden_state, dim=1)
-                        embedding = embedding.cpu().numpy()
-                        embedding = embedding.squeeze()
-                        embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
+                        if os.path.exists(temp_wav):
+                            # 에러 발생 시 파일을 남겨두어 디버깅 가능하게 함
+                            debug_wav = os.path.join(
+                                os.path.dirname(temp_wav),
+                                f"debug_segment_{start}_{end}.wav",
+                            )
+                            os.rename(temp_wav, debug_wav)
+                            print(f"Saved problematic audio to {debug_wav}")
+                        raise
                 else:
                     # Use TitaNet model (default)
                     with torch.no_grad():
