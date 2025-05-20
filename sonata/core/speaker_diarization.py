@@ -19,6 +19,7 @@ from tqdm import tqdm
 import warnings
 import speechbrain as sb
 from konlpy.tag import Mecab
+import random
 
 # NeMo toolkit import
 try:
@@ -176,6 +177,24 @@ class SpeakerDiarizer:
                     # Use WavLM model
                     with torch.no_grad():
                         audio_input, sr = torchaudio.load(temp_wav)
+
+                        # 오디오 형식 수정 - WavLM에 맞게 차원 변환
+                        if audio_input.dim() > 2:
+                            # 차원이 [1, 1, 1, N]과 같은 형태일 경우
+                            audio_input = audio_input.squeeze()  # 불필요한 차원 제거
+
+                        if audio_input.dim() == 1:
+                            # 모노 오디오가 [N] 형태일 경우 [1, N] 형태로 변환
+                            audio_input = audio_input.unsqueeze(0)
+
+                        # 스테레오일 경우 모노로 변환
+                        if audio_input.size(0) > 1:
+                            audio_input = torch.mean(audio_input, dim=0, keepdim=True)
+
+                        # 확인용 로깅
+                        if show_progress and random.random() < 0.05:  # 5% 확률로 로깅
+                            print(f"Audio input shape for WavLM: {audio_input.shape}")
+
                         inputs = self.wavlm_processor(
                             audio_input, sampling_rate=sr, return_tensors="pt"
                         )
@@ -230,6 +249,15 @@ class SpeakerDiarizer:
                 print(
                     f"{self.model_type} embedding sample (first 5 values): {embeddings[0][:5]}"
                 )
+
+                # 모델별 임베딩 특성 정보
+                if self.model_type == "wavlm-base-plus-sv":
+                    expected_dim = 768
+                    print(f"WavLM 모델 사용 중 - 예상 임베딩 차원: {expected_dim}")
+                else:
+                    expected_dim = 192
+                    print(f"TitaNet 모델 사용 중 - 예상 임베딩 차원: {expected_dim}")
+
                 print(
                     f"{self.model_type} embedding stats - min: {np.min(embeddings_array):.4f}, max: {np.max(embeddings_array):.4f}, mean: {np.mean(embeddings_array):.4f}"
                 )
@@ -275,9 +303,26 @@ class SpeakerDiarizer:
             np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
         )
 
-        # if len(norm_embeddings) > 50:
-        #     pca = PCA(n_components=min(64, norm_embeddings.shape[1]), random_state=42)
-        #     norm_embeddings = pca.fit_transform(norm_embeddings)
+        # 차원 축소 적용 - WavLM과 TitaNet 차원 차이 고려
+        embedding_dim = norm_embeddings.shape[1]
+        if len(norm_embeddings) > 50:
+            if self.model_type == "wavlm-base-plus-sv":
+                # WavLM은 차원이 크므로 더 적극적으로 차원 축소
+                pca_components = min(128, embedding_dim)
+                pca = PCA(n_components=pca_components, random_state=42)
+                norm_embeddings = pca.fit_transform(norm_embeddings)
+                if show_progress:
+                    print(
+                        f"Applied PCA for WavLM: {embedding_dim} -> {pca_components} dimensions"
+                    )
+            else:
+                # TitaNet은 기존 방식 유지
+                pca = PCA(n_components=min(64, embedding_dim), random_state=42)
+                norm_embeddings = pca.fit_transform(norm_embeddings)
+                if show_progress:
+                    print(
+                        f"Applied PCA for TitaNet: {embedding_dim} -> {min(64, embedding_dim)} dimensions"
+                    )
 
         # Try multiple clustering methods with proper version handling
         clustering_methods = []
@@ -317,7 +362,9 @@ class SpeakerDiarizer:
                 "method": SpectralClustering(
                     n_clusters=num_speakers,
                     affinity="nearest_neighbors",
-                    n_neighbors=min(len(norm_embeddings) // 3, 10),
+                    n_neighbors=min(len(norm_embeddings) // 3, 10)
+                    if self.model_type == "titanet"
+                    else min(len(norm_embeddings) // 4, 15),
                     random_state=42,
                 ),
             }
@@ -351,7 +398,9 @@ class SpeakerDiarizer:
                 "method": SpectralClustering(
                     n_clusters=num_speakers,
                     affinity="nearest_neighbors",
-                    n_neighbors=min(max(5, len(norm_embeddings) // 4), 8),
+                    n_neighbors=min(max(5, len(norm_embeddings) // 4), 8)
+                    if self.model_type == "titanet"
+                    else min(max(5, len(norm_embeddings) // 5), 12),
                     assign_labels="discretize",
                     n_init=15,
                     eigen_solver="arpack",
