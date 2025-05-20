@@ -4,9 +4,9 @@ import librosa
 import logging
 import os
 import re
-from transformers import Wav2Vec2FeatureExtractor, WavLMForXVector
 from typing import List, Dict, Optional, Tuple, Union
 import torchaudio
+import soundfile as sf
 from sklearn.cluster import AgglomerativeClustering, SpectralClustering, KMeans, Birch
 from sklearn.mixture import GaussianMixture
 from sklearn.metrics import silhouette_score, calinski_harabasz_score
@@ -19,6 +19,15 @@ from tqdm import tqdm
 import warnings
 import speechbrain as sb
 from konlpy.tag import Mecab
+
+# NeMo toolkit import
+try:
+    import nemo.collections.asr as nemo_asr
+except ImportError:
+    print(
+        "NeMo toolkit is not installed. Please install it using: pip install nemo_toolkit['all']"
+    )
+    nemo_asr = None
 
 # Filter PyTorch transformer attention warnings
 warnings.filterwarnings(
@@ -43,267 +52,51 @@ class SpeakerDiarizer:
         self._load_models()
 
     def _load_models(self):
-        self.logger.info("Loading diarization models...")
+        print("Loading diarization models...")
 
-        # WavLM XVector for speaker embeddings
-        self.wavlm_processor = Wav2Vec2FeatureExtractor.from_pretrained(
-            "microsoft/wavlm-base-plus-sv"
-        )
-        self.wavlm_model = WavLMForXVector.from_pretrained(
-            "microsoft/wavlm-base-plus-sv"
-        )
-        self.wavlm_model.to(self.device)
+        if nemo_asr is None:
+            raise ImportError(
+                "NeMo toolkit is required but not installed. Please install nemo_toolkit['all']"
+            )
 
-        # ECAPA-TDNN for better embeddings
         try:
-            self.ecapa_model = sb.inference.EncoderClassifier.from_hparams(
-                source="speechbrain/spkrec-ecapa-voxceleb",
-                savedir="pretrained_models/spkrec-ecapa-voxceleb",
-                run_opts={"device": self.device},
+            print("Loading NVIDIA TitaNet model using NeMo toolkit...")
+            # Load TitaNet model using NeMo toolkit for speaker embeddings
+            self.titanet_model = (
+                nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(
+                    "nvidia/speakerverification_en_titanet_large"
+                )
             )
-            self.has_ecapa_model = True
+
+            # Move model to appropriate device
+            if self.device == "cuda" and torch.cuda.is_available():
+                self.titanet_model = self.titanet_model.cuda()
+            else:
+                self.titanet_model = self.titanet_model.cpu()
+
+            print(f"Successfully loaded TitaNet model on {self.device}")
+            print(f"TitaNet model type: {type(self.titanet_model)}")
+
         except Exception as e:
-            self.logger.warning(f"Could not load ECAPA-TDNN model: {str(e)}")
-            self.has_ecapa_model = False
-
-    def _merge_close_segments(self, segments, gap_threshold=0.5):
-        """Merge segments that are separated by small gaps"""
-        if not segments:
-            return []
-
-        # Sort segments by start time
-        sorted_segments = sorted(segments, key=lambda x: x[0])
-
-        merged = []
-        current_start, current_end = sorted_segments[0]
-
-        for start, end in sorted_segments[1:]:
-            # If this segment starts soon after the previous one ends
-            if start - current_end <= gap_threshold:
-                # Extend the current segment
-                current_end = end
-            else:
-                # Add the current segment to results and start a new one
-                merged.append((current_start, current_end))
-                current_start, current_end = start, end
-
-        # Add the last segment
-        merged.append((current_start, current_end))
-
-        return merged
-
-    def _detect_speaker_changes(
-        self,
-        waveform,
-        sample_rate,
-        vad_segments,
-        window_size=0.75,  # Reduced for more precision
-        hop_size=0.35,  # Reduced for more granularity
-        show_progress=True,
-    ):
-        """Detect speaker changes within VAD segments using embedding similarity"""
-        if show_progress:
-            print("Detecting speaker changes...")
-
-        changes = []
-
-        # Create iterator with progress bar if needed
-        iterator = vad_segments
-        if show_progress:
-            iterator = tqdm(vad_segments, desc="Processing segments", unit="segment")
-
-        for start, end in iterator:
-            if end - start < window_size * 3:
-                continue
-
-            # Extract segment waveform
-            segment_start_sample = int(start * sample_rate)
-            segment_end_sample = int(end * sample_rate)
-            segment_waveform = waveform[segment_start_sample:segment_end_sample]
-
-            # Convert tensor to numpy if needed
-            if isinstance(segment_waveform, torch.Tensor):
-                segment_waveform = segment_waveform.cpu().numpy()
-
-            # Use embedding-based change detection for segments
-            emb_changes = self._detect_changes_with_embeddings(
-                segment_waveform, sample_rate, window_size, hop_size
-            )
-
-            # Convert local changes to global timeline
-            emb_changes = [start + t for t in emb_changes]
-
-            # Cluster close change points to avoid duplicates
-            changes.extend(self._cluster_change_points(emb_changes, threshold=0.35))
-
-        # Filter out changes too close to segment boundaries
-        filtered_changes = []
-        min_boundary_dist = 0.3
-
-        for change in changes:
-            is_near_boundary = False
-            for start, end in vad_segments:
-                if (
-                    abs(change - start) < min_boundary_dist
-                    or abs(change - end) < min_boundary_dist
-                ):
-                    is_near_boundary = True
-                    break
-            if not is_near_boundary:
-                filtered_changes.append(change)
-
-        if show_progress:
-            print(f"Detected {len(filtered_changes)} speaker change points")
-
-        return sorted(filtered_changes)
-
-    def _detect_changes_with_embeddings(
-        self, waveform, sample_rate, window_size, hop_size
-    ):
-        """Detect speaker changes using embedding similarity"""
-        if not self.has_ecapa_model:
-            return []
-
-        changes = []
-        duration = len(waveform) / sample_rate
-
-        # Skip if segment is too short
-        if duration < window_size * 2:
-            return []
-
-        # Create sliding windows
-        windows = []
-        for t in np.arange(0, duration - window_size, hop_size):
-            start_sample = int(t * sample_rate)
-            end_sample = int((t + window_size) * sample_rate)
-            if end_sample <= len(waveform):
-                windows.append((t, t + window_size, waveform[start_sample:end_sample]))
-
-        # Skip if too few windows
-        if len(windows) < 3:
-            return []
-
-        # Extract embeddings for each window
-        embeddings = []
-        for start_time, end_time, window_samples in windows:
-            try:
-                # Convert to tensor
-                if not isinstance(window_samples, torch.Tensor):
-                    window_tensor = torch.tensor(window_samples).float()
-                else:
-                    window_tensor = window_samples
-
-                # Make mono and apply correct shape
-                if len(window_tensor.shape) == 1:
-                    window_tensor = window_tensor.unsqueeze(0)
-
-                # Resample if needed
-                if sample_rate != 16000:
-                    window_tensor = torchaudio.functional.resample(
-                        window_tensor, sample_rate, 16000
-                    )
-
-                with torch.no_grad():
-                    embedding = self.ecapa_model.encode_batch(
-                        window_tensor.to(self.device)
-                    )
-                    embedding = embedding.squeeze().cpu().numpy()
-                    embeddings.append(embedding)
-            except Exception as e:
-                # If extraction fails, use a dummy embedding to maintain indices
-                embeddings.append(None)
-
-        # Check for distance between adjacent windows
-        for i in range(1, len(windows) - 1):
-            if embeddings[i - 1] is None or embeddings[i + 1] is None:
-                continue
-
-            # Compute distances
-            prev_dist = cosine(embeddings[i - 1], embeddings[i])
-            next_dist = cosine(embeddings[i], embeddings[i + 1])
-
-            # Check if this is a likely change point
-            if prev_dist > 0.15 and next_dist > 0.15:  # Tuned threshold
-                midpoint = (windows[i][0] + windows[i][1]) / 2
-                changes.append(midpoint)
-
-        return changes
-
-    def _cluster_change_points(self, change_points, threshold=0.35):
-        """Cluster change points that are close to each other"""
-        if not change_points:
-            return []
-        # Sort change points
-        sorted_changes = sorted(change_points)
-
-        # Cluster close change points
-        clusters = []
-        current_cluster = [sorted_changes[0]]
-
-        for point in sorted_changes[1:]:
-            if point - current_cluster[-1] < threshold:
-                current_cluster.append(point)
-            else:
-                # Add the average of the current cluster
-                clusters.append(sum(current_cluster) / len(current_cluster))
-                current_cluster = [point]
-
-        # Add the last cluster
-        if current_cluster:
-            clusters.append(sum(current_cluster) / len(current_cluster))
-
-        return clusters
+            print(f"Failed to load TitaNet model via NeMo: {str(e)}")
+            raise RuntimeError(f"Failed to load TitaNet model: {str(e)}")
 
     def _extract_embeddings(self, waveform, sample_rate, segments, show_progress=True):
-        """Extract speaker embeddings for each segment with multiple models"""
+        """Extract speaker embeddings for each segment using NeMo TitaNet model"""
         if show_progress:
-            print("Extracting speaker embeddings...")
+            print("Extracting speaker embeddings with TitaNet...")
 
         embeddings = []
         timings = []
-        wavlm_embeddings = []
-        ecapa_embeddings = []
 
         # Create iterator with progress bar if needed
         iterator = segments
         if show_progress:
             iterator = tqdm(segments, desc="Processing segments", unit="segment")
 
-        def stack_frames(
-            waveform_input, frame_length=512, frame_shift=160, stack_size=3
-        ):
-            if isinstance(waveform_input, torch.Tensor):
-                waveform_np = waveform_input.cpu().numpy()
-            else:
-                waveform_np = waveform_input
-
-            # Skip stacking if the segment is too short
-            if len(waveform_np) < frame_length + (stack_size - 1) * frame_shift:
-                return waveform_input
-
-            frames = []
-            for i in range(0, len(waveform_np) - frame_length + 1, frame_shift):
-                frame = waveform_np[i : i + frame_length]
-                frames.append(frame)
-
-            if len(frames) < stack_size:
-                return waveform_input
-
-            stacked_frames = []
-            for i in range(len(frames) - stack_size + 1):
-                stacked_frame = np.concatenate(frames[i : i + stack_size])
-                stacked_frames.append(stacked_frame)
-
-            stacked_waveform = np.concatenate(stacked_frames)
-
-            if isinstance(waveform_input, torch.Tensor):
-                stacked_waveform = torch.tensor(
-                    stacked_waveform,
-                    device=waveform_input.device,
-                    dtype=waveform_input.dtype,
-                )
-
-            return stacked_waveform
+        errors_count = 0  # Track number of errors for reporting
+        temp_dir = os.path.join(os.getcwd(), "temp_audio_segments")
+        os.makedirs(temp_dir, exist_ok=True)
 
         for start, end in iterator:
             start_sample = int(start * sample_rate)
@@ -319,60 +112,96 @@ class SpeakerDiarizer:
 
             segment_waveform = waveform[start_sample:end_sample]
 
-            # Resample if needed
-            if sample_rate != 16000:
-                if isinstance(segment_waveform, torch.Tensor):
-                    segment_waveform = torchaudio.functional.resample(
-                        segment_waveform, sample_rate, 16000
-                    )
-                else:
-                    segment_waveform = librosa.resample(
-                        segment_waveform, orig_sr=sample_rate, target_sr=16000
-                    )
-
-            # Apply frame stacking to improve embedding quality for short utterances
-            stacked_segment_waveform = stack_frames(segment_waveform)
-            wavlm_embedding = None
+            # Skip very short segments as they might cause issues
+            if len(segment_waveform) < 1600:  # Less than 0.1s at 16kHz
+                if show_progress:
+                    print(f"Skipping segment {start}-{end} as it's too short")
+                continue
 
             try:
-                if isinstance(stacked_segment_waveform, torch.Tensor):
-                    segment_waveform_np = stacked_segment_waveform.cpu().numpy()
+                # Resample if needed
+                if sample_rate != 16000:
+                    if isinstance(segment_waveform, torch.Tensor):
+                        segment_waveform = torchaudio.functional.resample(
+                            segment_waveform, sample_rate, 16000
+                        )
+                    else:
+                        segment_waveform = librosa.resample(
+                            segment_waveform, orig_sr=sample_rate, target_sr=16000
+                        )
+
+                # Convert segment to numpy if it's a tensor
+                if isinstance(segment_waveform, torch.Tensor):
+                    segment_waveform_np = segment_waveform.cpu().numpy()
                 else:
-                    segment_waveform_np = stacked_segment_waveform
+                    segment_waveform_np = segment_waveform
 
-                inputs = self.wavlm_processor(
-                    segment_waveform_np, sampling_rate=16000, return_tensors="pt"
-                )
-                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                # NeMo TitaNet model requires a temporary WAV file
+                temp_wav = os.path.join(temp_dir, f"segment_{start}_{end}.wav")
 
+                # Save segment as a WAV file - ensure it's in the right format
+                sample_rate_16k = 16000
+                if segment_waveform_np.ndim == 1:
+                    # Ensure audio is mono and has the right shape for torchaudio.save
+                    audio_data = segment_waveform_np.reshape(1, -1)
+                    torchaudio.save(temp_wav, torch.tensor(audio_data), sample_rate_16k)
+                else:
+                    torchaudio.save(
+                        temp_wav, torch.tensor(segment_waveform_np), sample_rate_16k
+                    )
+
+                # Extract embedding using NeMo's TitaNet model
                 with torch.no_grad():
-                    outputs = self.wavlm_model(**inputs)
-                    wavlm_embedding = outputs.embeddings.cpu().numpy().squeeze()
-                    wavlm_embeddings.append(wavlm_embedding)
+                    embedding = self.titanet_model.get_embedding(temp_wav)
+
+                    # Convert to numpy and normalize
+                    embedding = embedding.cpu().numpy()
+                    # Reshape embedding from (1, 192) to (192,) - needed to fix dimensionality
+                    embedding = embedding.squeeze()
+                    embedding = embedding / (np.linalg.norm(embedding) + 1e-10)
+
+                    embeddings.append(embedding)
+                    timings.append((start, end))
+
+                # Clean up the temporary file
+                if os.path.exists(temp_wav):
+                    os.remove(temp_wav)
+
             except Exception as e:
-                self.logger.warning(
-                    f"Failed to extract WavLM embedding for segment {start}-{end}: {str(e)}"
-                )
-
-            # If WavLM embedding was extracted, add the timing
-            if wavlm_embedding is not None:
-                timings.append((start, end))
-
-        # Always use WavLM embeddings
-        embeddings = wavlm_embeddings
-        if show_progress:
-            print(f"Using WavLM embeddings for {len(embeddings)} segments")
-            if len(embeddings) > 0:
-                print(f"WavLM embedding shape: {np.array(embeddings).shape}")
-                print(f"WavLM embedding type: {type(embeddings[0])}")
-                print(f"WavLM embedding sample (first 5 values): {embeddings[0][:5]}")
+                errors_count += 1
                 print(
-                    f"WavLM embedding stats - min: {np.min(embeddings):.4f}, max: {np.max(embeddings):.4f}, mean: {np.mean(embeddings):.4f}"
+                    f"Failed to extract TitaNet embedding for segment {start}-{end}: {str(e)}"
                 )
+                # Only log detailed error for the first few failures
+                if errors_count <= 3:
+                    print(f"Detailed error: {str(e)}")
+                # Skip this segment and continue
+                continue
+
+        # Clean up temp directory if it's empty
+        try:
+            if len(os.listdir(temp_dir)) == 0:
+                os.rmdir(temp_dir)
+        except:
+            pass
 
         if show_progress:
-            print(f"Extracted {len(embeddings)} speaker embeddings")
-            print(f"Final embeddings array shape: {np.array(embeddings).shape}")
+            print(
+                f"Using TitaNet embeddings for {len(embeddings)} segments (errors: {errors_count})"
+            )
+            if len(embeddings) > 0:
+                embeddings_array = np.array(embeddings)
+                print(f"TitaNet embedding shape: {embeddings_array.shape}")
+                print(f"TitaNet embedding type: {type(embeddings[0])}")
+                print(f"TitaNet embedding sample (first 5 values): {embeddings[0][:5]}")
+                print(
+                    f"TitaNet embedding stats - min: {np.min(embeddings_array):.4f}, max: {np.max(embeddings_array):.4f}, mean: {np.mean(embeddings_array):.4f}"
+                )
+
+        if len(embeddings) == 0:
+            print("Failed to extract any speaker embeddings")
+            if errors_count > 0:
+                print(f"Encountered {errors_count} errors during embedding extraction")
 
         return np.array(embeddings), timings
 
@@ -383,6 +212,13 @@ class SpeakerDiarizer:
 
         if embeddings.size == 0:
             return []
+
+        # Check if embeddings is 3D and reshape to 2D if needed
+        if len(embeddings.shape) == 3:
+            print(f"Reshaping embeddings from {embeddings.shape} to 2D...")
+            # If shape is (N, 1, D), reshape to (N, D)
+            embeddings = embeddings.reshape(embeddings.shape[0], -1)
+            print(f"New embeddings shape: {embeddings.shape}")
 
         # Estimate number of speakers if not provided
         if num_speakers is None:
@@ -758,8 +594,7 @@ class SpeakerDiarizer:
 
         mecab = Mecab()
         chunked_segments = []
-        current_chunk = None
-        pending_segments = []
+        processed_indices = set()
         all_morphs = []
 
         for segment in voice_segments:
@@ -769,53 +604,64 @@ class SpeakerDiarizer:
             all_morphs.append((segment, morphs))
 
         self.logger.info(f"Analyzing {len(all_morphs)} segments for chunking")
+
         i = 0
         while i < len(all_morphs):
-            segment, morphs = all_morphs[i]
-
-            if current_chunk is None:
-                current_chunk = {
-                    "start": segment["start"],
-                    "end": segment["end"],
-                    "content": segment["content"],
-                    "type": segment["type"],
-                }
-                self.logger.debug(f"Starting new chunk: {current_chunk}")
+            if i in processed_indices:
                 i += 1
                 continue
 
-            should_merge = False
+            segment, morphs = all_morphs[i]
+            current_chunk = {
+                "start": segment["start"],
+                "end": segment["end"],
+                "content": segment["content"],
+                "type": segment["type"],
+            }
+            processed_indices.add(i)
 
-            if i + 1 < len(all_morphs):
-                next_segment, next_morphs = all_morphs[i + 1]
-                should_merge = self._check_grammatical_connection(morphs, next_morphs)
-                self.logger.debug(
-                    f"Checking connection between '{segment['content']}' and '{next_segment['content']}': {should_merge}"
+            # Look ahead for segments to merge
+            j = i + 1
+            while j < len(all_morphs):
+                if j in processed_indices:
+                    j += 1
+                    continue
+
+                prev_segment, prev_morphs = all_morphs[j - 1]
+                next_segment, next_morphs = all_morphs[j]
+
+                # Check time gap between segments
+                time_gap = next_segment["start"] - prev_segment["end"]
+                if time_gap > 0.5:
+                    print(
+                        f"Skipping chunking due to large time gap (>{0.5}s): '{prev_segment['content']}' -> '{next_segment['content']}'"
+                    )
+                    break
+
+                should_merge = self._check_grammatical_connection(
+                    prev_morphs, next_morphs
                 )
 
-            if should_merge:
-                old_content = current_chunk["content"]
-                current_chunk["end"] = next_segment["end"]
-                current_chunk["content"] += " " + next_segment["content"]
-                self.logger.debug(
-                    f"Merged chunk: '{old_content}' + '{next_segment['content']}' = '{current_chunk['content']}'"
-                )
-                i += 1
-            else:
-                self.logger.debug(f"Saving chunk: {current_chunk}")
-                chunked_segments.append(current_chunk)
-                current_chunk = None
+                if should_merge:
+                    current_chunk["end"] = next_segment["end"]
+                    current_chunk["content"] += " " + next_segment["content"]
+                    processed_indices.add(j)
+                    print(f"Merged: '{current_chunk['content']}'")
+                    j += 1
+                else:
+                    break
 
-        if current_chunk is not None:
-            self.logger.debug(f"Saving final chunk: {current_chunk}")
             chunked_segments.append(current_chunk)
+            i = j if j > i + 1 else i + 1
 
+        # Add non-voice segments
         non_voice_segments = [
             seg for seg in result_segments if seg.get("type") != "voice"
         ]
         self.logger.info(f"Non-voice segments: {len(non_voice_segments)} segments")
         chunked_segments.extend(non_voice_segments)
 
+        # Sort all segments by start time
         chunked_segments.sort(key=lambda x: x["start"])
         self.logger.info(
             f"Final chunked segments: {len(chunked_segments)} segments (from original {len(result_segments)})"
@@ -872,6 +718,416 @@ class SpeakerDiarizer:
 
         return False
 
+    def _merge_short_segments(self, segments: List[Dict]) -> List[Dict]:
+        """
+        Merge segments shorter than 0.2 seconds with adjacent segments based on linguistic features
+        Also handles demonstrative pronouns for short segments
+
+        Args:
+            segments: List containing speech segments
+                [{'start': float, 'end': float, 'content': str, 'type': str}, ...]
+
+        Returns:
+            List of merged segments
+        """
+        if not segments or len(segments) <= 1:
+            return segments
+
+        print(f"Starting short segment merging: {len(segments)} segments")
+
+        # Filter to voice segments only
+        voice_segments = [
+            seg for seg in segments if seg.get("type") == "voice" and "content" in seg
+        ]
+        non_voice_segments = [
+            seg
+            for seg in segments
+            if seg.get("type") != "voice" or "content" not in seg
+        ]
+
+        # Sort by start time to ensure correct processing
+        voice_segments.sort(key=lambda x: x["start"])
+
+        # Initialize mecab for morphological analysis
+        mecab = Mecab()
+
+        # Define special words for handling
+        demonstrative_pronouns = ["이거", "저거", "그거", "여기", "저기", "거기"]
+        interjections = ["아", "어", "음", "응", "네", "예", "에", "엄", "흠", "헉", "아니", "맞아"]
+
+        # Identify short segments
+        short_segments_indices = []
+        for i, segment in enumerate(voice_segments):
+            if segment["end"] - segment["start"] <= 0.2:
+                short_segments_indices.append(i)
+
+        print(f"Found {len(short_segments_indices)} short segments to merge")
+
+        # Process until no more short segments or no changes
+        while short_segments_indices:
+            # Start with the earliest short segment
+            short_segments_indices.sort(key=lambda i: voice_segments[i]["start"])
+            current_short_idx = short_segments_indices.pop(0)
+
+            # Skip if this segment was already removed in a previous merge
+            if current_short_idx >= len(voice_segments):
+                continue
+
+            current = voice_segments[current_short_idx]
+
+            # Skip if segment duration now exceeds 0.2 seconds
+            # (might happen due to previous merges)
+            if current["end"] - current["start"] > 0.2:
+                print(
+                    f"Skipping segment {current_short_idx} as duration now exceeds 0.2s: '{current['content']}'"
+                )
+                continue
+
+            current_morphs = mecab.pos(current["content"])
+            current_content = current["content"].strip()
+            current_duration = current["end"] - current["start"]
+
+            # Special case: first segment
+            if current_short_idx == 0 and len(voice_segments) > 1:
+                next_seg = voice_segments[1]
+
+                # Check for large time gap
+                if next_seg["start"] - current["end"] >= 1.0:
+                    print(
+                        f"Skipping merge due to large time gap (≥1s): '{current_content}' -> '{next_seg['content']}'"
+                    )
+                    continue
+
+                merged_seg = {
+                    "start": current["start"],
+                    "end": next_seg["end"],
+                    "content": current["content"] + " " + next_seg["content"],
+                    "type": "voice",
+                }
+
+                # Replace with merged segment
+                voice_segments.pop(1)  # Remove next
+                voice_segments[0] = merged_seg  # Replace current with merged
+
+                # Update indices of remaining short segments
+                short_segments_indices = [
+                    i - 1 if i > 1 else i for i in short_segments_indices
+                ]
+
+                continue
+
+            # Special case: last segment
+            if current_short_idx == len(voice_segments) - 1 and len(voice_segments) > 1:
+                prev_seg = voice_segments[current_short_idx - 1]
+
+                # Check for large time gap
+                if current["start"] - prev_seg["end"] >= 1.0:
+                    print(
+                        f"Skipping merge due to large time gap (≥1s): '{prev_seg['content']}' -> '{current_content}'"
+                    )
+                    continue
+
+                merged_seg = {
+                    "start": prev_seg["start"],
+                    "end": current["end"],
+                    "content": prev_seg["content"] + " " + current["content"],
+                    "type": "voice",
+                }
+
+                # Replace with merged segment
+                voice_segments.pop(current_short_idx)  # Remove current
+                voice_segments[
+                    current_short_idx - 1
+                ] = merged_seg  # Replace prev with merged
+
+                # Update indices of remaining short segments
+                short_segments_indices = [
+                    i if i < current_short_idx else i - 1
+                    for i in short_segments_indices
+                ]
+
+                continue
+
+            # Regular case: compare with previous and next
+            if current_short_idx > 0 and current_short_idx < len(voice_segments) - 1:
+                prev_seg = voice_segments[current_short_idx - 1]
+                next_seg = voice_segments[current_short_idx + 1]
+
+                # Calculate time gaps with adjacent segments
+                prev_gap = current["start"] - prev_seg["end"]
+                next_gap = next_seg["start"] - current["end"]
+
+                # Initialize scores with a default value for very short segments
+                # This encourages merging of very short segments even with weaker connections
+                prev_score = (
+                    0.5 if current_duration <= 0.1 else 0
+                )  # Bias for very short segments
+                next_score = (
+                    0.5 if current_duration <= 0.1 else 0
+                )  # Bias for very short segments
+
+                # Only consider merging if gap is less than 1 second
+                if prev_gap < 1.0:
+                    prev_morphs = mecab.pos(prev_seg["content"])
+                    prev_score += self._calculate_connection_score(
+                        prev_morphs, current_morphs
+                    )
+
+                    # Boost score for continuous segments (no gap)
+                    if abs(prev_gap) < 0.01:
+                        prev_score += 1.0
+
+                    # Additional score for similar duration segments
+                    prev_duration = prev_seg["end"] - prev_seg["start"]
+                    if abs(prev_duration - current_duration) < 0.1:
+                        prev_score += 0.5
+                else:
+                    print(
+                        f"Large gap (≥1s) with previous segment: '{prev_seg['content']}' -> '{current_content}'"
+                    )
+
+                if next_gap < 1.0:
+                    next_morphs = mecab.pos(next_seg["content"])
+                    next_score += self._calculate_connection_score(
+                        current_morphs, next_morphs
+                    )
+
+                    # Boost score for continuous segments (no gap)
+                    if abs(next_gap) < 0.01:
+                        next_score += 1.0
+
+                    # Additional score for similar duration segments
+                    next_duration = next_seg["end"] - next_seg["start"]
+                    if abs(next_duration - current_duration) < 0.1:
+                        next_score += 0.5
+                else:
+                    print(
+                        f"Large gap (≥1s) with next segment: '{current_content}' -> '{next_seg['content']}'"
+                    )
+
+                # Get content of segments
+                prev_content = prev_seg["content"].strip()
+                next_content = next_seg["content"].strip()
+
+                # Special case: interjection + demonstrative pronoun combination
+                # Example: "아" + "그거" should be merged, or "어" + "이거" should be merged
+                if next_gap < 1.0 and (
+                    current_content in interjections
+                    and next_content.split()[0] in demonstrative_pronouns
+                ):
+                    next_score += 5.0
+                    print(
+                        f"Strongly boosting connection for interjection+demonstrative: '{current_content}' + '{next_content}'"
+                    )
+                elif prev_gap < 1.0 and (
+                    current_content in demonstrative_pronouns
+                    and prev_content.split()[-1] in interjections
+                ):
+                    prev_score += 5.0
+                    print(
+                        f"Strongly boosting connection for interjection+demonstrative: '{prev_content}' + '{current_content}'"
+                    )
+
+                # Additional heuristics for interjections
+                elif next_gap < 1.0 and current_content in interjections:
+                    # Interjections typically connect more with what follows
+                    next_score += 2.0
+
+                # Check for demonstrative pronouns in current segment
+                elif next_gap < 1.0 and (
+                    current_content in demonstrative_pronouns
+                    or (
+                        len(current_content.split()) > 0
+                        and current_content.split()[-1] in demonstrative_pronouns
+                    )
+                ):
+                    # Demonstrative pronouns connect strongly with the next segment
+                    next_score += 4.0
+                    print(
+                        f"Boosting next connection for demonstrative: '{current_content}'"
+                    )
+
+                # Additional linguistic heuristics for common Korean patterns
+                # Short endings like '요', '죠', '네' often connect with both sides
+                if len(current_content) <= 3 and (
+                    current_content.endswith("요")
+                    or current_content.endswith("죠")
+                    or current_content.endswith("네")
+                ):
+                    # Check previous for noun or adjective
+                    if prev_gap < 1.0 and any(
+                        pos.startswith("N") or pos.startswith("VA")
+                        for word, pos in prev_morphs
+                    ):
+                        prev_score += 2.0
+                        print(
+                            f"Boosting prev connection for ending pattern: '{prev_content}' + '{current_content}'"
+                        )
+
+                # Very short segments (1-2 syllables) generally need merging
+                if len(current_content) <= 2 and current_duration <= 0.15:
+                    # Boost both scores to ensure it gets merged somewhere
+                    base_boost = 1.5
+                    prev_score += base_boost
+                    next_score += base_boost
+                    print(
+                        f"Boosting both connections for very short segment: '{current_content}'"
+                    )
+
+                # Merge with segment that has higher linguistic connection
+                if prev_score >= next_score and prev_score > 0:
+                    # Merge with previous
+                    merged_seg = {
+                        "start": prev_seg["start"],
+                        "end": current["end"],
+                        "content": prev_seg["content"] + " " + current["content"],
+                        "type": "voice",
+                    }
+
+                    print(
+                        f"Merging with previous: '{prev_content}' + '{current_content}' (scores: prev={prev_score:.1f}, next={next_score:.1f})"
+                    )
+
+                    # Replace with merged segment
+                    voice_segments.pop(current_short_idx)  # Remove current
+                    voice_segments[
+                        current_short_idx - 1
+                    ] = merged_seg  # Replace prev with merged
+
+                    # If the merged segment is still short, keep it in the list for further processing
+                    if (
+                        merged_seg["end"] - merged_seg["start"] <= 0.2
+                        and current_short_idx - 1 not in short_segments_indices
+                    ):
+                        short_segments_indices.append(current_short_idx - 1)
+
+                    # Update indices of remaining short segments
+                    short_segments_indices = [
+                        i if i < current_short_idx else i - 1
+                        for i in short_segments_indices
+                    ]
+                elif next_score > 0:
+                    # Merge with next
+                    merged_seg = {
+                        "start": current["start"],
+                        "end": next_seg["end"],
+                        "content": current["content"] + " " + next_seg["content"],
+                        "type": "voice",
+                    }
+
+                    print(
+                        f"Merging with next: '{current_content}' + '{next_content}' (scores: prev={prev_score:.1f}, next={next_score:.1f})"
+                    )
+
+                    # Replace with merged segment
+                    voice_segments.pop(current_short_idx + 1)  # Remove next
+                    voice_segments[
+                        current_short_idx
+                    ] = merged_seg  # Replace current with merged
+
+                    # If the merged segment is still short, keep it in the list for further processing
+                    if (
+                        merged_seg["end"] - merged_seg["start"] <= 0.2
+                        and current_short_idx not in short_segments_indices
+                    ):
+                        short_segments_indices.append(current_short_idx)
+
+                    # Update indices of remaining short segments
+                    short_segments_indices = [
+                        i if i <= current_short_idx else i - 1
+                        for i in short_segments_indices
+                    ]
+                else:
+                    # Don't merge if both scores are 0 (large gaps on both sides)
+                    print(
+                        f"Not merging segment '{current_content}' due to large gaps on both sides"
+                    )
+
+        # Final pass: check for overlapping segments and remove duplicates
+        i = 0
+        while i < len(voice_segments) - 1:
+            current = voice_segments[i]
+            next_seg = voice_segments[i + 1]
+
+            # Check for time overlap
+            if current["end"] > next_seg["start"]:
+                # Take the longer segment
+                if (next_seg["end"] - next_seg["start"]) > (
+                    current["end"] - current["start"]
+                ):
+                    voice_segments.pop(i)  # Remove current
+                else:
+                    voice_segments.pop(i + 1)  # Remove next
+                # Don't increment i as we need to check the next pair
+            else:
+                i += 1
+
+        # Combine voice and non-voice segments and sort by start time
+        result_segments = voice_segments + non_voice_segments
+        result_segments.sort(key=lambda x: x["start"])
+
+        print(f"After merging short segments: {len(result_segments)} segments")
+        return result_segments
+
+    def _calculate_connection_score(
+        self, morphs1: List[Tuple[str, str]], morphs2: List[Tuple[str, str]]
+    ) -> float:
+        """
+        Calculate linguistic connection score between two morpheme sequences
+
+        Args:
+            morphs1: First sequence's morpheme analysis [(word, part_of_speech), ...]
+            morphs2: Second sequence's morpheme analysis [(word, part_of_speech), ...]
+
+        Returns:
+            Connection score (higher means stronger connection)
+        """
+        if not morphs1 or not morphs2:
+            return 0.0
+
+        score = 0.0
+
+        # Basic grammatical connection from existing function
+        if self._check_grammatical_connection(morphs1, morphs2):
+            score += 2.0
+
+        # Additional scoring for specific Korean language patterns
+        last_word = morphs1[-1][0] if morphs1 else ""
+        last_pos = morphs1[-1][1] if morphs1 else ""
+        first_pos = morphs2[0][1] if morphs2 else ""
+
+        # Subject + Verb/Adjective connection is very strong
+        if last_pos == "JKS" and (
+            first_pos.startswith("V") or first_pos.startswith("VA")
+        ):
+            score += 3.0
+
+        # Incomplete predicate ending + continuation
+        if last_pos.startswith("E") and not last_pos == "EF":
+            score += 2.5
+
+        # Modifier + Noun connection
+        if (last_pos == "MM" or last_pos == "ETM") and first_pos.startswith("N"):
+            score += 2.0
+
+        # Conjunction + any continuation
+        if last_pos == "MAJ":
+            score += 1.5
+
+        # Noun + Postposition connection
+        if last_pos.startswith("N") and first_pos.startswith("J"):
+            score += 2.0
+
+        # Named entity continuation
+        if last_pos == "NNP" and first_pos == "NNP":
+            score += 2.5
+
+        # Quotation marker + quotation content
+        if (last_pos == "JKQ" or last_pos == "VCP") and first_pos.startswith("V"):
+            score += 1.5
+
+        return score
+
     def diarize(
         self,
         audio_path,
@@ -907,6 +1163,9 @@ class SpeakerDiarizer:
         # 0. Chunk Korean segments
         if language == "ko":
             result_segments = self._chunk_korean_segments(result_segments)
+            result_segments = self._merge_short_segments(result_segments)
+
+        print(f"After chunking and merging:{result_segments}")
 
         # 1. Create analysis segments based on input method
         if result_segments:
@@ -932,11 +1191,6 @@ class SpeakerDiarizer:
 
         if show_progress:
             print(f"Created {len(analysis_segments)} analysis segments")
-
-        # Filter out segments that are too short (Outlier)
-        analysis_segments = [
-            (start, end) for start, end in analysis_segments if end - start >= 0.2
-        ]
 
         if show_progress:
             print(
