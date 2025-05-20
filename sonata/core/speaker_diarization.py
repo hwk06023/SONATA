@@ -176,21 +176,23 @@ class SpeakerDiarizer:
                 if self.model_type == "wavlm-base-plus-sv":
                     # Use WavLM model
                     with torch.no_grad():
-                        # 오디오 로드
+                        # Load audio
                         audio_input, sr = torchaudio.load(temp_wav)
 
-                        # 오디오 형식 수정 - WavLM에 맞게 차원 변환
+                        # Convert audio format for WavLM
                         if audio_input.dim() > 2:
-                            audio_input = audio_input.squeeze()  # 불필요한 차원 제거
+                            audio_input = (
+                                audio_input.squeeze()
+                            )  # Remove unnecessary dimensions
 
                         if audio_input.dim() == 1:
                             audio_input = audio_input.unsqueeze(0)  # [N] -> [1, N]
 
-                        # 스테레오일 경우 모노로 변환
+                        # Convert stereo to mono if needed
                         if audio_input.size(0) > 1:
                             audio_input = torch.mean(audio_input, dim=0, keepdim=True)
 
-                        # 샘플링 레이트 확인
+                        # Check sampling rate
                         expected_sr = 16000
                         if sr != expected_sr:
                             audio_input = torchaudio.functional.resample(
@@ -198,25 +200,25 @@ class SpeakerDiarizer:
                             )
                             sr = expected_sr
 
-                        # 최소 길이 확인 (너무 짧은 오디오는 문제 발생)
-                        min_samples = 1000  # 최소 샘플 수
+                        # Check minimum length (too short audio can cause issues)
+                        min_samples = 1000  # Minimum sample count
                         if audio_input.size(-1) < min_samples:
                             padding = torch.zeros(1, min_samples - audio_input.size(-1))
                             audio_input = torch.cat([audio_input, padding], dim=1)
 
-                        # WavLM 프로세서 적용
+                        # Apply WavLM processor
                         inputs = self.wavlm_processor(
                             audio_input, sampling_rate=sr, return_tensors="pt"
                         )
 
-                        # 차원 수정 - input_values의 차원 조정
+                        # Fix dimensions - adjust input_values dimensions
                         if (
                             "input_values" in inputs
                             and inputs["input_values"].dim() == 3
                         ):
                             inputs["input_values"] = inputs["input_values"].squeeze(1)
 
-                        # 모델에 입력
+                        # Input to model
                         if self.device == "cuda" and torch.cuda.is_available():
                             inputs = {k: v.cuda() for k, v in inputs.items()}
 
@@ -270,13 +272,17 @@ class SpeakerDiarizer:
                     f"{self.model_type} embedding sample (first 5 values): {embeddings[0][:5]}"
                 )
 
-                # 모델별 임베딩 특성 정보
+                # Model-specific embedding information
                 if self.model_type == "wavlm-base-plus-sv":
                     expected_dim = 768
-                    print(f"WavLM 모델 사용 중 - 예상 임베딩 차원: {expected_dim}")
+                    print(
+                        f"Using WavLM model - Expected embedding dimension: {expected_dim}"
+                    )
                 else:
                     expected_dim = 192
-                    print(f"TitaNet 모델 사용 중 - 예상 임베딩 차원: {expected_dim}")
+                    print(
+                        f"Using TitaNet model - Expected embedding dimension: {expected_dim}"
+                    )
 
                 print(
                     f"{self.model_type} embedding stats - min: {np.min(embeddings_array):.4f}, max: {np.max(embeddings_array):.4f}, mean: {np.mean(embeddings_array):.4f}"
@@ -323,11 +329,11 @@ class SpeakerDiarizer:
             np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-8
         )
 
-        # 차원 축소 적용 - WavLM과 TitaNet 차원 차이 고려
+        # Apply dimension reduction - consider different dimensions for WavLM and TitaNet
         embedding_dim = norm_embeddings.shape[1]
         if len(norm_embeddings) > 50:
             if self.model_type == "wavlm-base-plus-sv":
-                # WavLM은 차원이 크므로 더 적극적으로 차원 축소
+                # For WavLM with larger dimensions, reduce more aggressively
                 pca_components = min(128, embedding_dim)
                 pca = PCA(n_components=pca_components, random_state=42)
                 norm_embeddings = pca.fit_transform(norm_embeddings)
@@ -336,7 +342,7 @@ class SpeakerDiarizer:
                         f"Applied PCA for WavLM: {embedding_dim} -> {pca_components} dimensions"
                     )
             else:
-                # TitaNet은 기존 방식 유지
+                # Maintain existing approach for TitaNet
                 pca = PCA(n_components=min(64, embedding_dim), random_state=42)
                 norm_embeddings = pca.fit_transform(norm_embeddings)
                 if show_progress:
