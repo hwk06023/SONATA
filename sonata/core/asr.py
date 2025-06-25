@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 from sonata.constants import LanguageCode
 from sonata.utils.text import clean_text_for_language
 from sonata.models.model_loader import transcribe_with_model
-from textgrids import TextGrid
+from sonata.models.korean_asr import KoreanASRModel
 import os
 import ssl
 import io
@@ -57,6 +57,22 @@ class ASRProcessor:
         self.speaker_embedding_model = None
         self.logger = logging.getLogger(__name__)
         self.asr_model = None
+        self.korean_asr = None
+
+    def _is_korean_language(self, language: str) -> bool:
+        """Check if the language is Korean."""
+        return language.lower() in ["ko", "kor", "korean", "kr"]
+
+    def _get_korean_model(self):
+        """Lazy load Korean ASR model."""
+        if self.korean_asr is None:
+            try:
+                self.korean_asr = KoreanASRModel(device=self.device)
+            except Exception as e:
+                print(f"Warning: Could not load Korean ASR model: {str(e)}")
+                print("Falling back to standard transcription model")
+                self.korean_asr = False
+        return self.korean_asr
 
     def process_audio(
         self,
@@ -64,16 +80,14 @@ class ASRProcessor:
         language: str = LanguageCode.ENGLISH.value,
         show_progress: bool = True,
     ) -> Dict:
-        """Process audio file with Whisper Large V3 & mfa to get transcription with timestamps."""
+        """Process audio file with appropriate ASR model to get transcription with timestamps."""
 
-        # Always check if models need to be loaded or reloaded
         if self.asr_model is None or self.current_language != language:
             if show_progress:
                 print(
-                    f"[ASR] Loading Whisper model for language: {language}...",
+                    f"[ASR] Loading ASR model for language: {language}...",
                     flush=True,
                 )
-            # Initialize the ASR model if not already done
             self.current_language = language
 
         if not ".wav" in audio_path:
@@ -84,110 +98,107 @@ class ASRProcessor:
                 "integrated_transcript": {"plain_text": "", "rich_text": []},
             }
 
-        audio_name = audio_path.split("/")[-1].split(".wav")[0]
-        data_directory = f"mfa/{audio_name}"
-        align_directory = f"mfa/{audio_name}_align"
-        os.makedirs(data_directory, exist_ok=True)
-        os.makedirs(align_directory, exist_ok=True)
         if show_progress:
             print(f"[ASR] Running speech recognition...", flush=True)
             sys.stdout.flush()
 
-        if not os.path.exists(f"{data_directory}/audio.lab"):
-            # Transcribe audio with Whisper into .lab format
-            transcription = transcribe_with_model(
-                audio_path, device=self.device, language=language
-            )
+        if self._is_korean_language(language):
+            korean_model = self._get_korean_model()
+            if korean_model and korean_model is not False:
+                if show_progress:
+                    print("Using Korean Conformer Transducer model for Korean language")
 
-            if show_progress:
-                print(
-                    f"[ASR] Transcription complete.",
-                    flush=True,
+                try:
+                    result = korean_model.transcribe(audio_path, language=language)
+
+                    result_segments = []
+                    if "segments" in result:
+                        for segment in result["segments"]:
+                            if "words" in segment:
+                                for word in segment["words"]:
+                                    result_segments.append(
+                                        {
+                                            "start": word.get("start", 0.0),
+                                            "end": word.get("end", 0.0),
+                                            "content": word.get("word", ""),
+                                            "type": "voice",
+                                        }
+                                    )
+                            else:
+                                result_segments.append(
+                                    {
+                                        "start": segment.get("start", 0.0),
+                                        "end": segment.get("end", 0.0),
+                                        "content": segment.get("text", ""),
+                                        "type": "voice",
+                                    }
+                                )
+
+                    if show_progress:
+                        print(
+                            f"[ASR] Korean transcription complete with {len(result_segments)} segments."
+                        )
+
+                    return result_segments
+
+                except Exception as e:
+                    print(f"Error using Korean ASR model: {str(e)}")
+                    print("Falling back to standard transcription")
+
+        transcription = transcribe_with_model(
+            audio_path, device=self.device, language=language
+        )
+
+        if show_progress:
+            print(f"[ASR] Transcription complete.", flush=True)
+
+        text = transcription.get("text", "")
+        segments = transcription.get("segments", [])
+
+        result_segments = []
+
+        if segments:
+            for segment in segments:
+                if "words" in segment:
+                    for word in segment["words"]:
+                        result_segments.append(
+                            {
+                                "start": word.get("start", 0.0),
+                                "end": word.get("end", 0.0),
+                                "content": word.get("word", ""),
+                                "type": "voice",
+                            }
+                        )
+                else:
+                    result_segments.append(
+                        {
+                            "start": segment.get("start", 0.0),
+                            "end": segment.get("end", 0.0),
+                            "content": segment.get("text", ""),
+                            "type": "voice",
+                        }
+                    )
+        else:
+            clean_words = clean_text_for_language(text, language)
+            duration = 0.0
+            try:
+                import librosa
+
+                audio_data, sr = librosa.load(audio_path, sr=None)
+                duration = len(audio_data) / sr
+            except:
+                duration = 10.0
+
+            time_per_word = duration / len(clean_words) if clean_words else 0.0
+
+            for i, word in enumerate(clean_words):
+                result_segments.append(
+                    {
+                        "start": i * time_per_word,
+                        "end": (i + 1) * time_per_word,
+                        "content": word,
+                        "type": "voice",
+                    }
                 )
 
-            text = transcription["text"]
-
-            # Save .lab file
-            with open(f"{data_directory}/audio.lab", "w") as f:
-                f.write(text)
-        else:
-            with open(f"{data_directory}/audio.lab", "r") as f:
-                text = f.read()
-
-        if not os.path.exists(f"{align_directory}/audio.TextGrid"):
-            # Validate the audio and text corpus first
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    audio_path,
-                    "-acodec",
-                    "pcm_s16le",
-                    "-ac",
-                    "1",
-                    "-ar",
-                    "16000",
-                    f"{data_directory}/audio.wav",
-                ]
-            )
-            subprocess.run(["mfa", "validate", data_directory, "korean_mfa"])
-            print("mfa validate done")
-            # Use MFA to get .TextGrid format
-            subprocess.run(
-                [
-                    "mfa",
-                    "align",
-                    data_directory,
-                    "korean_mfa",
-                    "korean_mfa",
-                    align_directory,
-                ]
-            )
-            print("mfa align done")
-        # Use TextGrid to get speaker segments
-        os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
-        tg = TextGrid()
-        tg.read(f"{align_directory}/audio.TextGrid")
-        word_items = tg["words"]
-
-        # Use TextGrid to get speaker segments
-        # Clean the textgrid words
-        word_len = len(word_items)
-        words = []
-        for i in range(word_len):
-            if word_items[i].text:
-                words.append(word_items[i])
-
-        # Clean the text
-        actual_words = clean_text_for_language(text, language)
-
-        # Get word timestamps
-        # TODO: Fix bug
-        start_times = []
-        end_times = []
-        word_idx = 0
-        for i, actual_word in enumerate(actual_words):
-            cur_idx = 0
-            start_times.append(words[word_idx].xmin)
-            while cur_idx < len(actual_word):
-                cur_idx += len(words[word_idx].text)
-                word_idx += 1
-            end_times.append(words[word_idx - 1].xmax)
-        # Debug: Saving word audio
-        # for i in range(len(actual_words)):
-        #     word_audio = waveform[:, int(start_times[i] * sample_rate):int(end_times[i] * sample_rate)]
-        #     torchaudio.save(f"temp/{actual_words[i]}.wav", word_audio, sample_rate)
-        # Transcribe with whisper-large-v3
-        result_segments = []
-        for i in range(len(actual_words)):
-            result_segments.append(
-                {
-                    "start": start_times[i],
-                    "end": end_times[i],
-                    "content": actual_words[i],
-                    "type": "voice",
-                }
-            )
         return result_segments
